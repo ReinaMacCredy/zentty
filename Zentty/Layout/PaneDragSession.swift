@@ -64,3 +64,80 @@ struct PaneSplitPreview: Equatable, Sendable {
         case vertical
     }
 }
+
+// MARK: - No-op Drop Detection
+
+extension PaneDragActiveState {
+    /// True when releasing the drag at `target` would not change layout.
+    /// Used to suppress haptic feedback when the cursor returns to the dragged pane's own slot.
+    ///
+    /// - Parameters:
+    ///   - isDuplicate: True when the user is holding Option (duplicate-drag). Duplicate drops
+    ///     always create a new pane, so they are never no-ops.
+    ///   - currentSidebarWorklaneID: The worklane currently displayed in the canvas. The dragged
+    ///     pane already lives in that worklane, so a move-drop onto its sidebar row is a no-op.
+    ///
+    /// `paneIndex` is interpreted in reduced-space (source pane removed): `PaneStripState.movePane`
+    /// returns early when `insertionIndex == sourcePaneIndex`, which is the only same-column no-op.
+    func isNoOpDrop(
+        _ target: PaneDropTarget,
+        isDuplicate: Bool = false,
+        currentSidebarWorklaneID: WorklaneID? = nil
+    ) -> Bool {
+        if isDuplicate { return false }
+        switch target {
+        case .reorderInColumn(let columnID, let paneIndex):
+            return columnID == sourceColumnID && paneIndex == sourcePaneIndex
+        case .sidebarWorklane(let worklaneID):
+            return worklaneID == currentSidebarWorklaneID
+        case .reorderGap, .verticalSplit, .horizontalSplit, .newWorklane, .none:
+            return false
+        }
+    }
+}
+
+// MARK: - Haptic Event Classification
+
+/// Which haptic (if any) should fire for a drop-target transition during a pane drag.
+enum DragReorderHapticEvent: Equatable, Sendable {
+    /// No haptic — silent transition (no change, no-op slot, or `.none` target).
+    case silent
+    /// Positional reorder — `.alignment`.
+    case alignment
+    /// Structural change (split, new-worklane creation) — `.levelChange`.
+    case structural
+}
+
+enum DragReorderHapticClassifier {
+    /// Pure mapping from a drop-target transition to the haptic that should fire.
+    /// - Parameters:
+    ///   - previous: The drop target before the cursor moved.
+    ///   - next: The drop target the cursor just resolved to.
+    ///   - activeState: The drag's active state — supplies the source position for no-op detection.
+    ///   - isDuplicate: True when Option is held; duplicate drags never produce no-ops.
+    ///   - currentSidebarWorklaneID: The worklane currently displayed (so sidebar drops onto it are no-ops).
+    static func event(
+        from previous: PaneDropTarget,
+        to next: PaneDropTarget,
+        activeState: PaneDragActiveState,
+        isDuplicate: Bool = false,
+        currentSidebarWorklaneID: WorklaneID? = nil
+    ) -> DragReorderHapticEvent {
+        guard previous != next else { return .silent }
+        guard !activeState.isNoOpDrop(
+            next,
+            isDuplicate: isDuplicate,
+            currentSidebarWorklaneID: currentSidebarWorklaneID
+        ) else {
+            return .silent
+        }
+        switch next {
+        case .none:
+            return .silent
+        case .reorderGap, .reorderInColumn, .sidebarWorklane:
+            return .alignment
+        case .verticalSplit, .horizontalSplit, .newWorklane:
+            return .structural
+        }
+    }
+}

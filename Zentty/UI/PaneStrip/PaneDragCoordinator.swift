@@ -58,6 +58,14 @@ enum PaneDragColumnGapPreview {
 @MainActor
 final class PaneDragCoordinator {
 
+    // MARK: - Init
+
+    private let hapticFeedbackPerformer: any DragReorderHapticFeedbackPerforming
+
+    init(hapticFeedbackPerformer: any DragReorderHapticFeedbackPerforming = DragReorderHapticFeedbackPerformer()) {
+        self.hapticFeedbackPerformer = hapticFeedbackPerformer
+    }
+
     // MARK: - Callbacks
 
     var onReorder: ((PaneID, Int, Bool) -> Void)?
@@ -646,7 +654,13 @@ final class PaneDragCoordinator {
                             : reducedIdx
                     }
                     currentInsertionIndex = insertionIndex
+                    let previousDropTarget = activeState.currentDropTarget
                     activeState.currentDropTarget = .reorderGap(columnIndex: insertionIndex)
+                    notifyDropTargetChange(
+                        from: previousDropTarget,
+                        to: activeState.currentDropTarget,
+                        activeState: activeState
+                    )
                 }
 
                 // Re-apply layout with gap opening
@@ -696,9 +710,15 @@ final class PaneDragCoordinator {
 
                 if stackGapHit != currentStackGapHit {
                     currentStackGapHit = stackGapHit
+                    let previousDropTarget = activeState.currentDropTarget
                     activeState.currentDropTarget = .reorderInColumn(
                         columnID: stackGapHit.columnID,
                         paneIndex: stackGapHit.paneIndex
+                    )
+                    notifyDropTargetChange(
+                        from: previousDropTarget,
+                        to: activeState.currentDropTarget,
+                        activeState: activeState
                     )
                     applyVisualLayout(
                         activeReducedGapIndex: nil,
@@ -732,12 +752,18 @@ final class PaneDragCoordinator {
 
         // Sync activeState drop target with current split/reorder state
         if let hit = currentSplitHit {
+            let previousDropTarget = activeState.currentDropTarget
             switch hit.axis {
             case .vertical:
                 activeState.currentDropTarget = .verticalSplit(targetPaneID: hit.targetPaneID, above: hit.leading)
             case .horizontal:
                 activeState.currentDropTarget = .horizontalSplit(targetPaneID: hit.targetPaneID, leading: hit.leading)
             }
+            notifyDropTargetChange(
+                from: previousDropTarget,
+                to: activeState.currentDropTarget,
+                activeState: activeState
+            )
             activeState.splitPreview = PaneSplitPreview(
                 targetPaneID: hit.targetPaneID,
                 targetColumnID: hit.targetColumnID,
@@ -745,9 +771,15 @@ final class PaneDragCoordinator {
                 fraction: 0.5
             )
         } else if let stackGapHit = currentStackGapHit {
+            let previousDropTarget = activeState.currentDropTarget
             activeState.currentDropTarget = .reorderInColumn(
                 columnID: stackGapHit.columnID,
                 paneIndex: stackGapHit.paneIndex
+            )
+            notifyDropTargetChange(
+                from: previousDropTarget,
+                to: activeState.currentDropTarget,
+                activeState: activeState
             )
             activeState.splitPreview = nil
         } else if currentReducedIndex == nil {
@@ -1606,7 +1638,14 @@ final class PaneDragCoordinator {
                 isShowingNewWorklanePlaceholder = false
                 onNewWorklanePlaceholderVisibilityChanged?(false)
             }
+            let previousDropTarget = activeState.currentDropTarget
             activeState.currentDropTarget = .sidebarWorklane(worklaneID)
+            notifyDropTargetChange(
+                from: previousDropTarget,
+                to: activeState.currentDropTarget,
+                activeState: activeState,
+                activeWorklaneID: activeID
+            )
 
         case .newWorklane:
             if currentSidebarTarget != nil {
@@ -1617,7 +1656,13 @@ final class PaneDragCoordinator {
                 isShowingNewWorklanePlaceholder = true
                 onNewWorklanePlaceholderVisibilityChanged?(true)
             }
+            let previousDropTarget = activeState.currentDropTarget
             activeState.currentDropTarget = .newWorklane
+            notifyDropTargetChange(
+                from: previousDropTarget,
+                to: activeState.currentDropTarget,
+                activeState: activeState
+            )
 
         case .none:
             if currentSidebarTarget != nil {
@@ -2038,6 +2083,35 @@ final class PaneDragCoordinator {
         onHoveredSidebarWorklaneChanged?(nil)
         onNewWorklanePlaceholderVisibilityChanged?(false)
         onDragApproachingSidebarEdge?(false)
+    }
+
+    // MARK: - Private — Haptic Feedback
+
+    /// Fires the appropriate haptic when the drop target meaningfully changes.
+    /// `activeWorklaneID`, when supplied, lets sidebar-worklane drops onto the active
+    /// worklane be treated as no-ops (the dragged pane already lives there).
+    /// In duplicate (Option-held) drag, no drop is a no-op, so all transitions tick.
+    private func notifyDropTargetChange(
+        from previous: PaneDropTarget,
+        to next: PaneDropTarget,
+        activeState: PaneDragActiveState,
+        activeWorklaneID: WorklaneID? = nil
+    ) {
+        let event = DragReorderHapticClassifier.event(
+            from: previous,
+            to: next,
+            activeState: activeState,
+            isDuplicate: isOptionHeld,
+            currentSidebarWorklaneID: activeWorklaneID
+        )
+        switch event {
+        case .silent:
+            return
+        case .alignment:
+            hapticFeedbackPerformer.performReorderAlignmentFeedback()
+        case .structural:
+            hapticFeedbackPerformer.performStructuralChangeFeedback()
+        }
     }
 
     // MARK: - Private — Teardown

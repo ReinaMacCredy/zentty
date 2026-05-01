@@ -1,25 +1,13 @@
 import AppKit
 
 @MainActor
-protocol SidebarReorderHapticFeedbackPerforming {
-    func performReorderAlignmentFeedback()
-}
-
-@MainActor
-struct SidebarReorderHapticFeedbackPerformer: SidebarReorderHapticFeedbackPerforming {
-    func performReorderAlignmentFeedback() {
-        NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .default)
-    }
-}
-
-@MainActor
 final class SidebarDragCoordinator {
     private weak var sidebarView: SidebarView?
-    private let hapticFeedbackPerformer: any SidebarReorderHapticFeedbackPerforming
+    private let hapticFeedbackPerformer: any DragReorderHapticFeedbackPerforming
 
     init(
         sidebarView: SidebarView,
-        hapticFeedbackPerformer: any SidebarReorderHapticFeedbackPerforming = SidebarReorderHapticFeedbackPerformer()
+        hapticFeedbackPerformer: any DragReorderHapticFeedbackPerforming = DragReorderHapticFeedbackPerformer()
     ) {
         self.sidebarView = sidebarView
         self.hapticFeedbackPerformer = hapticFeedbackPerformer
