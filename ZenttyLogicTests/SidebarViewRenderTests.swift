@@ -501,12 +501,37 @@ final class SidebarViewRenderTests: XCTestCase {
         let event = try makeContextMenuEvent()
         let buttons = try sidebarWorklaneButtons(in: sidebar)
 
-        XCTAssertEqual(menuTitles(buttons[0].menu(for: event)), ["Move Worklane Down", "Worklane Color"])
+        XCTAssertEqual(
+            menuTitles(buttons[0].menu(for: event)),
+            [
+                "Close Worklane",
+                "Move Worklane Down",
+                "Worklane Color",
+                "Bookmark Worklane…",
+                "Save as Preset…",
+            ]
+        )
         XCTAssertEqual(
             menuTitles(buttons[1].menu(for: event)),
-            ["Move Worklane Up", "Move Worklane Down", "Worklane Color"]
+            [
+                "Close Worklane",
+                "Move Worklane Up",
+                "Move Worklane Down",
+                "Worklane Color",
+                "Bookmark Worklane…",
+                "Save as Preset…",
+            ]
         )
-        XCTAssertEqual(menuTitles(buttons[2].menu(for: event)), ["Move Worklane Up", "Worklane Color"])
+        XCTAssertEqual(
+            menuTitles(buttons[2].menu(for: event)),
+            [
+                "Close Worklane",
+                "Move Worklane Up",
+                "Worklane Color",
+                "Bookmark Worklane…",
+                "Save as Preset…",
+            ]
+        )
     }
 
     func test_worklaneContextMoveCommandsCommitAdjacentTargetIndexes() throws {

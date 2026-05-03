@@ -76,6 +76,7 @@ struct WorklaneSidebarSummary: Equatable {
     let isWorking: Bool
     let isActive: Bool
     let color: WorklaneColor?
+    let bookmarkOriginID: UUID?
 
     var title: String { topLabel ?? "" }
     var contextText: String {
@@ -108,7 +109,8 @@ struct WorklaneSidebarSummary: Equatable {
         taskProgress: PaneAgentTaskProgress? = nil,
         isWorking: Bool = false,
         isActive: Bool,
-        color: WorklaneColor? = nil
+        color: WorklaneColor? = nil,
+        bookmarkOriginID: UUID? = nil
     ) {
         self.worklaneID = worklaneID
         self.badgeText = badgeText
@@ -129,5 +131,6 @@ struct WorklaneSidebarSummary: Equatable {
         self.isWorking = isWorking
         self.isActive = isActive
         self.color = color
+        self.bookmarkOriginID = bookmarkOriginID
     }
 }

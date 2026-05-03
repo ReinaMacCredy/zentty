@@ -31,6 +31,7 @@ struct WorkspaceRecipe: Codable, Equatable, Sendable {
         var focusedColumnID: String?
         var columns: [Column]
         var color: String?
+        var bookmarkOriginID: String?
     }
 
     struct Column: Codable, Equatable, Sendable {
@@ -69,7 +70,8 @@ enum WorkspaceRecipeExporter {
             nextPaneNumber: worklane.nextPaneNumber,
             focusedColumnID: worklane.paneStripState.focusedColumnID?.rawValue,
             columns: worklane.paneStripState.columns.map { makeColumn($0, worklane: worklane) },
-            color: worklane.color?.rawValue
+            color: worklane.color?.rawValue,
+            bookmarkOriginID: worklane.bookmarkOriginID?.uuidString
         )
     }
 
@@ -255,7 +257,8 @@ enum WorkspaceRecipeImporter {
             ),
             nextPaneNumber: max(recipe.nextPaneNumber, 1),
             auxiliaryStateByPaneID: auxiliaryStateByPaneID,
-            color: recipe.color.flatMap(WorklaneColor.init(rawValue:))
+            color: recipe.color.flatMap(WorklaneColor.init(rawValue:)),
+            bookmarkOriginID: recipe.bookmarkOriginID.flatMap(UUID.init(uuidString:))
         )
     }
 
@@ -309,113 +312,35 @@ enum WorkspaceRecipeImporter {
         processEnvironment: [String: String]
     ) -> PaneState {
         let paneID = PaneID(recipe.id)
-        let homeDirectory = defaultWorkingDirectory(processEnvironment: processEnvironment)
-        let requestedDirectory = trimmed(recipe.workingDirectory)
-        let resolvedDirectory = resolvedWorkingDirectory(
-            requestedDirectory,
-            fallbackDirectory: homeDirectory
-        )
-        let title = trimmed(recipe.titleSeed) ?? "shell"
-        let missingWorkingDirectory = requestedDirectory != nil && requestedDirectory != resolvedDirectory
-        let shellContext = PaneShellContext(
-            scope: .local,
-            path: resolvedDirectory,
-            home: processEnvironment["HOME"],
-            user: processEnvironment["USER"],
-            host: nil
-        )
-        let raw = PaneRawState(shellContext: shellContext)
-        var presentation = PanePresentationNormalizer.normalize(
-            paneTitle: title,
-            raw: raw,
-            previous: nil,
-            sessionRequestWorkingDirectory: resolvedDirectory
-        )
-        presentation.rememberedTitle = trimmed(recipe.titleSeed) ?? presentation.rememberedTitle
-        if missingWorkingDirectory {
-            presentation.statusText = "Original path unavailable"
-        }
-
-        auxiliaryStateByPaneID[paneID] = PaneAuxiliaryState(
-            raw: raw,
-            presentation: presentation
-        )
         let prefillText = restoreDraftWindow
             .flatMap { $0.draft(forPaneID: paneID) }
             .flatMap(AgentResumeCommandBuilder.command(for:))
 
-        return PaneState(
+        let inputs = PaneRestorationBuilder.PaneInputs(
             id: paneID,
-            title: title,
-            sessionRequest: TerminalSessionRequest(
-                workingDirectory: resolvedDirectory,
-                prefillText: prefillText,
-                surfaceContext: inferredSurfaceContext(
-                    paneCountInColumn: paneCountInColumn,
-                    totalColumns: worklane.columns.count,
-                    totalWorklanes: window.worklanes.count,
-                    paneIndex: paneIndex
-                ),
-                environmentVariables: WorklaneSessionEnvironment.make(
-                    windowID: windowID,
-                    worklaneID: worklaneID,
-                    paneID: paneID,
-                    initialWorkingDirectory: resolvedDirectory,
-                    processEnvironment: processEnvironment
-                )
+            titleSeed: recipe.titleSeed,
+            requestedWorkingDirectory: recipe.workingDirectory,
+            command: nil,
+            prefillText: prefillText,
+            environmentOverrides: [:],
+            surfaceContext: PaneRestorationBuilder.inferredSurfaceContext(
+                paneCountInColumn: paneCountInColumn,
+                totalColumns: worklane.columns.count,
+                totalWorklanes: window.worklanes.count,
+                paneIndex: paneIndex
             ),
-            width: columnWidth
+            columnWidth: columnWidth,
+            statusTextWhenWorkingDirectoryMissing: "Original path unavailable"
         )
-    }
 
-    private static func inferredSurfaceContext(
-        paneCountInColumn: Int?,
-        totalColumns: Int,
-        totalWorklanes: Int,
-        paneIndex: Int
-    ) -> TerminalSurfaceContext {
-        if totalColumns == 1, paneCountInColumn == 1, totalWorklanes == 1, paneIndex == 0 {
-            return .window
-        }
-
-        if totalColumns == 1, paneCountInColumn == 1, paneIndex == 0 {
-            return .tab
-        }
-
-        return .split
-    }
-
-    private static func resolvedWorkingDirectory(
-        _ requestedDirectory: String?,
-        fallbackDirectory: String
-    ) -> String {
-        guard let requestedDirectory else {
-            return fallbackDirectory
-        }
-
-        var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(
-            atPath: requestedDirectory,
-            isDirectory: &isDirectory
-        ), isDirectory.boolValue else {
-            return fallbackDirectory
-        }
-
-        return requestedDirectory
-    }
-
-    private static func defaultWorkingDirectory(
-        processEnvironment: [String: String]
-    ) -> String {
-        trimmed(processEnvironment["HOME"]) ?? NSHomeDirectory()
-    }
-
-    private static func trimmed(_ value: String?) -> String? {
-        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
-            return nil
-        }
-
-        return value
+        let result = PaneRestorationBuilder.makePane(
+            inputs,
+            windowID: windowID,
+            worklaneID: worklaneID,
+            processEnvironment: processEnvironment
+        )
+        auxiliaryStateByPaneID[paneID] = result.auxiliary
+        return result.pane
     }
 }
 

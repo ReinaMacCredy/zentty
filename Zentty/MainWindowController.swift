@@ -411,6 +411,11 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     }
 
     @objc
+    func openBookmarksPopover(_ sender: Any?) {
+        handle(.openBookmarksPopover)
+    }
+
+    @objc
     func nextWorklane(_ sender: Any?) {
         handle(.nextWorklane)
     }

@@ -150,7 +150,8 @@ enum WorklaneSidebarSummaryBuilder {
             taskProgress: statusPresentation.taskProgress,
             isWorking: isWorking,
             isActive: isActive,
-            color: worklane.color
+            color: worklane.color,
+            bookmarkOriginID: worklane.bookmarkOriginID
         )
     }
 
@@ -925,7 +926,8 @@ enum WorklaneSidebarSummaryBuilder {
                 taskProgress: summary.taskProgress,
                 isWorking: summary.isWorking,
                 isActive: summary.isActive,
-                color: summary.color
+                color: summary.color,
+                bookmarkOriginID: summary.bookmarkOriginID
             )
         }
     }

@@ -38,6 +38,7 @@ struct WorklaneState: Equatable, Sendable {
     var nextPaneNumber: Int
     var auxiliaryStateByPaneID: [PaneID: PaneAuxiliaryState]
     var color: WorklaneColor?
+    var bookmarkOriginID: UUID?
 
     init(
         id: WorklaneID,
@@ -45,7 +46,8 @@ struct WorklaneState: Equatable, Sendable {
         paneStripState: PaneStripState,
         nextPaneNumber: Int = 1,
         auxiliaryStateByPaneID: [PaneID: PaneAuxiliaryState] = [:],
-        color: WorklaneColor? = nil
+        color: WorklaneColor? = nil,
+        bookmarkOriginID: UUID? = nil
     ) {
         self.id = id
         self.title = title
@@ -53,6 +55,7 @@ struct WorklaneState: Equatable, Sendable {
         self.nextPaneNumber = nextPaneNumber
         self.auxiliaryStateByPaneID = auxiliaryStateByPaneID
         self.color = color
+        self.bookmarkOriginID = bookmarkOriginID
     }
 }
 
@@ -1043,6 +1046,46 @@ final class WorklaneStore {
         recordFocusTransition(from: previousPaneRef)
         refreshLastFocusedLocalWorkingDirectory()
         notify(.worklaneListChanged)
+    }
+
+    @discardableResult
+    func applyTemplate(_ template: WorkspaceTemplate) -> WorkspaceTemplateImporter.Result {
+        let previousPaneRef = currentPaneReference
+        let id = runtimeIdentity.makeWorklaneID()
+        let fallback: String? = template.kind == .preset ? resolveWorkingDirectoryForNewWorklane() : nil
+        let result = WorkspaceTemplateImporter.makeWorklane(
+            from: template,
+            worklaneID: id,
+            fallbackWorkingDirectory: fallback,
+            windowID: windowID,
+            layoutContext: layoutContext,
+            processEnvironment: processEnvironment
+        )
+        worklanes.append(result.worklane)
+        activeWorklaneID = id
+        recordFocusTransition(from: previousPaneRef)
+        refreshLastFocusedLocalWorkingDirectory()
+        notify(.worklaneListChanged)
+        return result
+    }
+
+    var focusedWorklaneSnapshot: WorklaneState? {
+        activeWorklane
+    }
+
+    func snapshot(of worklaneID: WorklaneID) -> WorklaneState? {
+        worklanes.first { $0.id == worklaneID }
+    }
+
+    func setBookmarkOrigin(_ originID: UUID?, on worklaneID: WorklaneID) {
+        guard let index = worklanes.firstIndex(where: { $0.id == worklaneID }) else {
+            return
+        }
+        if worklanes[index].bookmarkOriginID == originID {
+            return
+        }
+        worklanes[index].bookmarkOriginID = originID
+        notify(.auxiliaryStateUpdated(worklaneID, worklanes[index].paneStripState.focusedPaneID ?? PaneID(""), .sidebar))
     }
 
     func focusPane(id: PaneID) {

@@ -473,11 +473,11 @@ final class AppConfigStoreTests: XCTestCase {
 
         [[shortcuts.bindings]]
         command_id = "sidebar.toggle"
-        shortcut = "command+b"
+        shortcut = "command+control+y"
 
         [[shortcuts.bindings]]
         command_id = "sidebar.toggle"
-        shortcut = "command+shift+b"
+        shortcut = "command+control+z"
 
         [[shortcuts.bindings]]
         command_id = "pane.split.horizontal"
@@ -494,7 +494,7 @@ final class AppConfigStoreTests: XCTestCase {
         XCTAssertEqual(store.current.shortcuts.bindings, [
             ShortcutBindingOverride(
                 commandID: .toggleSidebar,
-                shortcut: .init(key: .character("b"), modifiers: [.command, .shift])
+                shortcut: .init(key: .character("z"), modifiers: [.command, .control])
             )
         ])
     }

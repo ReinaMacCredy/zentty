@@ -76,13 +76,15 @@ final class SidebarWorklaneRowButton: NSButton {
     private let reducedMotionProvider: () -> Bool
 
     var onPaneSelected: ((PaneID) -> Void)?
-    var onCloseWorklaneRequested: ((PaneID) -> Void)?
+    var onCloseWorklaneRequested: (() -> Void)?
     var onClosePaneRequested: ((PaneID) -> Void)?
     var onSplitHorizontalRequested: ((PaneID) -> Void)?
     var onSplitVerticalRequested: ((PaneID) -> Void)?
     var onWorklaneColorChanged: ((WorklaneID, WorklaneColor?) -> Void)?
     var onWorklaneDragRequested: ((SidebarWorklaneRowButton, NSEvent) -> Bool)?
     var onWorklaneMoveRequested: ((WorklaneID, SidebarWorklaneMoveDirection) -> Void)?
+    var onBookmarkAction: ((WorklaneID, SidebarBookmarkRowAction) -> Void)?
+    var bookmarkNameLookup: ((UUID) -> String?)?
 
     private var activeContextPicker: WorklaneColorMenuItemView?
 
@@ -293,33 +295,44 @@ final class SidebarWorklaneRowButton: NSButton {
 
     override func menu(for event: NSEvent) -> NSMenu? {
         guard let worklaneID else { return nil }
-        let menu = NSMenu()
-
-        SidebarContextMenu.addMoveItems(
-            to: menu,
-            availability: worklaneMoveAvailability,
-            target: self,
-            moveUpAction: #selector(handleMoveWorklaneUp),
-            moveDownAction: #selector(handleMoveWorklaneDown)
+        let originID = currentSummary?.bookmarkOriginID
+        let result = SidebarWorklaneContextMenu.makeMenu(
+            context: SidebarWorklaneContextMenuContext(
+                origin: .worklane,
+                moveAvailability: worklaneMoveAvailability,
+                worklaneColor: currentSummary?.color,
+                bookmarkOriginID: originID,
+                bookmarkName: originID.flatMap { bookmarkNameLookup?($0) }
+            ),
+            actions: SidebarWorklaneContextMenuActions(
+                target: self,
+                closeWorklaneAction: #selector(handleCloseWorklane),
+                closePaneAction: nil,
+                moveUpAction: #selector(handleMoveWorklaneUp),
+                moveDownAction: #selector(handleMoveWorklaneDown),
+                splitHorizontalAction: nil,
+                splitVerticalAction: nil,
+                bookmarkAction: #selector(handleBookmarkMenuItem(_:)),
+                colorChanged: { [weak self] picked in
+                    self?.onWorklaneColorChanged?(worklaneID, picked)
+                }
+            )
         )
+        activeContextPicker = result.activePicker
+        return result.menu
+    }
 
-        let parent = SidebarContextMenu.item(
-            title: "Worklane Color",
-            action: nil,
-            target: nil,
-            symbolName: "paintpalette"
-        )
-        let submenu = NSMenu()
-        let pickerItem = NSMenuItem()
-        let picker = WorklaneColorMenuItemView(current: currentSummary?.color) { [weak self] picked in
-            self?.onWorklaneColorChanged?(worklaneID, picked)
+    @objc private func handleCloseWorklane() {
+        onCloseWorklaneRequested?()
+    }
+
+    @objc
+    private func handleBookmarkMenuItem(_ sender: NSMenuItem) {
+        guard let worklaneID,
+              let box = sender.representedObject as? SidebarBookmarkRowActionBox else {
+            return
         }
-        pickerItem.view = picker
-        submenu.addItem(pickerItem)
-        parent.submenu = submenu
-        menu.addItem(parent)
-        activeContextPicker = picker
-        return menu
+        onBookmarkAction?(worklaneID, box.action)
     }
 
     @objc private func handleMoveWorklaneUp() {
@@ -703,8 +716,8 @@ final class SidebarWorklaneRowButton: NSButton {
                 onPaneSelected: { [weak self] paneID in
                     self?.onPaneSelected?(paneID)
                 },
-                onCloseWorklaneRequested: { [weak self] paneID in
-                    self?.onCloseWorklaneRequested?(paneID)
+                onCloseWorklaneRequested: { [weak self] in
+                    self?.onCloseWorklaneRequested?()
                 },
                 onClosePaneRequested: { [weak self] paneID in
                     self?.onClosePaneRequested?(paneID)
@@ -719,6 +732,12 @@ final class SidebarWorklaneRowButton: NSButton {
                     guard let self, let worklaneID = self.worklaneID else { return }
                     self.onWorklaneColorChanged?(worklaneID, color)
                 },
+                onBookmarkAction: { [weak self] action in
+                    guard let self, let worklaneID = self.worklaneID else { return }
+                    self.onBookmarkAction?(worklaneID, action)
+                },
+                bookmarkOriginID: currentSummary?.bookmarkOriginID,
+                bookmarkNameLookup: bookmarkNameLookup,
                 onWorklaneDragRequested: { [weak self] event in
                     guard let self else { return false }
                     return self.onWorklaneDragRequested?(self, event) ?? false

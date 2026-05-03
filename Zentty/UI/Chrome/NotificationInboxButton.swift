@@ -14,6 +14,7 @@ final class NotificationInboxButton: NSButton {
     private let badgeCountLayer = BadgeCountLayer()
     private var currentCount: Int = 0
     private var isHovered = false
+    private var isPopoverPresented = false
     private var trackingAreaValue: NSTrackingArea?
     private var currentTheme: ZenttyTheme?
 
@@ -118,11 +119,12 @@ final class NotificationInboxButton: NSButton {
 
     private func updateHoverAppearance() {
         guard let theme = currentTheme else { return }
-        let enabledAlpha: CGFloat = isHovered ? 1.0 : (currentCount > 0 ? 0.96 : 0.82)
+        let isEmphasized = isHovered || isHighlighted || isPopoverPresented
+        let enabledAlpha: CGFloat = isEmphasized ? 1.0 : (currentCount > 0 ? 0.96 : 0.82)
         contentTintColor = theme.primaryText.withAlphaComponent(enabledAlpha)
         performThemeAnimation(animated: true) {
             self.layer?.backgroundColor = ChromeGeometry.iconButtonHoverBackground(
-                theme: theme, isHovered: self.isHovered
+                theme: theme, isHovered: isEmphasized
             ).cgColor
         }
     }
@@ -139,20 +141,22 @@ final class NotificationInboxButton: NSButton {
         currentCount = count
         badgeLayer.isHidden = count == 0
         badgeCountLayer.text = count <= 99 ? "\(count)" : "99+"
-        alphaValue = count == 0 ? 0.4 : 1.0
+        alphaValue = count == 0 && !isPopoverPresented ? 0.4 : 1.0
 
         configure(theme: theme, animated: false)
     }
 
     func configure(theme: ZenttyTheme, animated: Bool) {
         currentTheme = theme
-        let enabledAlpha: CGFloat = isHovered ? 1.0 : (currentCount > 0 ? 0.96 : 0.82)
+        let isEmphasized = isHovered || isHighlighted || isPopoverPresented
+        let enabledAlpha: CGFloat = isEmphasized ? 1.0 : (currentCount > 0 ? 0.96 : 0.82)
         contentTintColor = theme.primaryText.withAlphaComponent(enabledAlpha)
         badgeCountLayer.textColor = theme.notificationBadgeText
+        alphaValue = currentCount == 0 && !isPopoverPresented ? 0.4 : 1.0
 
         performThemeAnimation(animated: animated) {
             self.layer?.backgroundColor = ChromeGeometry.iconButtonHoverBackground(
-                theme: theme, isHovered: self.isHovered
+                theme: theme, isHovered: isEmphasized
             ).cgColor
             self.layer?.borderColor = NSColor.clear.cgColor
             self.layer?.borderWidth = 1.0
@@ -162,6 +166,17 @@ final class NotificationInboxButton: NSButton {
             self.layer?.shadowOffset = CGSize(width: 0, height: -1)
             self.badgeLayer.backgroundColor = theme.notificationBadgeBackground.cgColor
         }
+    }
+
+    func setPopoverPresented(_ presented: Bool, animated: Bool = true) {
+        guard isPopoverPresented != presented else { return }
+        isPopoverPresented = presented
+        guard let currentTheme else { return }
+        configure(theme: currentTheme, animated: animated)
+    }
+
+    var isPopoverPresentedForTesting: Bool {
+        isPopoverPresented
     }
 }
 

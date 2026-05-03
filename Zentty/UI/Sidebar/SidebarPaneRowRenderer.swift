@@ -4,11 +4,14 @@ import AppKit
 final class SidebarPaneRowRenderer {
     struct Callbacks {
         var onPaneSelected: ((PaneID) -> Void)?
-        var onCloseWorklaneRequested: ((PaneID) -> Void)?
+        var onCloseWorklaneRequested: (() -> Void)?
         var onClosePaneRequested: ((PaneID) -> Void)?
         var onSplitHorizontalRequested: ((PaneID) -> Void)?
         var onSplitVerticalRequested: ((PaneID) -> Void)?
         var onWorklaneColorChanged: ((WorklaneColor?) -> Void)?
+        var onBookmarkAction: ((SidebarBookmarkRowAction) -> Void)?
+        var bookmarkOriginID: UUID?
+        var bookmarkNameLookup: ((UUID) -> String?)?
         var onWorklaneDragRequested: ((NSEvent) -> Bool)?
         var onHoverChanged: ((Bool) -> Void)?
         var worklaneMoveAvailability: SidebarWorklaneMoveAvailability = .none
@@ -97,6 +100,9 @@ final class SidebarPaneRowRenderer {
             button.onPickWorklaneColor = { _, color in
                 callbacks.onWorklaneColorChanged?(color)
             }
+            button.onBookmarkAction = callbacks.onBookmarkAction
+            button.bookmarkOriginID = callbacks.bookmarkOriginID
+            button.bookmarkNameLookup = callbacks.bookmarkNameLookup
             button.onWorklaneDragRequested = callbacks.onWorklaneDragRequested
             button.onHoverChanged = callbacks.onHoverChanged
             button.worklaneMoveAvailability = callbacks.worklaneMoveAvailability

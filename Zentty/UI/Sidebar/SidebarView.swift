@@ -43,6 +43,7 @@ final class SidebarView: NSView {
         static let updateRowBottomInset: CGFloat = ShellMetrics.sidebarContentInset
         static let updateRowSpacing: CGFloat = 8
         static let resizeHandleWidth: CGFloat = 4
+        static let headerButtonSpacing: CGFloat = 6
         static let reorderPreviewAnimationDuration: TimeInterval = 0.11
         static let defaultHeaderContentMinX: CGFloat =
             ShellMetrics.sidebarContentInset + ShellMetrics.sidebarCreateWorklaneHorizontalInset
@@ -50,13 +51,16 @@ final class SidebarView: NSView {
 
     var onWorklaneSelected: ((WorklaneID) -> Void)?
     var onPaneSelected: ((WorklaneID, PaneID) -> Void)?
-    var onCloseWorklaneRequested: ((WorklaneID, PaneID) -> Void)?
+    var onCloseWorklaneRequested: ((WorklaneID) -> Void)?
     var onClosePaneRequested: ((WorklaneID, PaneID) -> Void)?
     var onSplitHorizontalRequested: ((WorklaneID, PaneID) -> Void)?
     var onSplitVerticalRequested: ((WorklaneID, PaneID) -> Void)?
     var onWorklaneColorChanged: ((WorklaneID, WorklaneColor?) -> Void)?
     var onWorklaneReorderCommitted: ((WorklaneID, Int) -> Bool)?
     var onNewWorklaneRequested: (() -> Void)?
+    var onOpenBookmarksPopoverRequested: ((NSView) -> Void)?
+    var onBookmarkAction: ((WorklaneID, SidebarBookmarkRowAction) -> Void)?
+    var bookmarkNameLookup: ((UUID) -> String?)?
     var onCheckForUpdatesRequested: (() -> Void)?
     var onResized: ((CGFloat) -> Void)?
     var onPointerEntered: (() -> Void)?
@@ -69,6 +73,7 @@ final class SidebarView: NSView {
     private let listStack = NSStackView()
     private let updateAvailableRowView = SidebarUpdateAvailableRowView()
     private let addWorklaneButton = SidebarCreateWorklaneButton()
+    private let bookmarksButton = SidebarBookmarksButton()
     private let resizeHandleView = SidebarResizeHandleView()
     private let shimmerCoordinator = SidebarShimmerCoordinator()
     private let activeWorklaneAutoScroller = SidebarActiveWorklaneAutoScroller()
@@ -158,6 +163,9 @@ final class SidebarView: NSView {
         addWorklaneButton.target = self
         addWorklaneButton.action = #selector(handleCreateWorklane)
 
+        bookmarksButton.target = self
+        bookmarksButton.action = #selector(handleOpenBookmarksPopover)
+
         resizeHandleView.translatesAutoresizingMaskIntoConstraints = false
         resizeHandleView.onPan = { [weak self] recognizer in
             self?.handleResizePan(recognizer)
@@ -173,6 +181,7 @@ final class SidebarView: NSView {
         addSubview(resizeHandleView)
 
         headerView.addSubview(addWorklaneButton)
+        headerView.addSubview(bookmarksButton)
 
         let addWorklaneLeadingConstraint = addWorklaneButton.leadingAnchor.constraint(
             equalTo: headerView.leadingAnchor,
@@ -215,8 +224,8 @@ final class SidebarView: NSView {
 
             addWorklaneLeadingConstraint,
             addWorklaneButton.trailingAnchor.constraint(
-                lessThanOrEqualTo: headerView.trailingAnchor,
-                constant: -Layout.contentInset
+                lessThanOrEqualTo: bookmarksButton.leadingAnchor,
+                constant: -Layout.headerButtonSpacing
             ),
             addWorklaneWidthConstraint,
             addWorklaneCenterYConstraint,
@@ -225,6 +234,14 @@ final class SidebarView: NSView {
             ),
             addWorklaneButton.bottomAnchor.constraint(
                 lessThanOrEqualTo: headerView.bottomAnchor
+            ),
+
+            bookmarksButton.trailingAnchor.constraint(
+                equalTo: headerView.trailingAnchor,
+                constant: -Layout.contentInset
+            ),
+            bookmarksButton.centerYAnchor.constraint(
+                equalTo: headerView.centerYAnchor
             ),
 
             listScrollView.topAnchor.constraint(equalTo: headerView.bottomAnchor),
@@ -404,8 +421,8 @@ final class SidebarView: NSView {
         button.onPaneSelected = { [weak self] paneID in
             self?.onPaneSelected?(worklaneID, paneID)
         }
-        button.onCloseWorklaneRequested = { [weak self] paneID in
-            self?.onCloseWorklaneRequested?(worklaneID, paneID)
+        button.onCloseWorklaneRequested = { [weak self] in
+            self?.onCloseWorklaneRequested?(worklaneID)
         }
         button.onClosePaneRequested = { [weak self] paneID in
             self?.onClosePaneRequested?(worklaneID, paneID)
@@ -425,6 +442,12 @@ final class SidebarView: NSView {
         button.onWorklaneMoveRequested = { [weak self] id, direction in
             self?.moveWorklaneFromMenu(id: id, direction: direction)
         }
+        button.onBookmarkAction = { [weak self] id, action in
+            self?.onBookmarkAction?(id, action)
+        }
+        button.bookmarkNameLookup = { [weak self] id in
+            self?.bookmarkNameLookup?(id)
+        }
 
         button.setShimmerCoordinator(shimmerCoordinator)
         return button
@@ -440,6 +463,7 @@ final class SidebarView: NSView {
         listDocumentView.appearance = sidebarAppearance
         listStack.appearance = sidebarAppearance
         addWorklaneButton.configure(theme: theme, animated: animated)
+        bookmarksButton.configure(theme: theme, animated: animated)
         updateAvailableRowView.configure(theme: theme, animated: animated)
         resizeHandleView.apply(theme: theme, animated: animated)
         backgroundView.apply(theme: theme, animated: animated)
@@ -477,6 +501,7 @@ final class SidebarView: NSView {
         listDocumentView.appearance = sidebarAppearance
         listStack.appearance = sidebarAppearance
         addWorklaneButton.configure(theme: theme, animated: animated)
+        bookmarksButton.configure(theme: theme, animated: animated)
         updateAvailableRowView.configure(theme: theme, animated: animated)
         resizeHandleView.apply(theme: theme, animated: animated)
         backgroundView.apply(theme: theme, animated: animated)
@@ -726,6 +751,19 @@ final class SidebarView: NSView {
     @objc
     private func handleCreateWorklane() {
         onNewWorklaneRequested?()
+    }
+
+    @objc
+    private func handleOpenBookmarksPopover() {
+        onOpenBookmarksPopoverRequested?(bookmarksButton)
+    }
+
+    func setBookmarksPopoverPresented(_ presented: Bool, animated: Bool = true) {
+        bookmarksButton.setPopoverPresented(presented, animated: animated)
+    }
+
+    var bookmarksButtonAnchor: NSView {
+        bookmarksButton
     }
 
     @objc

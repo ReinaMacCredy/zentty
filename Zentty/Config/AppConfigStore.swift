@@ -139,6 +139,13 @@ final class AppConfigStore: @unchecked Sendable {
             .appendingPathComponent("config.toml", isDirectory: false)
     }
 
+    static func bookmarksFileURL(homeDirectoryURL: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
+        homeDirectoryURL
+            .appendingPathComponent(".config", isDirectory: true)
+            .appendingPathComponent("zentty", isDirectory: true)
+            .appendingPathComponent("bookmarks.json", isDirectory: false)
+    }
+
     static func temporaryFileURL(prefix: String) -> URL {
         FileManager.default.temporaryDirectory
             .appendingPathComponent("\(prefix).\(UUID().uuidString)", isDirectory: true)

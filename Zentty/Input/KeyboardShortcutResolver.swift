@@ -72,6 +72,7 @@ enum AppCommandID: String, CaseIterable, Equatable, Hashable, Sendable {
     case cleanCopy = "clipboard.clean_copy"
     case copyRaw = "clipboard.copy_raw"
     case reloadConfig = "app.reload_config"
+    case openBookmarksPopover = "bookmarks.openPopover"
 }
 
 struct ShortcutBindingOverride: Equatable, Sendable {
@@ -104,6 +105,7 @@ enum AppAction: Equatable, Sendable {
     case newWindow
     case closeWindow
     case reloadConfig
+    case openBookmarksPopover
 }
 
 enum AppMenuSection: String, CaseIterable {
@@ -714,6 +716,18 @@ enum AppCommandRegistry {
             action: .reloadConfig,
             menuItem: nil
         ),
+        AppCommandDefinition(
+            id: .openBookmarksPopover,
+            title: "Show Bookmarks & Presets",
+            category: .general,
+            defaultShortcut: .init(key: .character("b"), modifiers: [.command, .shift]),
+            action: .openBookmarksPopover,
+            menuItem: AppCommandMenuItem(
+                section: .view,
+                title: "Show Bookmarks & Presets",
+                selector: #selector(MainWindowController.openBookmarksPopover(_:))
+            )
+        ),
     ]
 
     static let menuEntriesBySection: [AppMenuSection: [AppMenuEntry]] = [
@@ -750,6 +764,7 @@ enum AppCommandRegistry {
         .view: [
             .command(.showCommandPalette),
             .separator,
+            .command(.openBookmarksPopover),
             .command(.toggleSidebar),
             .separator,
             .command(.splitHorizontally),
@@ -910,6 +925,8 @@ extension AppCommandDefinition {
             "Close this window."
         case .reloadConfig:
             "Reload the config file from disk."
+        case .openBookmarksPopover:
+            "Open the bookmarks and presets popover."
         }
     }
 

@@ -1,0 +1,179 @@
+import CoreGraphics
+import Foundation
+
+enum WorkspaceTemplateImporter {
+    struct Fallback: Equatable, Sendable {
+        enum Kind: Equatable, Sendable {
+            case missingWorkingDirectory(requested: String, fellBackTo: String)
+            case missingCommand(command: String)
+        }
+
+        let paneID: PaneID
+        let kind: Kind
+    }
+
+    struct Result: Equatable, Sendable {
+        let worklane: WorklaneState
+        let fallbacks: [Fallback]
+    }
+
+    static func makeWorklane(
+        from template: WorkspaceTemplate,
+        worklaneID: WorklaneID,
+        fallbackWorkingDirectory: String?,
+        windowID: WindowID,
+        layoutContext: PaneLayoutContext,
+        processEnvironment: [String: String],
+        commandResolver: (String) -> Bool = { isCommandOnPath($0, processEnvironment: ProcessInfo.processInfo.environment) }
+    ) -> Result {
+        var auxiliaryStateByPaneID: [PaneID: PaneAuxiliaryState] = [:]
+        var fallbacks: [Fallback] = []
+        let totalColumns = template.columns.count
+        let totalWorklanes = 1
+
+        let columns = template.columns.map { templateColumn -> PaneColumnState in
+            let paneCount = templateColumn.panes.count
+            let panes = templateColumn.panes.enumerated().map { index, templatePane -> PaneState in
+                makePane(
+                    templatePane: templatePane,
+                    paneIndex: index,
+                    paneCountInColumn: paneCount,
+                    totalColumns: totalColumns,
+                    totalWorklanes: totalWorklanes,
+                    columnWidth: CGFloat(templateColumn.width),
+                    fallbackWorkingDirectory: fallbackWorkingDirectory,
+                    windowID: windowID,
+                    worklaneID: worklaneID,
+                    processEnvironment: processEnvironment,
+                    commandResolver: commandResolver,
+                    auxiliaryStateByPaneID: &auxiliaryStateByPaneID,
+                    fallbacks: &fallbacks
+                )
+            }
+
+            return PaneColumnState(
+                id: PaneColumnID(templateColumn.id),
+                panes: panes,
+                width: CGFloat(templateColumn.width),
+                paneHeights: templateColumn.paneHeights.map { CGFloat($0) },
+                focusedPaneID: templateColumn.focusedPaneID.map(PaneID.init),
+                lastFocusedPaneID: templateColumn.lastFocusedPaneID.map(PaneID.init)
+            )
+        }
+
+        let worklane = WorklaneState(
+            id: worklaneID,
+            title: template.title ?? "",
+            paneStripState: PaneStripState(
+                columns: columns,
+                focusedColumnID: template.focusedColumnID.map(PaneColumnID.init),
+                layoutSizing: layoutContext.sizing
+            ),
+            nextPaneNumber: max(template.nextPaneNumber, 1),
+            auxiliaryStateByPaneID: auxiliaryStateByPaneID,
+            color: template.color.flatMap(WorklaneColor.init(rawValue:)),
+            bookmarkOriginID: template.id
+        )
+
+        return Result(worklane: worklane, fallbacks: fallbacks)
+    }
+
+    private static func makePane(
+        templatePane: WorkspaceTemplate.Pane,
+        paneIndex: Int,
+        paneCountInColumn: Int,
+        totalColumns: Int,
+        totalWorklanes: Int,
+        columnWidth: CGFloat,
+        fallbackWorkingDirectory: String?,
+        windowID: WindowID,
+        worklaneID: WorklaneID,
+        processEnvironment: [String: String],
+        commandResolver: (String) -> Bool,
+        auxiliaryStateByPaneID: inout [PaneID: PaneAuxiliaryState],
+        fallbacks: inout [Fallback]
+    ) -> PaneState {
+        let paneID = PaneID(templatePane.id)
+        let requested = trimmed(templatePane.workingDirectory) ?? trimmed(fallbackWorkingDirectory)
+
+        let savedCommand = trimmed(templatePane.command)
+        let commandOnPath = savedCommand.map { commandResolver($0) } ?? false
+        let runnableCommand = commandOnPath ? savedCommand : nil
+        let prefillCommand = (!commandOnPath ? savedCommand : nil)
+
+        if let savedCommand, !commandOnPath {
+            fallbacks.append(Fallback(paneID: paneID, kind: .missingCommand(command: savedCommand)))
+        }
+
+        let inputs = PaneRestorationBuilder.PaneInputs(
+            id: paneID,
+            titleSeed: templatePane.titleSeed,
+            requestedWorkingDirectory: requested,
+            command: runnableCommand,
+            prefillText: prefillCommand,
+            environmentOverrides: templatePane.environment,
+            surfaceContext: PaneRestorationBuilder.inferredSurfaceContext(
+                paneCountInColumn: paneCountInColumn,
+                totalColumns: totalColumns,
+                totalWorklanes: totalWorklanes,
+                paneIndex: paneIndex
+            ),
+            columnWidth: columnWidth,
+            statusTextWhenWorkingDirectoryMissing: "Original path unavailable"
+        )
+
+        let result = PaneRestorationBuilder.makePane(
+            inputs,
+            windowID: windowID,
+            worklaneID: worklaneID,
+            processEnvironment: processEnvironment
+        )
+        auxiliaryStateByPaneID[paneID] = result.auxiliary
+
+        if result.didFallBackForWorkingDirectory, let requested {
+            fallbacks.append(
+                Fallback(
+                    paneID: paneID,
+                    kind: .missingWorkingDirectory(
+                        requested: requested,
+                        fellBackTo: result.pane.sessionRequest.workingDirectory ?? ""
+                    )
+                )
+            )
+        }
+
+        return result.pane
+    }
+
+    static func isCommandOnPath(
+        _ command: String,
+        processEnvironment: [String: String]
+    ) -> Bool {
+        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return false
+        }
+        let firstToken = trimmed.split(separator: " ", maxSplits: 1, omittingEmptySubsequences: true)
+            .first
+            .map(String.init) ?? trimmed
+        if firstToken.contains("/") {
+            return FileManager.default.isExecutableFile(atPath: firstToken)
+        }
+
+        let pathString = processEnvironment["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
+        for entry in pathString.split(separator: ":", omittingEmptySubsequences: true) {
+            let candidate = String(entry) + "/" + firstToken
+            if FileManager.default.isExecutableFile(atPath: candidate) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private static func trimmed(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
+            return nil
+        }
+        return value
+    }
+}

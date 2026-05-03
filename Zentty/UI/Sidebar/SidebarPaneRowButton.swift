@@ -53,6 +53,31 @@ struct SidebarWorklaneMoveAvailability: Equatable {
     static let none = SidebarWorklaneMoveAvailability(canMoveUp: false, canMoveDown: false)
 }
 
+enum SidebarWorklaneContextMenuOrigin: Equatable {
+    case worklane
+    case paneRow(isLastPaneInWorklane: Bool)
+}
+
+struct SidebarWorklaneContextMenuContext {
+    var origin: SidebarWorklaneContextMenuOrigin
+    var moveAvailability: SidebarWorklaneMoveAvailability
+    var worklaneColor: WorklaneColor?
+    var bookmarkOriginID: UUID?
+    var bookmarkName: String?
+}
+
+struct SidebarWorklaneContextMenuActions {
+    var target: AnyObject
+    var closeWorklaneAction: Selector
+    var closePaneAction: Selector?
+    var moveUpAction: Selector
+    var moveDownAction: Selector
+    var splitHorizontalAction: Selector?
+    var splitVerticalAction: Selector?
+    var bookmarkAction: Selector
+    var colorChanged: (WorklaneColor?) -> Void
+}
+
 @MainActor
 enum SidebarContextMenu {
     static func item(
@@ -126,6 +151,213 @@ enum SidebarContextMenu {
     }
 }
 
+@MainActor
+enum SidebarWorklaneContextMenu {
+    struct Result {
+        var menu: NSMenu
+        var activePicker: WorklaneColorMenuItemView?
+    }
+
+    static func makeMenu(
+        context: SidebarWorklaneContextMenuContext,
+        actions: SidebarWorklaneContextMenuActions
+    ) -> Result {
+        let menu = NSMenu()
+
+        menu.addItem(
+            SidebarContextMenu.item(
+                title: "Close Worklane",
+                action: actions.closeWorklaneAction,
+                target: actions.target,
+                symbolName: "rectangle.stack.badge.minus",
+                fallbackSymbolName: "xmark.circle"
+            )
+        )
+
+        if case .paneRow(let isLastPaneInWorklane) = context.origin,
+           !isLastPaneInWorklane,
+           let closePaneAction = actions.closePaneAction
+        {
+            menu.addItem(
+                SidebarContextMenu.item(
+                    title: "Close Pane",
+                    action: closePaneAction,
+                    target: actions.target,
+                    symbolName: "rectangle.badge.minus",
+                    fallbackSymbolName: "xmark.square"
+                )
+            )
+        }
+
+        SidebarContextMenu.addSeparatorIfNeeded(to: menu)
+        SidebarContextMenu.addMoveItems(
+            to: menu,
+            availability: context.moveAvailability,
+            target: actions.target,
+            moveUpAction: actions.moveUpAction,
+            moveDownAction: actions.moveDownAction
+        )
+
+        let picker = addColorItem(
+            to: menu,
+            currentColor: context.worklaneColor,
+            colorChanged: actions.colorChanged
+        )
+
+        addBookmarkItems(
+            to: menu,
+            originID: context.bookmarkOriginID,
+            bookmarkName: context.bookmarkName,
+            target: actions.target,
+            bookmarkAction: actions.bookmarkAction
+        )
+
+        if case .paneRow = context.origin,
+           let splitHorizontalAction = actions.splitHorizontalAction,
+           let splitVerticalAction = actions.splitVerticalAction
+        {
+            SidebarContextMenu.addSeparatorIfNeeded(to: menu)
+            menu.addItem(
+                SidebarContextMenu.item(
+                    title: "Split Horizontal",
+                    action: splitHorizontalAction,
+                    target: actions.target,
+                    symbolName: "rectangle.split.2x1"
+                )
+            )
+            menu.addItem(
+                SidebarContextMenu.item(
+                    title: "Split Vertical",
+                    action: splitVerticalAction,
+                    target: actions.target,
+                    symbolName: "rectangle.split.1x2"
+                )
+            )
+        }
+
+        return Result(menu: menu, activePicker: picker)
+    }
+
+    private static func addColorItem(
+        to menu: NSMenu,
+        currentColor: WorklaneColor?,
+        colorChanged: @escaping (WorklaneColor?) -> Void
+    ) -> WorklaneColorMenuItemView {
+        let parent = SidebarContextMenu.item(
+            title: "Worklane Color",
+            action: nil,
+            target: nil,
+            symbolName: "paintpalette"
+        )
+        let submenu = NSMenu()
+        let pickerItem = NSMenuItem()
+        let picker = WorklaneColorMenuItemView(current: currentColor) { picked in
+            colorChanged(picked)
+        }
+        pickerItem.view = picker
+        submenu.addItem(pickerItem)
+        parent.submenu = submenu
+        menu.addItem(parent)
+        return picker
+    }
+
+    private static func addBookmarkItems(
+        to menu: NSMenu,
+        originID: UUID?,
+        bookmarkName: String?,
+        target: AnyObject,
+        bookmarkAction: Selector
+    ) {
+        SidebarContextMenu.addSeparatorIfNeeded(to: menu)
+        let displayName = bookmarkName.map { "\u{201C}\($0)\u{201D}" }
+
+        if let originID, let displayName {
+            menu.addItem(
+                bookmarkMenuItem(
+                    title: "Update Bookmark \(displayName)",
+                    symbolName: "arrow.clockwise",
+                    action: .updateBookmark(originID),
+                    target: target,
+                    bookmarkAction: bookmarkAction
+                )
+            )
+            menu.addItem(
+                bookmarkMenuItem(
+                    title: "Edit Bookmark \(displayName)\u{2026}",
+                    symbolName: "pencil",
+                    action: .editBookmark(originID),
+                    target: target,
+                    bookmarkAction: bookmarkAction
+                )
+            )
+            menu.addItem(
+                bookmarkMenuItem(
+                    title: "Save as New Bookmark\u{2026}",
+                    symbolName: "bookmark.circle",
+                    action: .saveAsNewBookmark,
+                    target: target,
+                    bookmarkAction: bookmarkAction
+                )
+            )
+            menu.addItem(
+                bookmarkMenuItem(
+                    title: "Save as Preset\u{2026}",
+                    symbolName: "rectangle.stack.badge.plus",
+                    action: .saveAsPreset,
+                    target: target,
+                    bookmarkAction: bookmarkAction
+                )
+            )
+            menu.addItem(.separator())
+            menu.addItem(
+                bookmarkMenuItem(
+                    title: "Unlink from Bookmark",
+                    symbolName: "link.badge.plus",
+                    action: .unlink,
+                    target: target,
+                    bookmarkAction: bookmarkAction
+                )
+            )
+        } else {
+            menu.addItem(
+                bookmarkMenuItem(
+                    title: "Bookmark Worklane\u{2026}",
+                    symbolName: "bookmark",
+                    action: .bookmark,
+                    target: target,
+                    bookmarkAction: bookmarkAction
+                )
+            )
+            menu.addItem(
+                bookmarkMenuItem(
+                    title: "Save as Preset\u{2026}",
+                    symbolName: "rectangle.stack.badge.plus",
+                    action: .saveAsPreset,
+                    target: target,
+                    bookmarkAction: bookmarkAction
+                )
+            )
+        }
+    }
+
+    private static func bookmarkMenuItem(
+        title: String,
+        symbolName: String,
+        action: SidebarBookmarkRowAction,
+        target: AnyObject,
+        bookmarkAction: Selector
+    ) -> NSMenuItem {
+        let item = SidebarContextMenu.item(
+            title: title,
+            action: bookmarkAction,
+            target: target,
+            symbolName: symbolName
+        )
+        item.representedObject = SidebarBookmarkRowActionBox(action: action)
+        return item
+    }
+}
+
 // MARK: - SidebarInsetContainerView
 
 final class SidebarInsetContainerView: NSView {
@@ -186,11 +418,14 @@ final class SidebarPaneRowButton: NSButton {
     var currentWorklaneColor: WorklaneColor?
     var onPaneClicked: ((PaneID) -> Void)?
     var onHoverChanged: ((Bool) -> Void)?
-    var onCloseWorklane: ((PaneID) -> Void)?
+    var onCloseWorklane: (() -> Void)?
     var onClosePane: ((PaneID) -> Void)?
     var onSplitHorizontal: ((PaneID) -> Void)?
     var onSplitVertical: ((PaneID) -> Void)?
     var onPickWorklaneColor: ((PaneID, WorklaneColor?) -> Void)?
+    var onBookmarkAction: ((SidebarBookmarkRowAction) -> Void)?
+    var bookmarkOriginID: UUID?
+    var bookmarkNameLookup: ((UUID) -> String?)?
     var onWorklaneDragRequested: ((NSEvent) -> Bool)?
     var onMoveWorklane: ((SidebarWorklaneMoveDirection) -> Void)?
     var worklaneMoveAvailability: SidebarWorklaneMoveAvailability = .none
@@ -366,78 +601,36 @@ final class SidebarPaneRowButton: NSButton {
     // MARK: - Context Menu
 
     override func menu(for event: NSEvent) -> NSMenu? {
-        let menu = NSMenu()
-
-        let closeWorklaneItem = SidebarContextMenu.item(
-            title: "Close Worklane",
-            action: #selector(handleCloseWorklane),
-            target: self,
-            symbolName: "rectangle.stack.badge.minus",
-            fallbackSymbolName: "xmark.circle"
-        )
-        menu.addItem(closeWorklaneItem)
-
-        if !isLastPaneInWorklane {
-            let closePaneItem = SidebarContextMenu.item(
-                title: "Close Pane",
-                action: #selector(handleClosePane),
+        let originID = bookmarkOriginID
+        let result = SidebarWorklaneContextMenu.makeMenu(
+            context: SidebarWorklaneContextMenuContext(
+                origin: .paneRow(isLastPaneInWorklane: isLastPaneInWorklane),
+                moveAvailability: worklaneMoveAvailability,
+                worklaneColor: currentWorklaneColor,
+                bookmarkOriginID: originID,
+                bookmarkName: originID.flatMap { bookmarkNameLookup?($0) }
+            ),
+            actions: SidebarWorklaneContextMenuActions(
                 target: self,
-                symbolName: "rectangle.badge.minus",
-                fallbackSymbolName: "xmark.square"
+                closeWorklaneAction: #selector(handleCloseWorklane),
+                closePaneAction: #selector(handleClosePane),
+                moveUpAction: #selector(handleMoveWorklaneUp),
+                moveDownAction: #selector(handleMoveWorklaneDown),
+                splitHorizontalAction: #selector(handleSplitHorizontal),
+                splitVerticalAction: #selector(handleSplitVertical),
+                bookmarkAction: #selector(handleBookmarkMenuItem(_:)),
+                colorChanged: { [weak self] color in
+                    guard let self else { return }
+                    self.onPickWorklaneColor?(self.paneID, color)
+                }
             )
-            menu.addItem(closePaneItem)
-        }
-
-        SidebarContextMenu.addSeparatorIfNeeded(to: menu)
-        SidebarContextMenu.addMoveItems(
-            to: menu,
-            availability: worklaneMoveAvailability,
-            target: self,
-            moveUpAction: #selector(handleMoveWorklaneUp),
-            moveDownAction: #selector(handleMoveWorklaneDown)
         )
-
-        let worklaneColorItem = SidebarContextMenu.item(
-            title: "Worklane Color",
-            action: nil,
-            target: nil,
-            symbolName: "paintpalette"
-        )
-        let worklaneColorSubmenu = NSMenu()
-        let pickerItem = NSMenuItem()
-        let picker = WorklaneColorMenuItemView(current: currentWorklaneColor) { [weak self] color in
-            guard let self else { return }
-            self.onPickWorklaneColor?(self.paneID, color)
-        }
-        pickerItem.view = picker
-        worklaneColorSubmenu.addItem(pickerItem)
-        worklaneColorItem.submenu = worklaneColorSubmenu
-        menu.addItem(worklaneColorItem)
-        activeContextPicker = picker
-
-        SidebarContextMenu.addSeparatorIfNeeded(to: menu)
-
-        let splitHItem = SidebarContextMenu.item(
-            title: "Split Horizontal",
-            action: #selector(handleSplitHorizontal),
-            target: self,
-            symbolName: "rectangle.split.2x1"
-        )
-        menu.addItem(splitHItem)
-
-        let splitVItem = SidebarContextMenu.item(
-            title: "Split Vertical",
-            action: #selector(handleSplitVertical),
-            target: self,
-            symbolName: "rectangle.split.1x2"
-        )
-        menu.addItem(splitVItem)
-
-        return menu
+        activeContextPicker = result.activePicker
+        return result.menu
     }
 
     @objc private func handleCloseWorklane() {
-        onCloseWorklane?(paneID)
+        onCloseWorklane?()
     }
 
     @objc private func handleClosePane() {
@@ -450,6 +643,13 @@ final class SidebarPaneRowButton: NSButton {
 
     @objc private func handleMoveWorklaneDown() {
         onMoveWorklane?(.down)
+    }
+
+    @objc private func handleBookmarkMenuItem(_ sender: NSMenuItem) {
+        guard let box = sender.representedObject as? SidebarBookmarkRowActionBox else {
+            return
+        }
+        onBookmarkAction?(box.action)
     }
 
     @objc private func handleSplitHorizontal() {

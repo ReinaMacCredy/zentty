@@ -1,5 +1,6 @@
 import AppKit
 import QuartzCore
+import SwiftUI
 import os
 
 enum FocusedTerminalInterruptBridge {
@@ -93,6 +94,15 @@ final class RootViewController: NSViewController {
     private let notificationCoordinator: NotificationChromeCoordinator
     private let renderCoordinator: WorklaneRenderCoordinator
     private var staleAgentSweepTimer: Timer?
+    private var bookmarksPopover: NSPopover?
+    private var bookmarksPopoverObserverToken: NSObjectProtocol?
+    private lazy var bookmarkStore: BookmarkStore = {
+        let store = BookmarkStore(fileURL: AppConfigStore.bookmarksFileURL())
+        store.onPersistError = { [weak self] error in
+            self?.presentBookmarkPersistError(error)
+        }
+        return store
+    }()
     private lazy var appCanvasView = AppCanvasView(runtimeRegistry: runtimeRegistry)
     private let dragOverlayView: HitTransparentView = {
         let view = HitTransparentView()
@@ -698,8 +708,8 @@ final class RootViewController: NSViewController {
                 paneID: paneID
             )
         }
-        sidebarView.onCloseWorklaneRequested = { [weak self] worklaneID, paneID in
-            self?.worklaneStore.selectWorklaneAndFocusPane(worklaneID: worklaneID, paneID: paneID)
+        sidebarView.onCloseWorklaneRequested = { [weak self] worklaneID in
+            self?.worklaneStore.selectWorklane(id: worklaneID)
             self?.worklaneStore.closeActiveWorklane()
         }
         sidebarView.onClosePaneRequested = { [weak self] worklaneID, paneID in
@@ -734,6 +744,15 @@ final class RootViewController: NSViewController {
         }
         sidebarView.onNewWorklaneRequested = { [weak self] in
             self?.handle(.newWorklane)
+        }
+        sidebarView.onOpenBookmarksPopoverRequested = { [weak self] anchorView in
+            self?.toggleBookmarksPopover(anchorView: anchorView)
+        }
+        sidebarView.onBookmarkAction = { [weak self] worklaneID, action in
+            self?.handleSidebarBookmarkAction(worklaneID: worklaneID, action: action)
+        }
+        sidebarView.bookmarkNameLookup = { [weak self] id in
+            self?.bookmarkStore.template(withID: id)?.name
         }
         sidebarView.onCheckForUpdatesRequested = { [weak self] in
             self?.onCheckForUpdatesRequested?()
@@ -1051,6 +1070,8 @@ final class RootViewController: NSViewController {
             view.window?.close()
         case .reloadConfig:
             configStore.reloadFromDisk()
+        case .openBookmarksPopover:
+            toggleBookmarksPopover(anchorView: sidebarView.bookmarksButtonAnchor)
         }
     }
 
@@ -2412,6 +2433,379 @@ private final class WindowContentView: NSView {
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         onEffectiveAppearanceDidChange?()
+    }
+}
+
+// MARK: - Bookmarks popover
+
+private extension RootViewController {
+    func toggleBookmarksPopover(anchorView: NSView) {
+        if let existing = bookmarksPopover, existing.isShown {
+            existing.close()
+            return
+        }
+
+        // If a previous popover is mid-close, drop its observer and slot before
+        // creating the new one so the old close notification doesn't sweep the
+        // new popover's bookkeeping.
+        if let token = bookmarksPopoverObserverToken {
+            NotificationCenter.default.removeObserver(token)
+            bookmarksPopoverObserverToken = nil
+        }
+        bookmarksPopover = nil
+
+        let popover = NSPopover()
+        popover.behavior = .transient
+        let contentController = makeBookmarksPopoverContentController(popover: popover)
+        popover.contentViewController = contentController
+        popover.contentSize = contentController.preferredContentSize
+        anchorView.layoutSubtreeIfNeeded()
+        popover.show(
+            relativeTo: anchorView.bounds,
+            of: anchorView,
+            preferredEdge: .maxY
+        )
+        sidebarView.setBookmarksPopoverPresented(true)
+        bookmarksPopover = popover
+        bookmarksPopoverObserverToken = NotificationCenter.default.addObserver(
+            forName: NSPopover.didCloseNotification,
+            object: popover,
+            queue: .main
+        ) { [weak self, weak popover] _ in
+            guard let self, let popover, self.bookmarksPopover === popover else {
+                return
+            }
+            self.sidebarView.setBookmarksPopoverPresented(false)
+            if let token = self.bookmarksPopoverObserverToken {
+                NotificationCenter.default.removeObserver(token)
+            }
+            self.bookmarksPopoverObserverToken = nil
+            self.bookmarksPopover = nil
+        }
+    }
+
+    func makeBookmarksPopoverContentController(popover: NSPopover) -> NSViewController {
+        let viewModel = BookmarksPopoverViewModel(
+            store: bookmarkStore,
+            canSaveCurrentWorklane: { [weak self] in
+                self?.worklaneStore.focusedWorklaneSnapshot != nil
+            },
+            onActivate: { [weak self] template in
+                self?.activateBookmarkTemplate(template)
+            },
+            onSaveCurrentWorklane: { [weak self] kind in
+                self?.beginBookmarkSave(kind: kind, originID: nil)
+            },
+            onImportPreset: { [weak self] in
+                self?.beginImportPreset()
+            },
+            onDismiss: { [weak popover] in
+                popover?.performClose(nil)
+            },
+            onTemplateMenuAction: { [weak self] action, template in
+                self?.handleBookmarkTemplateMenuAction(action, template: template)
+            }
+        )
+        let host = NSHostingController(rootView: BookmarksPopoverView(viewModel: viewModel))
+        host.view.translatesAutoresizingMaskIntoConstraints = false
+        // Give NSPopover a stable, bounded size BEFORE show() — otherwise the
+        // SwiftUI fitting-size dance can place the arrow far below the anchor.
+        host.preferredContentSize = NSSize(
+            width: BookmarksPopoverMetrics.contentWidth,
+            height: BookmarksPopoverMetrics.preferredHeight(forEmpty: bookmarkStore.templates.isEmpty)
+        )
+        return host
+    }
+
+    func activateBookmarkTemplate(_ template: WorkspaceTemplate) {
+        let result = worklaneStore.applyTemplate(template)
+        if !result.fallbacks.isEmpty {
+            presentBookmarkRestoreFallbacks(result.fallbacks, for: result.worklane)
+        }
+    }
+
+    /// Called from the empty-state primary button and (Phase 5) the worklane context menu.
+    /// Opens the save sheet pre-filled from the focused worklane.
+    func beginBookmarkSave(kind: WorkspaceTemplate.Kind, originID: UUID?) {
+        guard let worklane = worklaneStore.focusedWorklaneSnapshot else { return }
+        presentBookmarkSaveSheet(
+            forWorklane: worklane,
+            initialKind: kind,
+            existingTemplateID: originID
+        )
+    }
+
+    func handleBookmarkTemplateMenuAction(
+        _ action: BookmarksPopoverViewModel.TemplateAction,
+        template: WorkspaceTemplate
+    ) {
+        switch action {
+        case .togglePin:
+            bookmarkStore.setPinned(id: template.id, pinned: !template.pinned)
+        case .delete:
+            confirmDeleteBookmark(template)
+        case .duplicate:
+            _ = bookmarkStore.duplicate(id: template.id)
+        case .rename:
+            beginRenameBookmarkTemplate(template)
+        case .edit:
+            presentBookmarkSaveSheet(editing: template)
+        case .convert:
+            convertBookmarkTemplate(template)
+        case .revealInFinder:
+            revealBookmarkRoot(template)
+        case .exportAsPreset:
+            exportBookmarkTemplate(template)
+        }
+    }
+
+    private func confirmDeleteBookmark(_ template: WorkspaceTemplate) {
+        let alert = NSAlert()
+        alert.messageText = "Delete \u{201C}\(template.name)\u{201D}?"
+        alert.informativeText = template.kind == .bookmark
+            ? "This bookmark will be removed from the popover. Active worklanes opened from it remain unaffected."
+            : "This preset will be removed from the popover."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Delete")
+        alert.addButton(withTitle: "Cancel")
+        let confirmed: Bool
+        if let window = view.window {
+            // beginSheetModal would return immediately while running async, so
+            // use the synchronous runModal path here for simplicity. The alert
+            // is short-lived and blocking is acceptable for a destructive
+            // confirmation.
+            confirmed = alert.runModal() == .alertFirstButtonReturn
+            _ = window
+        } else {
+            confirmed = alert.runModal() == .alertFirstButtonReturn
+        }
+        guard confirmed else { return }
+        bookmarkStore.delete(id: template.id)
+    }
+
+    private func beginRenameBookmarkTemplate(_ template: WorkspaceTemplate) {
+        guard let window = view.window else { return }
+        let alert = NSAlert()
+        alert.messageText = "Rename \u{201C}\(template.name)\u{201D}"
+        alert.alertStyle = .informational
+        let textField = NSTextField(string: template.name)
+        textField.frame = NSRect(x: 0, y: 0, width: 240, height: 24)
+        alert.accessoryView = textField
+        alert.addButton(withTitle: "Save")
+        alert.addButton(withTitle: "Cancel")
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard response == .alertFirstButtonReturn else { return }
+            self?.bookmarkStore.rename(id: template.id, to: textField.stringValue)
+        }
+    }
+
+    private func convertBookmarkTemplate(_ template: WorkspaceTemplate) {
+        switch template.kind {
+        case .bookmark:
+            var copy = template.strippingWorkingDirectories()
+            copy.id = UUID()
+            copy.name = preset(name: template.name)
+            copy.createdAt = Date()
+            copy.updatedAt = Date()
+            copy.pinned = false
+            copy.lastUsedAt = nil
+            bookmarkStore.upsert(copy)
+        case .preset:
+            // Phase 4 will host the save sheet that captures cwds from the focused worklane.
+            // For now, take focused worklane's panes' cwds as the binding target.
+            guard let worklane = worklaneStore.focusedWorklaneSnapshot else { return }
+            let captured = WorkspaceTemplateCapture.capture(
+                worklane: worklane,
+                kind: .bookmark,
+                name: bookmark(name: template.name)
+            )
+            var bound = captured
+            bound.id = UUID()
+            bound.color = template.color
+            bookmarkStore.upsert(bound)
+        }
+    }
+
+    private func preset(name: String) -> String {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "Untitled preset" : "\(trimmed) (preset)"
+    }
+
+    private func bookmark(name: String) -> String {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "Untitled bookmark" : "\(trimmed) (bookmark)"
+    }
+
+    private func revealBookmarkRoot(_ template: WorkspaceTemplate) {
+        let path = template.projectRoot ?? template.allPanes.compactMap(\.workingDirectory).first
+        guard let path else { return }
+        NSWorkspace.shared.open(URL(fileURLWithPath: path))
+    }
+
+    private func presentBookmarkPersistError(_ error: Error) {
+        let alert = NSAlert()
+        alert.messageText = "Couldn't save bookmarks"
+        alert.informativeText = "Zentty couldn't write to ~/.config/zentty/bookmarks.json: \(error.localizedDescription)"
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "OK")
+        if let window = view.window {
+            alert.beginSheetModal(for: window)
+        } else {
+            alert.runModal()
+        }
+    }
+
+    private func beginImportPreset() {
+        guard let window = view.window else { return }
+        let openPanel = NSOpenPanel()
+        openPanel.canChooseFiles = true
+        openPanel.canChooseDirectories = false
+        openPanel.allowsMultipleSelection = false
+        openPanel.allowedContentTypes = []
+        openPanel.message = "Select a .\(WorkspaceTemplateExporter.fileExtension) file to import."
+        openPanel.beginSheetModal(for: window) { [weak self] response in
+            guard response == .OK, let url = openPanel.url else { return }
+            do {
+                let template = try WorkspaceTemplateExporter.read(from: url)
+                self?.bookmarkStore.upsert(template)
+            } catch {
+                let alert = NSAlert(error: error)
+                alert.beginSheetModal(for: window)
+            }
+        }
+    }
+
+    private func exportBookmarkTemplate(_ template: WorkspaceTemplate) {
+        guard let window = view.window else { return }
+        let savePanel = NSSavePanel()
+        savePanel.allowedContentTypes = []
+        savePanel.nameFieldStringValue = "\(template.name).\(WorkspaceTemplateExporter.fileExtension)"
+        savePanel.beginSheetModal(for: window) { response in
+            guard response == .OK, let url = savePanel.url else { return }
+            do {
+                try WorkspaceTemplateExporter.write(template, to: url)
+            } catch {
+                let alert = NSAlert(error: error)
+                alert.beginSheetModal(for: window)
+            }
+        }
+    }
+
+    func presentBookmarkSaveSheet(
+        forWorklane worklane: WorklaneState,
+        initialKind: WorkspaceTemplate.Kind,
+        existingTemplateID: UUID?
+    ) {
+        let existing = existingTemplateID.flatMap { bookmarkStore.template(withID: $0) }
+        let initialTemplate: WorkspaceTemplate
+        if let existing {
+            initialTemplate = existing
+        } else {
+            let suggestedName = BookmarkNameSuggester.suggest(
+                for: worklane,
+                kind: initialKind
+            )
+            initialTemplate = WorkspaceTemplateCapture.capture(
+                worklane: worklane,
+                kind: initialKind,
+                name: suggestedName
+            )
+        }
+        BookmarkSaveSheetController.present(
+            in: view.window,
+            initialTemplate: initialTemplate,
+            isUpdatingExisting: existing != nil,
+            onSave: { [weak self] saved in
+                self?.bookmarkStore.upsert(saved)
+            }
+        )
+    }
+
+    func presentBookmarkSaveSheet(editing template: WorkspaceTemplate) {
+        BookmarkSaveSheetController.present(
+            in: view.window,
+            initialTemplate: template,
+            isUpdatingExisting: true,
+            onSave: { [weak self] saved in
+                self?.bookmarkStore.upsert(saved)
+            }
+        )
+    }
+
+    func presentBookmarkRestoreFallbacks(
+        _ fallbacks: [WorkspaceTemplateImporter.Fallback],
+        for worklane: WorklaneState
+    ) {
+        BookmarkRestoreLogger.shared.logFallbacks(fallbacks, worklaneID: worklane.id)
+        let banner = BookmarkRestoreBannerView(
+            fallbackCount: fallbacks.count,
+            onEdit: { [weak self] in
+                guard let template = worklane.bookmarkOriginID
+                    .flatMap({ self?.bookmarkStore.template(withID: $0) }) else {
+                    return
+                }
+                self?.presentBookmarkSaveSheet(editing: template)
+            }
+        )
+        banner.present(over: appCanvasView)
+    }
+
+    func handleSidebarBookmarkAction(
+        worklaneID: WorklaneID,
+        action: SidebarBookmarkRowAction
+    ) {
+        guard let worklane = worklaneStore.snapshot(of: worklaneID) else { return }
+        switch action {
+        case .bookmark:
+            presentBookmarkSaveSheet(forWorklane: worklane, initialKind: .bookmark, existingTemplateID: nil)
+        case .saveAsPreset:
+            presentBookmarkSaveSheet(forWorklane: worklane, initialKind: .preset, existingTemplateID: nil)
+        case .saveAsNewBookmark:
+            presentBookmarkSaveSheet(forWorklane: worklane, initialKind: .bookmark, existingTemplateID: nil)
+        case .updateBookmark(let templateID):
+            silentlyUpdateBookmark(templateID: templateID, from: worklane)
+        case .editBookmark(let templateID):
+            guard let existing = bookmarkStore.template(withID: templateID) else { return }
+            presentBookmarkSaveSheet(editing: existing)
+        case .unlink:
+            worklaneStore.setBookmarkOrigin(nil, on: worklaneID)
+        }
+    }
+
+    private func silentlyUpdateBookmark(templateID: UUID, from worklane: WorklaneState) {
+        guard let existing = bookmarkStore.template(withID: templateID) else { return }
+        let captured = WorkspaceTemplateCapture.capture(
+            worklane: worklane,
+            kind: existing.kind,
+            name: existing.name
+        )
+        var updated = captured
+        updated.id = existing.id
+        updated.name = existing.name
+        updated.color = worklane.color?.rawValue ?? existing.color
+        updated.pinned = existing.pinned
+        updated.createdAt = existing.createdAt
+        updated.lastUsedAt = existing.lastUsedAt
+        updated.updatedAt = Date()
+
+        // Preserve user-edited commands from the existing template per-pane.
+        var preservedCommandsByPaneID: [String: String?] = [:]
+        for pane in existing.allPanes where pane.wasUserEdited {
+            preservedCommandsByPaneID[pane.id] = pane.command
+        }
+        updated.columns = updated.columns.map { column in
+            var column = column
+            column.panes = column.panes.map { pane in
+                var pane = pane
+                if let preserved = preservedCommandsByPaneID[pane.id] {
+                    pane.command = preserved
+                    pane.wasUserEdited = true
+                }
+                return pane
+            }
+            return column
+        }
+        bookmarkStore.upsert(updated)
     }
 }
 

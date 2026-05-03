@@ -252,6 +252,7 @@ final class AppDelegateTests: XCTestCase {
             actionItems.map(\.title),
             [
                 "Command Palette…",
+                "Show Bookmarks & Presets",
                 "Toggle Sidebar",
                 "Split Horizontally",
                 "Split Vertically",
