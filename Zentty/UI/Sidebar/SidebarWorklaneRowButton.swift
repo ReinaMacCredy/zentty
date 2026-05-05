@@ -80,9 +80,15 @@ final class SidebarWorklaneRowButton: NSButton {
     var onClosePaneRequested: ((PaneID) -> Void)?
     var onSplitHorizontalRequested: ((PaneID) -> Void)?
     var onSplitVerticalRequested: ((PaneID) -> Void)?
+    var onMovePaneToNewWindowRequested: ((PaneID) -> Void)?
     var onWorklaneColorChanged: ((WorklaneID, WorklaneColor?) -> Void)?
     var onWorklaneDragRequested: ((SidebarWorklaneRowButton, NSEvent) -> Bool)?
     var onWorklaneMoveRequested: ((WorklaneID, SidebarWorklaneMoveDirection) -> Void)?
+    var isOnlyWorklane = false {
+        didSet {
+            paneRowRenderer.setOnlyWorklane(isOnlyWorklane)
+        }
+    }
 
     private var activeContextPicker: WorklaneColorMenuItemView?
 
@@ -715,6 +721,9 @@ final class SidebarWorklaneRowButton: NSButton {
                 onSplitVerticalRequested: { [weak self] paneID in
                     self?.onSplitVerticalRequested?(paneID)
                 },
+                onMovePaneToNewWindowRequested: { [weak self] paneID in
+                    self?.onMovePaneToNewWindowRequested?(paneID)
+                },
                 onWorklaneColorChanged: { [weak self] color in
                     guard let self, let worklaneID = self.worklaneID else { return }
                     self.onWorklaneColorChanged?(worklaneID, color)
@@ -726,6 +735,7 @@ final class SidebarWorklaneRowButton: NSButton {
                 onHoverChanged: { [weak self] isHovered in
                     self?.paneRowHoverChanged(isHovered: isHovered)
                 },
+                isOnlyWorklane: isOnlyWorklane,
                 worklaneMoveAvailability: worklaneMoveAvailability,
                 onMoveWorklaneRequested: { [weak self] direction in
                     guard let self, let worklaneID = self.worklaneID else { return }

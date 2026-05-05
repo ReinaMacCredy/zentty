@@ -282,11 +282,30 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
                 "Worklane Color",
                 "Split Horizontal",
                 "Split Vertical",
+                "Move Pane to New Window",
             ]
         )
         for title in menuTitles(menu) {
             XCTAssertNotNil(menu.item(withTitle: title)?.image, "\(title) should have an icon")
         }
+    }
+
+    func test_paneRowContextMenu_disablesMoveToWindowForOnlyPaneInOnlyWorklane() throws {
+        let row = makeRow(width: 320, height: 110)
+        row.isOnlyWorklane = true
+        row.configure(
+            with: makeSummary(
+                primaryText: "Claude Code",
+                paneRows: [makePaneRow(isFocused: true)]
+            ),
+            theme: ZenttyTheme.fallback(for: nil),
+            animated: false
+        )
+
+        let menu = try XCTUnwrap(row.firstPaneRowMenuForTesting(event: try makeContextMenuEvent()))
+        let moveToWindow = try XCTUnwrap(menu.item(withTitle: "Move Pane to New Window"))
+
+        XCTAssertFalse(moveToWindow.isEnabled)
     }
 
     func test_worklane_row_exposes_plain_status_copy() {

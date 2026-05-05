@@ -183,6 +183,7 @@ final class SidebarInsetContainerView: NSView {
 final class SidebarPaneRowButton: NSButton {
     var paneID = PaneID("")
     var isLastPaneInWorklane = false
+    var isLastPaneInOnlyWorklane = false
     var currentWorklaneColor: WorklaneColor?
     var onPaneClicked: ((PaneID) -> Void)?
     var onHoverChanged: ((Bool) -> Void)?
@@ -190,6 +191,7 @@ final class SidebarPaneRowButton: NSButton {
     var onClosePane: ((PaneID) -> Void)?
     var onSplitHorizontal: ((PaneID) -> Void)?
     var onSplitVertical: ((PaneID) -> Void)?
+    var onMovePaneToNewWindow: ((PaneID) -> Void)?
     var onPickWorklaneColor: ((PaneID, WorklaneColor?) -> Void)?
     var onWorklaneDragRequested: ((NSEvent) -> Bool)?
     var onMoveWorklane: ((SidebarWorklaneMoveDirection) -> Void)?
@@ -433,6 +435,17 @@ final class SidebarPaneRowButton: NSButton {
         )
         menu.addItem(splitVItem)
 
+        SidebarContextMenu.addSeparatorIfNeeded(to: menu)
+        let moveToWindowItem = SidebarContextMenu.item(
+            title: "Move Pane to New Window",
+            action: #selector(handleMovePaneToNewWindow),
+            target: self,
+            symbolName: "macwindow.badge.plus",
+            fallbackSymbolName: "macwindow"
+        )
+        moveToWindowItem.isEnabled = !isLastPaneInOnlyWorklane
+        menu.addItem(moveToWindowItem)
+
         return menu
     }
 
@@ -458,5 +471,9 @@ final class SidebarPaneRowButton: NSButton {
 
     @objc private func handleSplitVertical() {
         onSplitVertical?(paneID)
+    }
+
+    @objc private func handleMovePaneToNewWindow() {
+        onMovePaneToNewWindow?(paneID)
     }
 }
