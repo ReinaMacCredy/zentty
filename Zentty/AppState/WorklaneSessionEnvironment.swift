@@ -1,6 +1,13 @@
 import Foundation
 
 enum WorklaneSessionEnvironment {
+    private static let generatedTemplateEnvironmentKeys: Set<String> = [
+        "PATH",
+        "ZDOTDIR",
+        "PROMPT_COMMAND",
+        "GHOSTTY_LOG",
+    ]
+
     static func make(
         windowID: WindowID,
         worklaneID: WorklaneID,
@@ -64,6 +71,18 @@ enum WorklaneSessionEnvironment {
         }
 
         return environment
+    }
+
+    static func templateSafeOverrides(from environment: [String: String]) -> [String: String] {
+        environment.reduce(into: [:]) { safeEnvironment, entry in
+            let key = entry.key.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !key.isEmpty,
+                  !key.hasPrefix("ZENTTY_"),
+                  !generatedTemplateEnvironmentKeys.contains(key) else {
+                return
+            }
+            safeEnvironment[key] = entry.value
+        }
     }
 
     private static func trimmed(_ value: String?) -> String? {

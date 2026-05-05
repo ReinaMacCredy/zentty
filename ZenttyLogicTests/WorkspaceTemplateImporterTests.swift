@@ -145,6 +145,127 @@ final class WorkspaceTemplateImporterTests: XCTestCase {
         XCTAssertEqual(result.worklane.bookmarkOriginID, template.id)
     }
 
+    func test_import_allocates_fresh_ids_and_remaps_focus_references() {
+        let template = WorkspaceTemplate(
+            name: "Focused",
+            kind: .bookmark,
+            focusedColumnID: "c0",
+            columns: [
+                WorkspaceTemplate.Column(
+                    id: "c0",
+                    width: 600,
+                    focusedPaneID: "p2",
+                    lastFocusedPaneID: "p2",
+                    paneHeights: [0.4, 0.6],
+                    panes: [
+                        makePane(id: "p1", workingDirectory: temporaryDirectoryURL.path, command: nil),
+                        makePane(id: "p2", workingDirectory: temporaryDirectoryURL.path, command: nil),
+                    ]
+                ),
+            ]
+        )
+
+        let result = WorkspaceTemplateImporter.makeWorklane(
+            from: template,
+            worklaneID: WorklaneID("w1"),
+            fallbackWorkingDirectory: nil,
+            windowID: WindowID("win1"),
+            layoutContext: layoutContext(),
+            processEnvironment: ["HOME": NSHomeDirectory()],
+            commandResolver: { _ in true }
+        )
+
+        let column = result.worklane.paneStripState.columns.first!
+        let paneIDs = column.panes.map(\.id)
+        XCTAssertNotEqual(column.id, PaneColumnID("c0"))
+        XCTAssertFalse(paneIDs.contains(PaneID("p1")))
+        XCTAssertFalse(paneIDs.contains(PaneID("p2")))
+        XCTAssertEqual(Set(paneIDs).count, 2)
+        XCTAssertEqual(result.worklane.paneStripState.focusedColumnID, column.id)
+        XCTAssertEqual(column.focusedPaneID, paneIDs[1])
+        XCTAssertEqual(column.lastFocusedPaneID, paneIDs[1])
+    }
+
+    func test_repeated_imports_of_same_template_allocate_distinct_pane_ids() {
+        let template = makeTemplate(
+            kind: .bookmark,
+            panes: [
+                makePane(id: "p1", workingDirectory: temporaryDirectoryURL.path, command: nil),
+                makePane(id: "p2", workingDirectory: temporaryDirectoryURL.path, command: nil),
+            ]
+        )
+
+        let first = WorkspaceTemplateImporter.makeWorklane(
+            from: template,
+            worklaneID: WorklaneID("w1"),
+            fallbackWorkingDirectory: nil,
+            windowID: WindowID("win1"),
+            layoutContext: layoutContext(),
+            processEnvironment: ["HOME": NSHomeDirectory()],
+            commandResolver: { _ in true }
+        )
+        let second = WorkspaceTemplateImporter.makeWorklane(
+            from: template,
+            worklaneID: WorklaneID("w2"),
+            fallbackWorkingDirectory: nil,
+            windowID: WindowID("win1"),
+            layoutContext: layoutContext(),
+            processEnvironment: ["HOME": NSHomeDirectory()],
+            commandResolver: { _ in true }
+        )
+
+        XCTAssertTrue(
+            Set(first.worklane.paneStripState.panes.map(\.id))
+                .isDisjoint(with: Set(second.worklane.paneStripState.panes.map(\.id)))
+        )
+    }
+
+    func test_duplicate_serialized_pane_ids_remap_focus_within_each_column() {
+        let template = WorkspaceTemplate(
+            name: "Duplicate IDs",
+            kind: .bookmark,
+            focusedColumnID: "right",
+            columns: [
+                WorkspaceTemplate.Column(
+                    id: "left",
+                    width: 500,
+                    focusedPaneID: "duplicate",
+                    lastFocusedPaneID: "duplicate",
+                    paneHeights: [1.0],
+                    panes: [
+                        makePane(id: "duplicate", workingDirectory: temporaryDirectoryURL.path, command: nil),
+                    ]
+                ),
+                WorkspaceTemplate.Column(
+                    id: "right",
+                    width: 500,
+                    focusedPaneID: "duplicate",
+                    lastFocusedPaneID: "duplicate",
+                    paneHeights: [0.5, 0.5],
+                    panes: [
+                        makePane(id: "other", workingDirectory: temporaryDirectoryURL.path, command: nil),
+                        makePane(id: "duplicate", workingDirectory: temporaryDirectoryURL.path, command: nil),
+                    ]
+                ),
+            ]
+        )
+
+        let result = WorkspaceTemplateImporter.makeWorklane(
+            from: template,
+            worklaneID: WorklaneID("w1"),
+            fallbackWorkingDirectory: nil,
+            windowID: WindowID("win1"),
+            layoutContext: layoutContext(),
+            processEnvironment: ["HOME": NSHomeDirectory()],
+            commandResolver: { _ in true }
+        )
+
+        let columns = result.worklane.paneStripState.columns
+        XCTAssertEqual(columns[0].focusedPaneID, columns[0].panes[0].id)
+        XCTAssertEqual(columns[1].focusedPaneID, columns[1].panes[1].id)
+        XCTAssertEqual(result.worklane.paneStripState.focusedColumnID, columns[1].id)
+    }
+
     func test_environment_overrides_are_merged_into_session_environment() {
         let template = makeTemplate(
             kind: .bookmark,
@@ -172,6 +293,102 @@ final class WorkspaceTemplateImporterTests: XCTestCase {
             result.worklane.paneStripState.panes.first?.sessionRequest.environmentVariables["NODE_ENV"],
             "production"
         )
+    }
+
+    func test_reserved_environment_overrides_cannot_replace_fresh_session_identity() {
+        let template = makeTemplate(
+            kind: .bookmark,
+            panes: [
+                makePane(
+                    id: "p1",
+                    workingDirectory: temporaryDirectoryURL.path,
+                    command: nil,
+                    environment: [
+                        "NODE_ENV": "production",
+                        "ZENTTY_WINDOW_ID": "stale-window",
+                        "ZENTTY_WORKLANE_ID": "stale-worklane",
+                        "ZENTTY_PANE_ID": "stale-pane",
+                        "ZENTTY_PANE_TOKEN": "stale-token",
+                        "PATH": "/tmp/stale-bin",
+                        "ZDOTDIR": "/tmp/stale-zdotdir",
+                    ]
+                ),
+            ]
+        )
+
+        let result = WorkspaceTemplateImporter.makeWorklane(
+            from: template,
+            worklaneID: WorklaneID("fresh-worklane"),
+            fallbackWorkingDirectory: nil,
+            windowID: WindowID("fresh-window"),
+            layoutContext: layoutContext(),
+            processEnvironment: ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin"],
+            commandResolver: { _ in true }
+        )
+
+        let pane = result.worklane.paneStripState.panes.first!
+        let environment = pane.sessionRequest.environmentVariables
+        XCTAssertEqual(environment["NODE_ENV"], "production")
+        XCTAssertEqual(environment["ZENTTY_WINDOW_ID"], "fresh-window")
+        XCTAssertEqual(environment["ZENTTY_WORKLANE_ID"], "fresh-worklane")
+        XCTAssertEqual(environment["ZENTTY_PANE_ID"], pane.id.rawValue)
+        XCTAssertNotEqual(environment["ZENTTY_PANE_TOKEN"], "stale-token")
+        XCTAssertNotEqual(environment["PATH"], "/tmp/stale-bin")
+        XCTAssertNotEqual(environment["ZDOTDIR"], "/tmp/stale-zdotdir")
+    }
+
+    func test_missing_command_fallback_reports_fresh_pane_id() {
+        let template = makeTemplate(
+            kind: .bookmark,
+            panes: [
+                makePane(id: "p1", workingDirectory: temporaryDirectoryURL.path, command: "missing-command"),
+            ]
+        )
+
+        let result = WorkspaceTemplateImporter.makeWorklane(
+            from: template,
+            worklaneID: WorklaneID("w1"),
+            fallbackWorkingDirectory: nil,
+            windowID: WindowID("win1"),
+            layoutContext: layoutContext(),
+            processEnvironment: ["HOME": NSHomeDirectory()],
+            commandResolver: { _ in false }
+        )
+
+        let paneID = result.worklane.paneStripState.panes.first!.id
+        XCTAssertEqual(result.fallbacks.first?.paneID, paneID)
+        XCTAssertNotEqual(result.fallbacks.first?.paneID, PaneID("p1"))
+    }
+
+    func test_default_command_resolver_uses_passed_process_environment_path() {
+        let helperDir = temporaryDirectoryURL.appendingPathComponent("custom-bin", isDirectory: true)
+        try? FileManager.default.createDirectory(at: helperDir, withIntermediateDirectories: true)
+        let executableURL = helperDir.appendingPathComponent("zentty-template-test-cmd-\(UUID().uuidString)")
+        FileManager.default.createFile(
+            atPath: executableURL.path,
+            contents: Data("#!/bin/sh\nexit 0\n".utf8),
+            attributes: [.posixPermissions: 0o755]
+        )
+        let template = makeTemplate(
+            kind: .bookmark,
+            panes: [
+                makePane(id: "p1", workingDirectory: temporaryDirectoryURL.path, command: executableURL.lastPathComponent),
+            ]
+        )
+
+        let result = WorkspaceTemplateImporter.makeWorklane(
+            from: template,
+            worklaneID: WorklaneID("w1"),
+            fallbackWorkingDirectory: nil,
+            windowID: WindowID("win1"),
+            layoutContext: layoutContext(),
+            processEnvironment: ["HOME": NSHomeDirectory(), "PATH": helperDir.path]
+        )
+
+        let pane = result.worklane.paneStripState.panes.first!
+        XCTAssertEqual(pane.sessionRequest.command, executableURL.lastPathComponent)
+        XCTAssertNil(pane.sessionRequest.prefillText)
+        XCTAssertTrue(result.fallbacks.isEmpty)
     }
 
     func test_isCommandOnPath_resolves_first_token_against_PATH() {

@@ -196,6 +196,10 @@ struct WorklaneRuntimeIdentity: Sendable {
     func makePaneID() -> PaneID {
         PaneID("pn_\(nextOpaqueValue())")
     }
+
+    func makeColumnID() -> PaneColumnID {
+        PaneColumnID("col_\(nextOpaqueValue())")
+    }
 }
 
 @MainActor
@@ -1059,7 +1063,8 @@ final class WorklaneStore {
             fallbackWorkingDirectory: fallback,
             windowID: windowID,
             layoutContext: layoutContext,
-            processEnvironment: processEnvironment
+            processEnvironment: processEnvironment,
+            runtimeIdentity: runtimeIdentity
         )
         worklanes.append(result.worklane)
         activeWorklaneID = id

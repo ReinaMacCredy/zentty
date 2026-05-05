@@ -24,17 +24,38 @@ enum WorkspaceTemplateImporter {
         windowID: WindowID,
         layoutContext: PaneLayoutContext,
         processEnvironment: [String: String],
-        commandResolver: (String) -> Bool = { isCommandOnPath($0, processEnvironment: ProcessInfo.processInfo.environment) }
+        runtimeIdentity: WorklaneRuntimeIdentity = .live,
+        commandResolver: ((String) -> Bool)? = nil
     ) -> Result {
         var auxiliaryStateByPaneID: [PaneID: PaneAuxiliaryState] = [:]
         var fallbacks: [Fallback] = []
         let totalColumns = template.columns.count
         let totalWorklanes = 1
+        var columnIDByTemplateID: [String: PaneColumnID] = [:]
+        let columnIDs = template.columns.map { column -> PaneColumnID in
+            let id = runtimeIdentity.makeColumnID()
+            if columnIDByTemplateID[column.id] == nil {
+                columnIDByTemplateID[column.id] = id
+            }
+            return id
+        }
+        let paneIDsByColumn = template.columns.map { column -> [PaneID] in
+            column.panes.map { _ in runtimeIdentity.makePaneID() }
+        }
+        let resolveCommand: (String) -> Bool = commandResolver ?? {
+            isCommandOnPath($0, processEnvironment: processEnvironment)
+        }
 
-        let columns = template.columns.map { templateColumn -> PaneColumnState in
+        let columns = template.columns.enumerated().map { columnIndex, templateColumn -> PaneColumnState in
+            var paneIDByTemplateID: [String: PaneID] = [:]
+            for (paneIndex, pane) in templateColumn.panes.enumerated()
+                where paneIDByTemplateID[pane.id] == nil {
+                paneIDByTemplateID[pane.id] = paneIDsByColumn[columnIndex][paneIndex]
+            }
             let paneCount = templateColumn.panes.count
             let panes = templateColumn.panes.enumerated().map { index, templatePane -> PaneState in
                 makePane(
+                    paneID: paneIDsByColumn[columnIndex][index],
                     templatePane: templatePane,
                     paneIndex: index,
                     paneCountInColumn: paneCount,
@@ -45,19 +66,19 @@ enum WorkspaceTemplateImporter {
                     windowID: windowID,
                     worklaneID: worklaneID,
                     processEnvironment: processEnvironment,
-                    commandResolver: commandResolver,
+                    commandResolver: resolveCommand,
                     auxiliaryStateByPaneID: &auxiliaryStateByPaneID,
                     fallbacks: &fallbacks
                 )
             }
 
             return PaneColumnState(
-                id: PaneColumnID(templateColumn.id),
+                id: columnIDs[columnIndex],
                 panes: panes,
                 width: CGFloat(templateColumn.width),
                 paneHeights: templateColumn.paneHeights.map { CGFloat($0) },
-                focusedPaneID: templateColumn.focusedPaneID.map(PaneID.init),
-                lastFocusedPaneID: templateColumn.lastFocusedPaneID.map(PaneID.init)
+                focusedPaneID: templateColumn.focusedPaneID.flatMap { paneIDByTemplateID[$0] },
+                lastFocusedPaneID: templateColumn.lastFocusedPaneID.flatMap { paneIDByTemplateID[$0] }
             )
         }
 
@@ -66,7 +87,7 @@ enum WorkspaceTemplateImporter {
             title: template.title ?? "",
             paneStripState: PaneStripState(
                 columns: columns,
-                focusedColumnID: template.focusedColumnID.map(PaneColumnID.init),
+                focusedColumnID: template.focusedColumnID.flatMap { columnIDByTemplateID[$0] },
                 layoutSizing: layoutContext.sizing
             ),
             nextPaneNumber: max(template.nextPaneNumber, 1),
@@ -79,6 +100,7 @@ enum WorkspaceTemplateImporter {
     }
 
     private static func makePane(
+        paneID: PaneID,
         templatePane: WorkspaceTemplate.Pane,
         paneIndex: Int,
         paneCountInColumn: Int,
@@ -93,7 +115,6 @@ enum WorkspaceTemplateImporter {
         auxiliaryStateByPaneID: inout [PaneID: PaneAuxiliaryState],
         fallbacks: inout [Fallback]
     ) -> PaneState {
-        let paneID = PaneID(templatePane.id)
         let requested = trimmed(templatePane.workingDirectory) ?? trimmed(fallbackWorkingDirectory)
 
         let savedCommand = trimmed(templatePane.command)

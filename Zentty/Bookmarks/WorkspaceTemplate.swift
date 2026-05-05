@@ -113,6 +113,21 @@ struct WorkspaceTemplate: Codable, Equatable, Sendable, Identifiable {
         copy.updatedAt = Date()
         return copy
     }
+
+    func strippingUnsafeEnvironment() -> WorkspaceTemplate {
+        var copy = self
+        copy.columns = copy.columns.map { column in
+            var column = column
+            column.panes = column.panes.map { pane in
+                var pane = pane
+                pane.environment = WorklaneSessionEnvironment.templateSafeOverrides(from: pane.environment)
+                return pane
+            }
+            return column
+        }
+        copy.updatedAt = Date()
+        return copy
+    }
 }
 
 struct WorkspaceTemplateBundle: Codable, Equatable, Sendable {

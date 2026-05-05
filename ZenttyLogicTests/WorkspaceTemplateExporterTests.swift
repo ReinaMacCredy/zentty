@@ -69,6 +69,77 @@ final class WorkspaceTemplateExporterTests: XCTestCase {
         XCTAssertEqual(restored.allPanes.first?.command, "claude --yolo")
     }
 
+    func test_export_strips_reserved_environment_keys() throws {
+        let original = WorkspaceTemplate(
+            name: "Env",
+            kind: .preset,
+            columns: [
+                WorkspaceTemplate.Column(
+                    id: "c0",
+                    width: 600,
+                    focusedPaneID: "p1",
+                    lastFocusedPaneID: "p1",
+                    paneHeights: [1.0],
+                    panes: [
+                        WorkspaceTemplate.Pane(
+                            id: "p1",
+                            environment: [
+                                "TERM": "xterm-256color",
+                                "NODE_ENV": "production",
+                                "ZENTTY_WINDOW_ID": "stale-window",
+                                "ZENTTY_PANE_TOKEN": "stale-token",
+                                "PATH": "/tmp/stale-bin",
+                                "ZDOTDIR": "/tmp/stale-zdotdir",
+                            ]
+                        ),
+                    ]
+                ),
+            ]
+        )
+
+        let data = try WorkspaceTemplateExporter.export(original)
+        let restored = try WorkspaceTemplateExporter.importTemplate(from: data)
+
+        XCTAssertEqual(restored.allPanes.first?.environment, [
+            "NODE_ENV": "production",
+            "TERM": "xterm-256color",
+        ])
+    }
+
+    func test_import_strips_reserved_environment_keys_from_external_files() throws {
+        let original = WorkspaceTemplate(
+            name: "Imported Env",
+            kind: .preset,
+            columns: [
+                WorkspaceTemplate.Column(
+                    id: "c0",
+                    width: 600,
+                    focusedPaneID: "p1",
+                    lastFocusedPaneID: "p1",
+                    paneHeights: [1.0],
+                    panes: [
+                        WorkspaceTemplate.Pane(
+                            id: "p1",
+                            environment: [
+                                "NODE_ENV": "production",
+                                "ZENTTY_PANE_TOKEN": "stale-token",
+                                "PATH": "/tmp/stale-bin",
+                            ]
+                        ),
+                    ]
+                ),
+            ]
+        )
+        let envelope = WorkspaceTemplateExporter.ExportEnvelope(template: original)
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(envelope)
+
+        let restored = try WorkspaceTemplateExporter.importTemplate(from: data)
+
+        XCTAssertEqual(restored.allPanes.first?.environment, ["NODE_ENV": "production"])
+    }
+
     func test_imported_template_resets_pinned_and_lastUsedAt() throws {
         let original = WorkspaceTemplate(
             name: "Pinned demo",

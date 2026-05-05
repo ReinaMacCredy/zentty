@@ -97,6 +97,32 @@ final class WorkspaceTemplateCaptureTests: XCTestCase {
         XCTAssertEqual(template.allPanes.first?.titleSeed, "My favourite shell")
     }
 
+    func test_capture_persists_only_template_safe_environment_overrides() {
+        let pane = paneFixture(
+            id: "p1",
+            cwd: "/Users/peter",
+            processName: nil,
+            environment: [
+                "NODE_ENV": "production",
+                "TERM": "xterm-256color",
+                "ZENTTY_WINDOW_ID": "window-stale",
+                "ZENTTY_PANE_TOKEN": "token-stale",
+                "PATH": "/tmp/stale-bin",
+                "ZDOTDIR": "/tmp/stale-zdotdir",
+                "PROMPT_COMMAND": "stale-prompt",
+                "GHOSTTY_LOG": "macos,no-stderr",
+            ]
+        )
+        let worklane = makeWorklane(panes: [pane], color: nil)
+
+        let template = WorkspaceTemplateCapture.capture(worklane: worklane, kind: .bookmark, name: "Test")
+
+        XCTAssertEqual(template.allPanes.first?.environment, [
+            "NODE_ENV": "production",
+            "TERM": "xterm-256color",
+        ])
+    }
+
     private struct PaneFixture {
         let pane: PaneState
         let auxiliary: PaneAuxiliaryState
@@ -106,13 +132,17 @@ final class WorkspaceTemplateCaptureTests: XCTestCase {
         id: String,
         cwd: String,
         processName: String?,
-        rememberedTitle: String? = nil
+        rememberedTitle: String? = nil,
+        environment: [String: String] = [:]
     ) -> PaneFixture {
         let paneID = PaneID(id)
         let pane = PaneState(
             id: paneID,
             title: "shell",
-            sessionRequest: TerminalSessionRequest(workingDirectory: cwd)
+            sessionRequest: TerminalSessionRequest(
+                workingDirectory: cwd,
+                environmentVariables: environment
+            )
         )
         let metadata = TerminalMetadata(
             title: nil,

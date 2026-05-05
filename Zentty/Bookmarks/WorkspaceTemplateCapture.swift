@@ -66,7 +66,9 @@ enum WorkspaceTemplateCapture {
             titleSeed: trimmed(auxiliary?.presentation.rememberedTitle) ?? trimmed(pane.title),
             workingDirectory: workingDirectory,
             command: detectedCommand(auxiliary: auxiliary),
-            environment: pane.sessionRequest.environmentVariables,
+            environment: WorklaneSessionEnvironment.templateSafeOverrides(
+                from: pane.sessionRequest.environmentVariables
+            ),
             wasUserEdited: false
         )
     }

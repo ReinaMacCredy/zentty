@@ -22,7 +22,7 @@ enum WorkspaceTemplateExporter {
     }
 
     static func export(_ template: WorkspaceTemplate) throws -> Data {
-        let envelope = ExportEnvelope(template: presetCopy(of: template))
+        let envelope = ExportEnvelope(template: presetCopy(of: template).strippingUnsafeEnvironment())
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
@@ -55,7 +55,7 @@ enum WorkspaceTemplateExporter {
                 supported: ExportEnvelope.currentSchemaVersion
             )
         }
-        var template = envelope.template
+        var template = envelope.template.strippingUnsafeEnvironment()
         template.id = UUID()
         template.createdAt = Date()
         template.updatedAt = Date()

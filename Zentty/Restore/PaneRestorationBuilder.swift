@@ -62,12 +62,8 @@ enum PaneRestorationBuilder {
             initialWorkingDirectory: resolvedDirectory,
             processEnvironment: processEnvironment
         )
-        for (key, value) in inputs.environmentOverrides {
-            let trimmedKey = key.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmedKey.isEmpty else {
-                continue
-            }
-            environment[trimmedKey] = value
+        for (key, value) in WorklaneSessionEnvironment.templateSafeOverrides(from: inputs.environmentOverrides) {
+            environment[key] = value
         }
 
         let pane = PaneState(
