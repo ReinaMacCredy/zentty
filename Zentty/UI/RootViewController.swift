@@ -89,6 +89,7 @@ final class RootViewController: NSViewController {
     private let globalSearchHUDView = WindowSearchHUDView()
     private let runtimeRegistry: PaneRuntimeRegistry
     private let agentStatusCenter = AgentStatusCenter()
+    private let agentCaffeinationController = AgentCaffeinationController.shared
     private let sidebarMotionCoordinator: SidebarMotionCoordinator
     private let themeCoordinator: ThemeCoordinator
     private let notificationCoordinator: NotificationChromeCoordinator
@@ -290,6 +291,7 @@ final class RootViewController: NSViewController {
     deinit {
         MainActor.assumeIsolated {
             invalidateStaleAgentSweepTimer()
+            agentCaffeinationController.removeSource(id: windowID)
             if let appUpdateObserverID {
                 appUpdateStateStore.removeObserver(appUpdateObserverID)
             }
@@ -322,6 +324,7 @@ final class RootViewController: NSViewController {
         setupSidebarCallbacks()
         setupCoordinatorsAndServices()
         applyInitialState()
+        syncAgentCaffeinationState()
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(handleCleanCopyDidModifyPasteboard),
@@ -450,6 +453,13 @@ final class RootViewController: NSViewController {
         _ = worklaneStore.subscribe { [weak self] change in
             guard let self else {
                 return
+            }
+
+            switch change {
+            case .historyChanged:
+                break
+            default:
+                self.syncAgentCaffeinationState()
             }
 
             switch change {
@@ -2430,10 +2440,19 @@ final class RootViewController: NSViewController {
         updatePaneLayoutContextIfNeeded(force: true)
         renderCoordinator.render()
         updateOpenWithChromeState()
+        syncAgentCaffeinationState()
 
         if appearanceDidChange {
             themeCoordinator.refreshTheme(for: view.effectiveAppearance, animated: true)
         }
+    }
+
+    private func syncAgentCaffeinationState() {
+        agentCaffeinationController.setSource(
+            id: windowID,
+            enabled: configStore.current.agentCaffeination.enabled,
+            hasRunningAgent: worklaneStore.hasRunningAgentPane
+        )
     }
 
     private func updatePaneNavigationButtonState() {

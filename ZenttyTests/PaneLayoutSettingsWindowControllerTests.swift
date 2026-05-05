@@ -285,7 +285,36 @@ final class SettingsWindowControllerTests: XCTestCase {
             contentController.currentSectionViewController as? AgentsSettingsSectionViewController
         )
         XCTAssertTrue(agentsController.isAgentTeamsSwitchOn)
+        XCTAssertTrue(agentsController.isAgentCaffeinationSwitchOn)
         XCTAssertEqual(agentsController.experimentalBadgeText, "EXPERIMENTAL")
+    }
+
+    func test_agents_section_updates_agent_caffeination_preference() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
+        )
+        let controller = SettingsWindowController(
+            configStore: store,
+            initialSection: .agents
+        )
+        addTeardownBlock { controller.window?.close() }
+
+        controller.show(section: .agents, sender: nil)
+        waitForLayout()
+
+        let contentController = try XCTUnwrap(
+            controller.window?.contentViewController as? SettingsViewController
+        )
+        let agentsController = try XCTUnwrap(
+            contentController.currentSectionViewController as? AgentsSettingsSectionViewController
+        )
+
+        XCTAssertTrue(agentsController.isAgentCaffeinationSwitchOn)
+
+        agentsController.setAgentCaffeinationEnabledForTesting(false)
+
+        XCTAssertFalse(store.current.agentCaffeination.enabled)
+        XCTAssertFalse(agentsController.isAgentCaffeinationSwitchOn)
     }
 
     func test_agents_section_experimental_badge_is_optically_aligned_with_title() throws {

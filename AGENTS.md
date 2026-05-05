@@ -6,17 +6,17 @@ Two test targets:
 - **ZenttyLogicTests** — no app host, parallel-safe. Pure logic + detached AppKit component tests (~380 tests).
 - **ZenttyTests** — hosted in Zentty.app, serial. Tests that need real windows or app lifecycle (~24 tests).
 
-Run all tests (scheme controls parallelism per-target automatically):
+Run the full all-target gate only when you explicitly need Logic + hosted app + integration in one command. This will run hosted AppKit tests on the active display:
 ```
 TEST_RUNNER_SWIFT_BACKTRACE=enable=no xcodebuild test -scheme Zentty -destination 'platform=macOS'
 ```
 
-Run hosted window tests on a local virtual display when you need to reduce visual interruption:
+For normal local verification of hosted window/AppKit behavior, use the virtual-display harness instead of running `ZenttyTests` through plain `xcodebuild`:
 ```
 scripts/test-hosted-on-virtual-display
 ```
 
-The virtual-display harness is optional and local-only. It creates or reuses a display named `ZenttyTests`, sets `ZENTTY_TEST_SCREEN_NAME=ZenttyTests`, and runs the hosted `ZenttyTests` target. It supports `ZENTTY_TEST_DISPLAY_PROVIDER=auto`, `betterdisplay`, or `simpledisplay`; `auto` prefers BetterDisplay when available. This can move test windows off the active display, but AppKit tests still run in the same Aqua session and can still steal focus.
+The virtual-display harness is the expected local path for `ZenttyTests`. It creates or reuses a display named `ZenttyTests`, sets `ZENTTY_TEST_SCREEN_NAME=ZenttyTests`, and runs the hosted `ZenttyTests` target. It supports `ZENTTY_TEST_DISPLAY_PROVIDER=auto`, `betterdisplay`, or `simpledisplay`; `auto` prefers BetterDisplay when available. This can move test windows off the active display, but AppKit tests still run in the same Aqua session and can still steal focus.
 
 **Always prefix with `TEST_RUNNER_SWIFT_BACKTRACE=enable=no`.** On macOS 26 (Tahoe) the Swift backtrace handler shows an interactive "Press space to interact" prompt on crash, which hangs xcodebuild indefinitely until a 30s timeout. The `TEST_RUNNER_` prefix forwards env vars from xcodebuild to the xctest subprocess (a plain `SWIFT_BACKTRACE=...` on xcodebuild does NOT propagate).
 

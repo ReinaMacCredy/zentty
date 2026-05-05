@@ -690,6 +690,53 @@ final class AppConfigStoreTests: XCTestCase {
         XCTAssertFalse(store.current.agentTeams.enabled)
     }
 
+    func test_store_defaults_agent_caffeination_to_enabled() {
+        let store = AppConfigStore(
+            fileURL: temporaryDirectoryURL.appendingPathComponent("config.toml"),
+            sidebarWidthDefaults: sidebarWidthDefaults,
+            sidebarVisibilityDefaults: sidebarVisibilityDefaults,
+            paneLayoutDefaults: paneLayoutDefaults
+        )
+
+        XCTAssertTrue(store.current.agentCaffeination.enabled)
+    }
+
+    func test_store_reads_agent_caffeination_opt_out_from_config_file() throws {
+        let fileURL = temporaryDirectoryURL.appendingPathComponent("config.toml")
+        try """
+        [agent_caffeination]
+        enabled = false
+        """.write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let store = AppConfigStore(
+            fileURL: fileURL,
+            sidebarWidthDefaults: sidebarWidthDefaults,
+            sidebarVisibilityDefaults: sidebarVisibilityDefaults,
+            paneLayoutDefaults: paneLayoutDefaults
+        )
+
+        XCTAssertFalse(store.current.agentCaffeination.enabled)
+    }
+
+    func test_store_persists_agent_caffeination_enabled_in_toml() throws {
+        let fileURL = temporaryDirectoryURL.appendingPathComponent("config.toml")
+        let store = AppConfigStore(
+            fileURL: fileURL,
+            sidebarWidthDefaults: sidebarWidthDefaults,
+            sidebarVisibilityDefaults: sidebarVisibilityDefaults,
+            paneLayoutDefaults: paneLayoutDefaults
+        )
+
+        try store.update { config in
+            config.agentCaffeination.enabled = false
+        }
+
+        let persisted = try String(contentsOf: fileURL)
+        XCTAssertTrue(persisted.contains("[agent_caffeination]"))
+        XCTAssertTrue(persisted.contains("enabled = false"))
+        XCTAssertFalse(store.current.agentCaffeination.enabled)
+    }
+
     func test_store_reads_agent_teams_enabled_from_config_file() throws {
         let fileURL = temporaryDirectoryURL.appendingPathComponent("config.toml")
         try """
@@ -730,5 +777,178 @@ final class AppConfigStoreTests: XCTestCase {
         let suiteName = "ZenttyTests.AppConfigStoreTests.\(suffix).\(UUID().uuidString)"
         defaultsSuiteNames.append(suiteName)
         return UserDefaults(suiteName: suiteName) ?? .standard
+    }
+}
+
+@MainActor
+final class AgentCaffeinationControllerTests: XCTestCase {
+    private final class Token: NSObject {
+        let id: Int
+
+        init(id: Int) {
+            self.id = id
+        }
+    }
+
+    @MainActor
+    private final class ManualReleaseHandle: AgentCaffeinationScheduledHandle {
+        private(set) var isCancelled = false
+        private let operation: @MainActor () -> Void
+
+        init(operation: @escaping @MainActor () -> Void) {
+            self.operation = operation
+        }
+
+        func cancel() {
+            isCancelled = true
+        }
+
+        func run() {
+            guard !isCancelled else { return }
+            isCancelled = true
+            operation()
+        }
+    }
+
+    @MainActor
+    private final class Harness {
+        var beginCount = 0
+        var endedTokenIDs: [Int] = []
+        var scheduledIntervals: [TimeInterval] = []
+        var handles: [ManualReleaseHandle] = []
+
+        lazy var controller = AgentCaffeinationController(
+            releaseDebounceInterval: 10,
+            beginActivity: { [weak self] _ in
+                guard let self else { return Token(id: -1) }
+                self.beginCount += 1
+                return Token(id: self.beginCount)
+            },
+            endActivity: { [weak self] token in
+                guard let self, let token = token as? Token else { return }
+                self.endedTokenIDs.append(token.id)
+            },
+            releaseScheduler: { [weak self] interval, operation in
+                let handle = ManualReleaseHandle(operation: operation)
+                self?.scheduledIntervals.append(interval)
+                self?.handles.append(handle)
+                return handle
+            }
+        )
+    }
+
+    func test_acquires_once_when_first_enabled_source_reports_running() {
+        let harness = Harness()
+
+        harness.controller.setSource(id: WindowID("window-1"), enabled: true, hasRunningAgent: true)
+        harness.controller.setSource(id: WindowID("window-1"), enabled: true, hasRunningAgent: true)
+
+        XCTAssertEqual(harness.beginCount, 1)
+        XCTAssertEqual(harness.endedTokenIDs, [])
+    }
+
+    func test_does_not_acquire_when_source_is_disabled() {
+        let harness = Harness()
+
+        harness.controller.setSource(id: WindowID("window-1"), enabled: false, hasRunningAgent: true)
+
+        XCTAssertEqual(harness.beginCount, 0)
+        XCTAssertEqual(harness.endedTokenIDs, [])
+    }
+
+    func test_schedules_release_after_last_source_stops() {
+        let harness = Harness()
+
+        harness.controller.setSource(id: WindowID("window-1"), enabled: true, hasRunningAgent: true)
+        harness.controller.setSource(id: WindowID("window-1"), enabled: true, hasRunningAgent: false)
+
+        XCTAssertEqual(harness.beginCount, 1)
+        XCTAssertEqual(harness.scheduledIntervals, [10])
+        XCTAssertEqual(harness.endedTokenIDs, [])
+
+        harness.handles.last?.run()
+
+        XCTAssertEqual(harness.endedTokenIDs, [1])
+    }
+
+    func test_cancels_pending_release_when_running_returns_before_debounce_fires() {
+        let harness = Harness()
+
+        harness.controller.setSource(id: WindowID("window-1"), enabled: true, hasRunningAgent: true)
+        harness.controller.setSource(id: WindowID("window-1"), enabled: true, hasRunningAgent: false)
+        let firstRelease = harness.handles.last
+
+        harness.controller.setSource(id: WindowID("window-1"), enabled: true, hasRunningAgent: true)
+
+        XCTAssertTrue(firstRelease?.isCancelled == true)
+        XCTAssertEqual(harness.beginCount, 1)
+        XCTAssertEqual(harness.endedTokenIDs, [])
+    }
+
+    func test_releases_immediately_when_source_is_disabled() {
+        let harness = Harness()
+
+        harness.controller.setSource(id: WindowID("window-1"), enabled: true, hasRunningAgent: true)
+        harness.controller.setSource(id: WindowID("window-1"), enabled: false, hasRunningAgent: true)
+
+        XCTAssertEqual(harness.beginCount, 1)
+        XCTAssertEqual(harness.scheduledIntervals, [])
+        XCTAssertEqual(harness.endedTokenIDs, [1])
+    }
+
+    func test_keeps_activity_while_any_source_is_running() {
+        let harness = Harness()
+
+        harness.controller.setSource(id: WindowID("window-1"), enabled: true, hasRunningAgent: true)
+        harness.controller.setSource(id: WindowID("window-2"), enabled: true, hasRunningAgent: true)
+        harness.controller.setSource(id: WindowID("window-1"), enabled: true, hasRunningAgent: false)
+
+        XCTAssertEqual(harness.beginCount, 1)
+        XCTAssertEqual(harness.scheduledIntervals, [])
+        XCTAssertEqual(harness.endedTokenIDs, [])
+
+        harness.controller.setSource(id: WindowID("window-2"), enabled: true, hasRunningAgent: false)
+
+        XCTAssertEqual(harness.scheduledIntervals, [10])
+    }
+
+    func test_disabled_source_does_not_release_activity_held_by_another_source() {
+        let harness = Harness()
+
+        harness.controller.setSource(id: WindowID("window-1"), enabled: true, hasRunningAgent: true)
+        harness.controller.setSource(id: WindowID("window-2"), enabled: true, hasRunningAgent: true)
+        harness.controller.setSource(id: WindowID("window-1"), enabled: false, hasRunningAgent: true)
+
+        XCTAssertEqual(harness.beginCount, 1)
+        XCTAssertEqual(harness.scheduledIntervals, [])
+        XCTAssertEqual(harness.endedTokenIDs, [])
+    }
+
+    func test_remove_source_releases_after_debounce() {
+        let harness = Harness()
+
+        harness.controller.setSource(id: WindowID("window-1"), enabled: true, hasRunningAgent: true)
+        harness.controller.removeSource(id: WindowID("window-1"))
+
+        XCTAssertEqual(harness.scheduledIntervals, [10])
+
+        harness.handles.last?.run()
+
+        XCTAssertEqual(harness.endedTokenIDs, [1])
+    }
+
+    func test_deinit_releases_active_activity() {
+        let harness = Harness()
+        var controller: AgentCaffeinationController? = harness.controller
+
+        controller?.setSource(id: WindowID("window-1"), enabled: true, hasRunningAgent: true)
+        controller = nil
+        harness.controller = AgentCaffeinationController(
+            beginActivity: { _ in Token(id: 2) },
+            endActivity: { _ in },
+            releaseScheduler: { _, operation in ManualReleaseHandle(operation: operation) }
+        )
+
+        XCTAssertEqual(harness.endedTokenIDs, [1])
     }
 }
