@@ -8,6 +8,167 @@ struct WindowID: Hashable, Equatable, Sendable {
     }
 }
 
+@MainActor
+protocol AgentCaffeinationScheduledHandle: AnyObject {
+    func cancel()
+}
+
+@MainActor
+private final class TaskAgentCaffeinationScheduledHandle: AgentCaffeinationScheduledHandle {
+    private let task: Task<Void, Never>
+
+    init(task: Task<Void, Never>) {
+        self.task = task
+    }
+
+    func cancel() {
+        task.cancel()
+    }
+}
+
+@MainActor
+final class AgentCaffeinationController {
+    typealias ActivityToken = any NSObjectProtocol
+    typealias BeginActivity = @MainActor @Sendable (_ reason: String) -> ActivityToken
+    typealias EndActivity = @MainActor @Sendable (_ token: ActivityToken) -> Void
+    typealias ReleaseScheduler = @MainActor @Sendable (
+        _ interval: TimeInterval,
+        _ operation: @escaping @MainActor () -> Void
+    ) -> any AgentCaffeinationScheduledHandle
+
+    static let shared = AgentCaffeinationController()
+
+    private struct SourceState: Equatable {
+        var enabled: Bool
+        var hasRunningAgent: Bool
+
+        var isActive: Bool {
+            enabled && hasRunningAgent
+        }
+    }
+
+    private let releaseDebounceInterval: TimeInterval
+    private let beginActivity: BeginActivity
+    private let endActivity: EndActivity
+    private let releaseScheduler: ReleaseScheduler
+    private var sourcesByID: [WindowID: SourceState] = [:]
+    private var activityToken: ActivityToken?
+    private var pendingRelease: (any AgentCaffeinationScheduledHandle)?
+
+    init(
+        releaseDebounceInterval: TimeInterval = 10,
+        beginActivity: @escaping BeginActivity = AgentCaffeinationController.defaultBeginActivity,
+        endActivity: @escaping EndActivity = AgentCaffeinationController.defaultEndActivity,
+        releaseScheduler: @escaping ReleaseScheduler = AgentCaffeinationController.defaultReleaseScheduler
+    ) {
+        self.releaseDebounceInterval = releaseDebounceInterval
+        self.beginActivity = beginActivity
+        self.endActivity = endActivity
+        self.releaseScheduler = releaseScheduler
+    }
+
+    deinit {
+        MainActor.assumeIsolated {
+            releaseNow()
+        }
+    }
+
+    func setSource(id: WindowID, enabled: Bool, hasRunningAgent: Bool) {
+        sourcesByID[id] = SourceState(enabled: enabled, hasRunningAgent: hasRunningAgent)
+        reconcile(allowDebouncedRelease: enabled)
+    }
+
+    func removeSource(id: WindowID) {
+        sourcesByID.removeValue(forKey: id)
+        reconcile(allowDebouncedRelease: true)
+    }
+
+    private var hasActiveSource: Bool {
+        sourcesByID.values.contains { $0.isActive }
+    }
+
+    private func reconcile(allowDebouncedRelease: Bool) {
+        if hasActiveSource {
+            cancelPendingRelease()
+            acquireIfNeeded()
+            return
+        }
+
+        guard activityToken != nil else {
+            cancelPendingRelease()
+            return
+        }
+
+        if allowDebouncedRelease, releaseDebounceInterval > 0 {
+            scheduleReleaseIfNeeded()
+        } else {
+            releaseNow()
+        }
+    }
+
+    private func acquireIfNeeded() {
+        guard activityToken == nil else {
+            return
+        }
+
+        activityToken = beginActivity("Zentty agent is running")
+    }
+
+    private func scheduleReleaseIfNeeded() {
+        guard pendingRelease == nil else {
+            return
+        }
+
+        pendingRelease = releaseScheduler(releaseDebounceInterval) { [weak self] in
+            self?.pendingRelease = nil
+            guard self?.hasActiveSource == false else {
+                return
+            }
+            self?.releaseNow()
+        }
+    }
+
+    private func releaseNow() {
+        cancelPendingRelease()
+        guard let token = activityToken else {
+            return
+        }
+
+        activityToken = nil
+        endActivity(token)
+    }
+
+    private func cancelPendingRelease() {
+        pendingRelease?.cancel()
+        pendingRelease = nil
+    }
+
+    private static func defaultBeginActivity(reason: String) -> ActivityToken {
+        ProcessInfo.processInfo.beginActivity(
+            options: .idleSystemSleepDisabled,
+            reason: reason
+        )
+    }
+
+    private static func defaultEndActivity(_ token: ActivityToken) {
+        ProcessInfo.processInfo.endActivity(token)
+    }
+
+    private static func defaultReleaseScheduler(
+        interval: TimeInterval,
+        operation: @escaping @MainActor () -> Void
+    ) -> any AgentCaffeinationScheduledHandle {
+        let task = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(interval))
+            guard !Task.isCancelled else {
+                return
+            }
+            operation()
+        }
+        return TaskAgentCaffeinationScheduledHandle(task: task)
+    }
+}
+
 // MARK: - AppNotification
 
 struct AppNotification: Identifiable, Equatable, Sendable {

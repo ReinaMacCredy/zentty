@@ -501,7 +501,10 @@ final class SettingsViewController: NSTabViewController {
         generalViewController.apply(clipboard: config.clipboard)
         generalViewController.apply(updates: config.updates)
         generalViewController.apply(errorReporting: config.errorReporting)
-        agentsViewController.apply(agentTeams: config.agentTeams)
+        agentsViewController.apply(
+            agentTeams: config.agentTeams,
+            agentCaffeination: config.agentCaffeination
+        )
         shortcutsViewController.apply(shortcuts: config.shortcuts)
         paneLayoutViewController.apply(panes: config.panes)
         openWithViewController.apply(preferences: config.openWith)

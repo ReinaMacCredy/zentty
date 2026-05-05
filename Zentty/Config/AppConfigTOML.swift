@@ -24,6 +24,7 @@ enum AppConfigTOML {
         case updates
         case restore
         case agentTeams
+        case agentCaffeination
     }
 
     static func encode(_ config: AppConfig) -> String {
@@ -122,6 +123,10 @@ enum AppConfigTOML {
         lines.append("[agent_teams]")
         lines.append("enabled = \(config.agentTeams.enabled)")
 
+        lines.append("")
+        lines.append("[agent_caffeination]")
+        lines.append("enabled = \(config.agentCaffeination.enabled)")
+
         return lines.joined(separator: "\n") + "\n"
     }
 
@@ -199,6 +204,10 @@ enum AppConfigTOML {
                 section = .agentTeams
                 continue
             }
+            if line == "[agent_caffeination]" {
+                section = .agentCaffeination
+                continue
+            }
             guard let assignment = parseAssignment(line) else {
                 return nil
             }
@@ -266,6 +275,10 @@ enum AppConfigTOML {
                 }
             case .agentTeams:
                 guard decodeAgentTeamsAssignment(assignment, into: &config) else {
+                    return nil
+                }
+            case .agentCaffeination:
+                guard decodeAgentCaffeinationAssignment(assignment, into: &config) else {
                     return nil
                 }
             case .root:
@@ -572,6 +585,20 @@ enum AppConfigTOML {
         case "enabled":
             guard let value = decodeBool(assignment.value) else { return false }
             config.agentTeams.enabled = value
+        default:
+            return true
+        }
+        return true
+    }
+
+    private static func decodeAgentCaffeinationAssignment(
+        _ assignment: (key: String, value: String),
+        into config: inout AppConfig
+    ) -> Bool {
+        switch assignment.key {
+        case "enabled":
+            guard let value = decodeBool(assignment.value) else { return false }
+            config.agentCaffeination.enabled = value
         default:
             return true
         }

@@ -943,8 +943,10 @@ final class AgentsSettingsSectionViewController: SettingsScrollableSectionViewCo
     private let configStore: AppConfigStore
     private let agentTeamsEnableWarningPresenter: AgentTeamsEnableWarningPresenter
     private var currentAgentTeams: AppConfig.AgentTeams
+    private var currentAgentCaffeination: AppConfig.AgentCaffeination
 
     private let agentTeamsSwitch = NSSwitch()
+    private let agentCaffeinationSwitch = NSSwitch()
     private let experimentalBadgeLabel = NSTextField(labelWithString: "EXPERIMENTAL")
     private weak var agentTeamsTitleLabel: NSTextField?
 
@@ -956,6 +958,7 @@ final class AgentsSettingsSectionViewController: SettingsScrollableSectionViewCo
         self.configStore = configStore
         self.agentTeamsEnableWarningPresenter = agentTeamsEnableWarningPresenter
         self.currentAgentTeams = configStore.current.agentTeams
+        self.currentAgentCaffeination = configStore.current.agentCaffeination
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -984,6 +987,10 @@ final class AgentsSettingsSectionViewController: SettingsScrollableSectionViewCo
         cardStack.addArrangedSubview(agentTeamsRow)
         agentTeamsRow.widthAnchor.constraint(equalTo: cardStack.widthAnchor).isActive = true
 
+        let agentCaffeinationRow = makeAgentCaffeinationRow()
+        cardStack.addArrangedSubview(agentCaffeinationRow)
+        agentCaffeinationRow.widthAnchor.constraint(equalTo: cardStack.widthAnchor).isActive = true
+
         NSLayoutConstraint.activate([
             cardStack.topAnchor.constraint(equalTo: card.topAnchor),
             cardStack.leadingAnchor.constraint(equalTo: card.leadingAnchor),
@@ -1005,12 +1012,18 @@ final class AgentsSettingsSectionViewController: SettingsScrollableSectionViewCo
     override func viewDidLoad() {
         super.viewDidLoad()
         agentTeamsSwitch.state = currentAgentTeams.enabled ? .on : .off
+        agentCaffeinationSwitch.state = currentAgentCaffeination.enabled ? .on : .off
     }
 
-    func apply(agentTeams: AppConfig.AgentTeams) {
+    func apply(
+        agentTeams: AppConfig.AgentTeams,
+        agentCaffeination: AppConfig.AgentCaffeination
+    ) {
         currentAgentTeams = agentTeams
+        currentAgentCaffeination = agentCaffeination
         guard isViewLoaded else { return }
         agentTeamsSwitch.state = agentTeams.enabled ? .on : .off
+        agentCaffeinationSwitch.state = agentCaffeination.enabled ? .on : .off
     }
 
     private func makeAgentTeamsRow() -> NSView {
@@ -1079,6 +1092,52 @@ final class AgentsSettingsSectionViewController: SettingsScrollableSectionViewCo
         return container
     }
 
+    private func makeAgentCaffeinationRow() -> NSView {
+        let container = NSView()
+        container.translatesAutoresizingMaskIntoConstraints = false
+
+        let leftStack = NSStackView()
+        leftStack.orientation = .vertical
+        leftStack.alignment = .leading
+        leftStack.spacing = 4
+        leftStack.translatesAutoresizingMaskIntoConstraints = false
+
+        let titleLabel = makeLabel(
+            text: "Prevent sleep while agents run",
+            font: .systemFont(ofSize: 13, weight: .semibold)
+        )
+        leftStack.addArrangedSubview(titleLabel)
+
+        let subtitleLabel = makeLabel(
+            text: "Keep the Mac awake while an agent pane is running. The display can still sleep.",
+            font: .systemFont(ofSize: 12, weight: .regular)
+        )
+        subtitleLabel.textColor = .secondaryLabelColor
+        leftStack.addArrangedSubview(subtitleLabel)
+
+        agentCaffeinationSwitch.target = self
+        agentCaffeinationSwitch.action = #selector(handleAgentCaffeinationSwitchChanged(_:))
+
+        container.addSubview(leftStack)
+        container.addSubview(agentCaffeinationSwitch)
+        agentCaffeinationSwitch.translatesAutoresizingMaskIntoConstraints = false
+
+        NSLayoutConstraint.activate([
+            leftStack.topAnchor.constraint(equalTo: container.topAnchor, constant: 14),
+            leftStack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16),
+            leftStack.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -14),
+
+            agentCaffeinationSwitch.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            agentCaffeinationSwitch.leadingAnchor.constraint(
+                greaterThanOrEqualTo: leftStack.trailingAnchor,
+                constant: 12
+            ),
+            agentCaffeinationSwitch.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -16),
+        ])
+
+        return container
+    }
+
     private func configureExperimentalBadge() {
         experimentalBadgeLabel.font = .systemFont(ofSize: 10, weight: .bold)
         experimentalBadgeLabel.textColor = .secondaryLabelColor
@@ -1101,6 +1160,11 @@ final class AgentsSettingsSectionViewController: SettingsScrollableSectionViewCo
     @objc
     private func handleAgentTeamsSwitchChanged(_ sender: NSSwitch) {
         requestAgentTeamsChange(to: sender.state == .on)
+    }
+
+    @objc
+    private func handleAgentCaffeinationSwitchChanged(_ sender: NSSwitch) {
+        persistAgentCaffeinationEnabled(sender.state == .on)
     }
 
     private func requestAgentTeamsChange(to requestedValue: Bool) {
@@ -1138,6 +1202,14 @@ final class AgentsSettingsSectionViewController: SettingsScrollableSectionViewCo
         agentTeamsSwitch.state = currentAgentTeams.enabled ? .on : .off
     }
 
+    private func persistAgentCaffeinationEnabled(_ enabled: Bool) {
+        try? configStore.update { config in
+            config.agentCaffeination.enabled = enabled
+        }
+        currentAgentCaffeination = configStore.current.agentCaffeination
+        agentCaffeinationSwitch.state = currentAgentCaffeination.enabled ? .on : .off
+    }
+
     private func makeLabel(text: String, font: NSFont) -> NSTextField {
         let label = NSTextField(labelWithString: text)
         label.font = font
@@ -1148,6 +1220,10 @@ final class AgentsSettingsSectionViewController: SettingsScrollableSectionViewCo
 
     var isAgentTeamsSwitchOn: Bool {
         agentTeamsSwitch.state == .on
+    }
+
+    var isAgentCaffeinationSwitchOn: Bool {
+        agentCaffeinationSwitch.state == .on
     }
 
     var experimentalBadgeText: String {
@@ -1162,6 +1238,11 @@ final class AgentsSettingsSectionViewController: SettingsScrollableSectionViewCo
     func setAgentTeamsEnabledForTesting(_ enabled: Bool) {
         agentTeamsSwitch.state = enabled ? .on : .off
         requestAgentTeamsChange(to: enabled)
+    }
+
+    func setAgentCaffeinationEnabledForTesting(_ enabled: Bool) {
+        agentCaffeinationSwitch.state = enabled ? .on : .off
+        persistAgentCaffeinationEnabled(enabled)
     }
 }
 

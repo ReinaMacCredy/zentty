@@ -425,6 +425,22 @@ final class WorklaneStore {
         }
     }
 
+    var hasRunningAgentPane: Bool {
+        worklanes.contains { worklane in
+            let livePaneIDs = Set(worklane.paneStripState.panes.map(\.id))
+            return worklane.auxiliaryStateByPaneID.contains { paneID, auxiliaryState in
+                guard livePaneIDs.contains(paneID) else {
+                    return false
+                }
+
+                let statusRunning = auxiliaryState.agentStatus?.state == .running
+                let presentationRunning = auxiliaryState.presentation.recognizedTool != nil
+                    && auxiliaryState.presentation.runtimePhase == .running
+                return statusRunning || presentationRunning
+            }
+        }
+    }
+
     private func quitConfirmationReason(for auxiliaryState: PaneAuxiliaryState) -> PaneCloseReason? {
         if auxiliaryState.shellActivityState == .commandRunning
             || auxiliaryState.terminalProgress?.state.indicatesActivity == true {

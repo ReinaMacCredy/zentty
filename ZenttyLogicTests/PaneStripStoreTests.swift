@@ -45,6 +45,50 @@ final class PaneStripStoreTests: XCTestCase {
         }
     }
 
+    private func makeStoreWithAgentState(
+        toolName: String?,
+        state: PaneAgentState?
+    ) -> WorklaneStore {
+        let store = WorklaneStore()
+        let worklaneID = store.activeWorklane?.id ?? WorklaneID("worklane-main")
+        let paneID = store.activeWorklane?.paneStripState.focusedPaneID ?? PaneID("pane-main")
+        store.applyAgentStatusPayload(
+            AgentStatusPayload(
+                worklaneID: worklaneID,
+                paneID: paneID,
+                state: state,
+                origin: .explicitHook,
+                toolName: toolName,
+                text: nil,
+                confidence: .explicit,
+                sessionID: "session-1",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            )
+        )
+        return store
+    }
+
+    private func makeStoreWithAgentPresentation(
+        recognizedTool: AgentTool?,
+        runtimePhase: PanePresentationPhase
+    ) -> WorklaneStore {
+        let paneID = PaneID("pane")
+        var presentation = PanePresentationState()
+        presentation.recognizedTool = recognizedTool
+        presentation.runtimePhase = runtimePhase
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane"),
+            title: "Worklane",
+            paneStripState: PaneStripState(panes: [PaneState(id: paneID, title: "Agent")]),
+            auxiliaryStateByPaneID: [
+                paneID: PaneAuxiliaryState(presentation: presentation)
+            ]
+        )
+        return WorklaneStore(worklanes: [worklane])
+    }
+
     func test_store_starts_with_single_main_worklane_and_first_active() {
         let store = WorklaneStore()
 
@@ -56,6 +100,72 @@ final class PaneStripStoreTests: XCTestCase {
             store.activeWorklane?.paneStripState.panes.first?.sessionRequest.workingDirectory,
             NSHomeDirectory()
         )
+    }
+
+    func test_has_running_agent_pane_is_true_for_recognized_running_agent() {
+        let store = makeStoreWithAgentState(
+            toolName: "Codex",
+            state: .running
+        )
+
+        XCTAssertTrue(store.hasRunningAgentPane)
+    }
+
+    func test_has_running_agent_pane_is_true_for_title_derived_running_agent() throws {
+        let store = WorklaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        store.knownNonRepositoryPaths.insert("/tmp/project")
+
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "Working ⠋ zentty",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "codex",
+                gitBranch: "main"
+            )
+        )
+
+        XCTAssertTrue(store.hasRunningAgentPane)
+    }
+
+    func test_has_running_agent_pane_is_false_for_non_running_agent_states() {
+        for state in [PaneAgentState.starting, .needsInput, .idle, .unresolvedStop] {
+            let store = makeStoreWithAgentState(
+                toolName: "Codex",
+                state: state
+            )
+
+            XCTAssertFalse(store.hasRunningAgentPane, "Expected \(state.rawValue) not to caffeinate")
+        }
+    }
+
+    func test_has_running_agent_pane_is_false_for_unrecognized_running_presentation() {
+        let store = makeStoreWithAgentPresentation(
+            recognizedTool: nil,
+            runtimePhase: .running
+        )
+
+        XCTAssertFalse(store.hasRunningAgentPane)
+    }
+
+    func test_has_running_agent_pane_ignores_auxiliary_state_without_live_pane() {
+        let livePaneID = PaneID("live")
+        let stalePaneID = PaneID("stale")
+        var runningPresentation = PanePresentationState()
+        runningPresentation.recognizedTool = .codex
+        runningPresentation.runtimePhase = .running
+        let worklane = WorklaneState(
+            id: WorklaneID("worklane"),
+            title: "Worklane",
+            paneStripState: PaneStripState(panes: [PaneState(id: livePaneID, title: "Live")]),
+            auxiliaryStateByPaneID: [
+                stalePaneID: PaneAuxiliaryState(presentation: runningPresentation)
+            ]
+        )
+        let store = WorklaneStore(worklanes: [worklane])
+
+        XCTAssertFalse(store.hasRunningAgentPane)
     }
 
     func test_default_worklane_shell_session_uses_opaque_runtime_ids_in_environment() throws {
