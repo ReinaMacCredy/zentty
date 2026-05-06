@@ -313,11 +313,11 @@ final class SidebarWorklaneRowLayoutTests: XCTestCase {
         )
 
         sidebarView.layoutSubtreeIfNeeded()
-        let initialHeight = try XCTUnwrap(sidebarView.worklaneButtonsForTesting.first?.frame.height)
+        let initialHeight = try XCTUnwrap(sidebarView.debugSnapshotForTesting.worklaneButtons.first?.frame.height)
 
         sidebarView.frame.size.width = 220
         sidebarView.layoutSubtreeIfNeeded()
-        let resizedHeight = try XCTUnwrap(sidebarView.worklaneButtonsForTesting.first?.frame.height)
+        let resizedHeight = try XCTUnwrap(sidebarView.debugSnapshotForTesting.worklaneButtons.first?.frame.height)
 
         let expectedHeight = ShellMetrics.sidebarRowHeight(
             includesTopLabel: true,

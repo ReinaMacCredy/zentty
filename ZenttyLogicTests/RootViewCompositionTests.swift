@@ -335,13 +335,13 @@ final class RootViewCompositionTests: AppKitTestCase {
         controller.view.layoutSubtreeIfNeeded()
 
         let sidebarView = try XCTUnwrap(controller.view.subviews.first { $0 is SidebarView } as? SidebarView)
-        XCTAssertTrue(sidebarView.isUpdateRowHiddenForTesting)
+        XCTAssertTrue(sidebarView.debugSnapshotForTesting.isUpdateRowHidden)
 
         appUpdateStateStore.setUpdateAvailable(true)
         controller.view.layoutSubtreeIfNeeded()
 
-        XCTAssertFalse(sidebarView.isUpdateRowHiddenForTesting)
-        XCTAssertEqual(sidebarView.updateAvailableRowHeightForTesting, 28, accuracy: 0.001)
+        XCTAssertFalse(sidebarView.debugSnapshotForTesting.isUpdateRowHidden)
+        XCTAssertEqual(sidebarView.debugSnapshotForTesting.updateAvailableRowHeight, 28, accuracy: 0.001)
     }
 
     func test_root_controller_places_arrange_button_between_sidebar_toggle_and_navigation_buttons() throws {
@@ -648,7 +648,7 @@ final class RootViewCompositionTests: AppKitTestCase {
             theme: ZenttyTheme.fallback(for: nil)
         )
 
-        let webButton = try XCTUnwrap(sidebarView.worklaneButtonsForTesting.last)
+        let webButton = try XCTUnwrap(sidebarView.debugSnapshotForTesting.worklaneButtons.last)
         webButton.performClick(nil)
 
         XCTAssertEqual(selectedID, WorklaneID("worklane-web"))
@@ -1033,7 +1033,7 @@ final class RootViewCompositionTests: AppKitTestCase {
 
         sidebarView.layoutSubtreeIfNeeded()
 
-        let button = try XCTUnwrap(sidebarView.worklaneButtonsForTesting.first)
+        let button = try XCTUnwrap(sidebarView.debugSnapshotForTesting.worklaneButtons.first)
         let lastDetailLabel = try XCTUnwrap(
             button.descendantLabel(withText: lastDetailText)
         )
@@ -1145,7 +1145,7 @@ final class RootViewCompositionTests: AppKitTestCase {
         let restingTitleAlpha = sidebarView.addWorklaneTitleAlpha
         let restingIconAlpha = sidebarView.addWorklaneIconAlpha
 
-        sidebarView.setAddWorklaneHoveredForTesting(true)
+        sidebarView.performDebugActionForTesting(.setAddWorklaneHovered(true))
 
         XCTAssertTrue(sidebarView.addWorklaneUsesPointingHandCursor)
         XCTAssertGreaterThan(sidebarView.addWorklaneBackgroundAlpha, 0.01)
@@ -1159,10 +1159,10 @@ final class RootViewCompositionTests: AppKitTestCase {
 
         sidebarView.layoutSubtreeIfNeeded()
 
-        XCTAssertEqual(sidebarView.resizeHandleWidthForTesting, 4, accuracy: 0.001)
+        XCTAssertEqual(sidebarView.debugSnapshotForTesting.resizeHandleWidth, 4, accuracy: 0.001)
         XCTAssertEqual(
             sidebarView.resizeHandleMinX,
-            sidebarView.bounds.maxX - sidebarView.resizeHandleWidthForTesting,
+            sidebarView.bounds.maxX - sidebarView.debugSnapshotForTesting.resizeHandleWidth,
             accuracy: 0.001
         )
         XCTAssertEqual(sidebarView.resizeHandleMaxX, sidebarView.bounds.maxX, accuracy: 0.001)
@@ -1284,9 +1284,9 @@ final class RootViewCompositionTests: AppKitTestCase {
             theme: theme
         )
 
-        XCTAssertEqual(sidebarView.appearanceMatchForTesting, .darkAqua)
-        let firstRow = try! XCTUnwrap(sidebarView.worklaneButtonsForTesting.first as? SidebarWorklaneRowButton)
-        XCTAssertEqual(firstRow.appearanceMatchForTesting, .darkAqua)
+        XCTAssertEqual(sidebarView.debugSnapshotForTesting.appearanceMatch, .darkAqua)
+        let firstRow = try! XCTUnwrap(sidebarView.debugSnapshotForTesting.worklaneButtons.first as? SidebarWorklaneRowButton)
+        XCTAssertEqual(firstRow.debugSnapshotForTesting.appearanceMatch, .darkAqua)
     }
 
     func test_sidebar_compacts_true_single_line_rows_only() throws {
@@ -1319,7 +1319,7 @@ final class RootViewCompositionTests: AppKitTestCase {
 
         sidebarView.layoutSubtreeIfNeeded()
 
-        let buttons = sidebarView.worklaneButtonsForTesting
+        let buttons = sidebarView.debugSnapshotForTesting.worklaneButtons
         let compactFrame = try XCTUnwrap(buttons.first?.frame)
         let expandedFrame = try XCTUnwrap(buttons.last?.frame)
 
@@ -1356,7 +1356,7 @@ final class RootViewCompositionTests: AppKitTestCase {
 
         sidebarView.layoutSubtreeIfNeeded()
 
-        let frame = try XCTUnwrap(sidebarView.worklaneButtonsForTesting.first?.frame)
+        let frame = try XCTUnwrap(sidebarView.debugSnapshotForTesting.worklaneButtons.first?.frame)
         XCTAssertEqual(
             frame.height,
             ShellMetrics.sidebarRowHeight(
@@ -1388,7 +1388,7 @@ final class RootViewCompositionTests: AppKitTestCase {
 
         sidebarView.layoutSubtreeIfNeeded()
 
-        let frame = try XCTUnwrap(sidebarView.worklaneButtonsForTesting.first?.frame)
+        let frame = try XCTUnwrap(sidebarView.debugSnapshotForTesting.worklaneButtons.first?.frame)
         XCTAssertEqual(frame.height, ShellMetrics.sidebarCompactRowHeight, accuracy: 0.5)
     }
 
@@ -1422,7 +1422,7 @@ final class RootViewCompositionTests: AppKitTestCase {
 
         sidebarView.layoutSubtreeIfNeeded()
 
-        let buttons = sidebarView.worklaneButtonsForTesting
+        let buttons = sidebarView.debugSnapshotForTesting.worklaneButtons
         let firstButton = try XCTUnwrap(buttons.first)
         let secondButton = try XCTUnwrap(buttons.last)
         let firstFrame = sidebarView.convert(firstButton.bounds, from: firstButton)

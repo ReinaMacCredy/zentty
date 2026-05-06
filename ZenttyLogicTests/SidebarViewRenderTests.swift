@@ -10,11 +10,11 @@ final class SidebarViewRenderTests: XCTestCase {
         let summaries = [makeSummary(worklaneID: "main", primaryText: "demo")]
 
         sidebar.render(summaries: summaries, theme: theme)
-        XCTAssertEqual(sidebar.renderInvocationCountForTesting, 1)
+        XCTAssertEqual(sidebar.debugSnapshotForTesting.renderInvocationCount, 1)
 
         sidebar.render(summaries: summaries, theme: theme)
         XCTAssertEqual(
-            sidebar.renderInvocationCountForTesting,
+            sidebar.debugSnapshotForTesting.renderInvocationCount,
             1,
             "identical inputs should not trigger a second full render pass"
         )
@@ -28,13 +28,13 @@ final class SidebarViewRenderTests: XCTestCase {
             summaries: [makeSummary(worklaneID: "main", primaryText: "demo")],
             theme: theme
         )
-        XCTAssertEqual(sidebar.renderInvocationCountForTesting, 1)
+        XCTAssertEqual(sidebar.debugSnapshotForTesting.renderInvocationCount, 1)
 
         sidebar.render(
             summaries: [makeSummary(worklaneID: "main", primaryText: "demo updated")],
             theme: theme
         )
-        XCTAssertEqual(sidebar.renderInvocationCountForTesting, 2)
+        XCTAssertEqual(sidebar.debugSnapshotForTesting.renderInvocationCount, 2)
     }
 
     func test_render_runsAgainWhenWorklaneListChanges() {
@@ -45,7 +45,7 @@ final class SidebarViewRenderTests: XCTestCase {
             summaries: [makeSummary(worklaneID: "main", primaryText: "demo")],
             theme: theme
         )
-        XCTAssertEqual(sidebar.renderInvocationCountForTesting, 1)
+        XCTAssertEqual(sidebar.debugSnapshotForTesting.renderInvocationCount, 1)
 
         sidebar.render(
             summaries: [
@@ -54,7 +54,7 @@ final class SidebarViewRenderTests: XCTestCase {
             ],
             theme: theme
         )
-        XCTAssertEqual(sidebar.renderInvocationCountForTesting, 2)
+        XCTAssertEqual(sidebar.debugSnapshotForTesting.renderInvocationCount, 2)
     }
 
     // MARK: - Structural Mutation
@@ -201,7 +201,7 @@ final class SidebarViewRenderTests: XCTestCase {
         let draggedHeight = buttonB.frame.height
         sidebar.prepareDraggedWorklaneButton(buttonB)
         XCTAssertEqual(buttonB.alphaValue, 1)
-        let dragBackgroundAlpha = try XCTUnwrap(buttonB.backgroundColorForTesting?.alphaComponent)
+        let dragBackgroundAlpha = try XCTUnwrap(buttonB.debugSnapshotForTesting.backgroundColor?.alphaComponent)
         XCTAssertEqual(dragBackgroundAlpha, 1, accuracy: 0.001)
 
         sidebar.setDragPreview(
@@ -214,15 +214,15 @@ final class SidebarViewRenderTests: XCTestCase {
             [WorklaneID("A"), WorklaneID("C"), WorklaneID("B")]
         )
         XCTAssertEqual(
-            sidebar.arrangedWorklaneIDsForTesting,
+            sidebar.debugSnapshotForTesting.arrangedWorklaneIDs,
             [WorklaneID("A"), WorklaneID("C")]
         )
         XCTAssertEqual(
             arrangedSidebarItems(in: sidebar),
             ["A", "C", "spacer"]
         )
-        XCTAssertEqual(sidebar.reorderSpacerHeightForTesting, draggedHeight, accuracy: 0.001)
-        XCTAssertEqual(sidebar.reorderPreviewLastAnimationDurationForTesting, 0)
+        XCTAssertEqual(sidebar.debugSnapshotForTesting.reorderSpacerHeight, draggedHeight, accuracy: 0.001)
+        XCTAssertEqual(sidebar.debugSnapshotForTesting.reorderPreviewLastAnimationDuration, 0)
         XCTAssertTrue(buttonB === worklaneButton(in: sidebar, id: "B"))
         XCTAssertNotNil(buttonB.superview)
 
@@ -235,7 +235,7 @@ final class SidebarViewRenderTests: XCTestCase {
             arrangedSidebarItems(in: sidebar),
             ["A", "spacer", "C"]
         )
-        XCTAssertGreaterThan(sidebar.reorderPreviewLastAnimationDurationForTesting ?? 0, 0)
+        XCTAssertGreaterThan(sidebar.debugSnapshotForTesting.reorderPreviewLastAnimationDuration ?? 0, 0)
     }
 
     func test_clearDragPreview_restoresDetachedDraggedRowWhenOrderDidNotChange() {
@@ -262,7 +262,7 @@ final class SidebarViewRenderTests: XCTestCase {
         sidebar.clearDragPreview()
 
         XCTAssertEqual(
-            sidebar.arrangedWorklaneIDsForTesting,
+            sidebar.debugSnapshotForTesting.arrangedWorklaneIDs,
             [WorklaneID("A"), WorklaneID("B"), WorklaneID("C")]
         )
     }
@@ -289,7 +289,7 @@ final class SidebarViewRenderTests: XCTestCase {
             [WorklaneID("A"), WorklaneID("B"), WorklaneID("C")]
         )
         XCTAssertEqual(
-            sidebar.arrangedWorklaneIDsForTesting,
+            sidebar.debugSnapshotForTesting.arrangedWorklaneIDs,
             [WorklaneID("A"), WorklaneID("B"), WorklaneID("C")]
         )
     }
@@ -308,7 +308,7 @@ final class SidebarViewRenderTests: XCTestCase {
         )
         sidebar.layoutSubtreeIfNeeded()
 
-        let frames = sidebar.worklaneRowFramesForReorderingForTesting
+        let frames = sidebar.debugSnapshotForTesting.worklaneRowFramesForReordering
         XCTAssertEqual(frames.map(\.0), [WorklaneID("A"), WorklaneID("B"), WorklaneID("C")])
         XCTAssertLessThan(frames[0].1.midY, frames[1].1.midY)
         XCTAssertLessThan(frames[1].1.midY, frames[2].1.midY)
@@ -338,7 +338,7 @@ final class SidebarViewRenderTests: XCTestCase {
 
         XCTAssertNil(removedButton?.superview)
         if let removedButton {
-            XCTAssertFalse(sidebar.listStackHasConstraintsReferencingViewForTesting(removedButton))
+            XCTAssertFalse(sidebar.debugListStackHasConstraintsReferencingView(removedButton))
         }
         XCTAssertEqual(worklaneIDs(in: sidebar), [WorklaneID("A")])
     }
@@ -367,7 +367,7 @@ final class SidebarViewRenderTests: XCTestCase {
 
         XCTAssertTrue(buttonA === worklaneButton(in: sidebar, id: "A"))
         XCTAssertEqual(
-            buttonA?.primaryTextColorForTesting.srgbClamped,
+            buttonA?.debugSnapshotForTesting.primaryTextColor.srgbClamped,
             nextTheme.sidebarButtonInactiveText.srgbClamped
         )
     }
@@ -474,15 +474,30 @@ final class SidebarViewRenderTests: XCTestCase {
     }
 
     func test_resize_proposal_does_not_preclamp_to_window_width() {
-        let sidebar = makeSidebar()
-
         XCTAssertEqual(
-            sidebar.proposedResizeWidthForTesting(
+            SidebarResizeModel.proposedWidth(
                 startWidth: 280,
                 translation: 80
             ),
             360,
             accuracy: 0.001
+        )
+    }
+
+    func test_bookmark_icon_sits_slightly_above_button_center() throws {
+        let sidebar = makeSidebar()
+
+        sidebar.layoutSubtreeIfNeeded()
+        let button = try XCTUnwrap(bookmarksButton(in: sidebar))
+        button.layoutSubtreeIfNeeded()
+        let iconView = try XCTUnwrap(button.subviews.compactMap { $0 as? NSImageView }.first)
+        let verticalOffset = button.isFlipped
+            ? button.bounds.midY - iconView.frame.midY
+            : iconView.frame.midY - button.bounds.midY
+
+        XCTAssertTrue(
+            (3...4).contains(verticalOffset),
+            "Expected bookmark icon to sit 3-4px above center, got \(verticalOffset)"
         )
     }
 
@@ -567,15 +582,28 @@ final class SidebarViewRenderTests: XCTestCase {
         in sidebar: SidebarView,
         id: String
     ) -> SidebarWorklaneRowButton? {
-        sidebar.worklaneButtonsForTesting.compactMap {
+        sidebar.debugSnapshotForTesting.worklaneButtons.compactMap {
             $0 as? SidebarWorklaneRowButton
         }.first { $0.worklaneID == WorklaneID(id) }
     }
 
     private func worklaneIDs(in sidebar: SidebarView) -> [WorklaneID] {
-        sidebar.worklaneButtonsForTesting.compactMap {
+        sidebar.debugSnapshotForTesting.worklaneButtons.compactMap {
             ($0 as? SidebarWorklaneRowButton)?.worklaneID
         }
+    }
+
+    private func bookmarksButton(in view: NSView) -> SidebarBookmarksButton? {
+        if let button = view as? SidebarBookmarksButton {
+            return button
+        }
+
+        for subview in view.subviews {
+            if let button = bookmarksButton(in: subview) {
+                return button
+            }
+        }
+        return nil
     }
 
     private func arrangedSidebarItems(in sidebar: SidebarView) -> [String] {
@@ -642,7 +670,7 @@ final class SidebarViewRenderTests: XCTestCase {
     private func sidebarWorklaneButtons(in sidebarView: SidebarView) throws
         -> [SidebarWorklaneRowButton]
     {
-        try sidebarView.worklaneButtonsForTesting.map { button in
+        try sidebarView.debugSnapshotForTesting.worklaneButtons.map { button in
             try XCTUnwrap(button as? SidebarWorklaneRowButton)
         }
     }

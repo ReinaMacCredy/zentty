@@ -49,3 +49,12 @@ enum SidebarWidthPreference {
             .removePersistentDomain(forName: testDefaultsSuiteName)
     }
 }
+
+enum SidebarResizeModel {
+    static func proposedWidth(
+        startWidth: CGFloat,
+        translation: CGFloat
+    ) -> CGFloat {
+        startWidth + translation
+    }
+}

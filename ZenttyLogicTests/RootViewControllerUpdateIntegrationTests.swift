@@ -29,8 +29,8 @@ final class RootViewControllerUpdateIntegrationTests: AppKitTestCase {
 
         let sidebarView = try XCTUnwrap(controller.view.subviews.first { $0 is SidebarView } as? SidebarView)
 
-        XCTAssertTrue(sidebarView.isUpdateRowHiddenForTesting)
-        XCTAssertEqual(sidebarView.updateAvailableRowHeightForTesting, 0, accuracy: 0.001)
+        XCTAssertTrue(sidebarView.debugSnapshotForTesting.isUpdateRowHidden)
+        XCTAssertEqual(sidebarView.debugSnapshotForTesting.updateAvailableRowHeight, 0, accuracy: 0.001)
     }
 
     func test_root_controller_shows_update_row_when_update_becomes_available() throws {
@@ -42,8 +42,8 @@ final class RootViewControllerUpdateIntegrationTests: AppKitTestCase {
         appUpdateStateStore.setUpdateAvailable(true)
         controller.view.layoutSubtreeIfNeeded()
 
-        XCTAssertFalse(sidebarView.isUpdateRowHiddenForTesting)
-        XCTAssertEqual(sidebarView.updateAvailableRowHeightForTesting, 28, accuracy: 0.001)
+        XCTAssertFalse(sidebarView.debugSnapshotForTesting.isUpdateRowHidden)
+        XCTAssertEqual(sidebarView.debugSnapshotForTesting.updateAvailableRowHeight, 28, accuracy: 0.001)
     }
 
     func test_root_controller_routes_update_row_click_to_update_callback() throws {
@@ -58,7 +58,7 @@ final class RootViewControllerUpdateIntegrationTests: AppKitTestCase {
         appUpdateStateStore.setUpdateAvailable(true)
 
         let sidebarView = try XCTUnwrap(controller.view.subviews.first { $0 is SidebarView } as? SidebarView)
-        sidebarView.performUpdateAvailableRowClickForTesting()
+        sidebarView.performDebugActionForTesting(.performUpdateAvailableRowClick)
 
         XCTAssertEqual(callCount, 1)
     }
@@ -73,7 +73,7 @@ final class RootViewControllerUpdateIntegrationTests: AppKitTestCase {
         }
 
         let sidebarView = try XCTUnwrap(controller.view.subviews.first { $0 is SidebarView } as? SidebarView)
-        sidebarView.performUpdateAvailableRowClickForTesting()
+        sidebarView.performDebugActionForTesting(.performUpdateAvailableRowClick)
 
         XCTAssertEqual(callCount, 0)
     }

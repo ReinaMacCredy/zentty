@@ -9,6 +9,8 @@ final class SidebarBookmarksButton: NSButton {
     private(set) var isPopoverPresented = false
 
     static let buttonSize: CGFloat = 28
+    private static let iconSize: CGFloat = 16
+    private static let iconVisualTopOffset: CGFloat = 4
 
     override var intrinsicContentSize: NSSize {
         NSSize(width: Self.buttonSize, height: Self.buttonSize)
@@ -47,13 +49,9 @@ final class SidebarBookmarksButton: NSButton {
         setContentHuggingPriority(.required, for: .horizontal)
         setContentCompressionResistancePriority(.required, for: .horizontal)
 
-        iconView.translatesAutoresizingMaskIntoConstraints = false
+        iconView.translatesAutoresizingMaskIntoConstraints = true
         iconView.imageScaling = .scaleNone
         addSubview(iconView)
-        NSLayoutConstraint.activate([
-            iconView.centerXAnchor.constraint(equalTo: centerXAnchor),
-            iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
-        ])
 
         if let cell = cell as? NSButtonCell {
             cell.alignment = .center
@@ -61,6 +59,12 @@ final class SidebarBookmarksButton: NSButton {
         }
 
         updateSymbolImage()
+        layoutIconView()
+    }
+
+    override func layout() {
+        super.layout()
+        layoutIconView()
     }
 
     override func updateTrackingAreas() {
@@ -121,6 +125,18 @@ final class SidebarBookmarksButton: NSButton {
             accessibilityDescription: "Bookmarks and presets"
         )?.withSymbolConfiguration(
             NSImage.SymbolConfiguration(pointSize: 13, weight: .semibold)
+        )
+        needsLayout = true
+    }
+
+    private func layoutIconView() {
+        let size = NSSize(width: Self.iconSize, height: Self.iconSize)
+        let visualTopOffset = isFlipped ? -Self.iconVisualTopOffset : Self.iconVisualTopOffset
+        iconView.frame = NSRect(
+            x: floor((bounds.width - size.width) / 2),
+            y: floor((bounds.height - size.height) / 2) + visualTopOffset,
+            width: size.width,
+            height: size.height
         )
     }
 

@@ -79,7 +79,19 @@ final class SidebarView: NSView {
     private let shimmerCoordinator = SidebarShimmerCoordinator()
     private let activeWorklaneAutoScroller = SidebarActiveWorklaneAutoScroller()
     private let windowRenderabilityResolver: (NSWindow?) -> Bool
+    private lazy var chrome = SidebarViewChrome(
+        hostView: self,
+        backgroundView: backgroundView,
+        listScrollView: listScrollView,
+        listDocumentView: listDocumentView,
+        listStack: listStack,
+        addWorklaneButton: addWorklaneButton,
+        bookmarksButton: bookmarksButton,
+        updateAvailableRowView: updateAvailableRowView,
+        resizeHandleView: resizeHandleView
+    )
     private lazy var dragCoordinator = SidebarDragCoordinator(sidebarView: self)
+    private lazy var paneDropPresenter = SidebarPaneDropPresenter(targetStack: listStack)
 
     private var worklaneButtons: [SidebarWorklaneRowButton] = []
     private var worklaneSummaries: [WorklaneSidebarSummary] = []
@@ -96,8 +108,8 @@ final class SidebarView: NSView {
     private var updateRowHeightConstraint: NSLayoutConstraint?
     private var currentTheme = ZenttyTheme.fallback(for: nil)
 #if DEBUG
-    private(set) var renderInvocationCountForTesting: Int = 0
-    private(set) var reorderPreviewLastAnimationDurationForTesting: TimeInterval?
+    private(set) var renderInvocationCountDebug: Int = 0
+    private(set) var reorderPreviewLastAnimationDurationDebug: TimeInterval?
 #endif
     private var headerPinnedContentMinX = Layout.defaultHeaderContentMinX
     private var headerVisibilityMode: SidebarVisibilityMode = .pinnedOpen
@@ -105,7 +117,6 @@ final class SidebarView: NSView {
     private var trackingArea: NSTrackingArea?
     private var isResizeEnabled = true
     private var isUpdateAvailable = false
-    private var dropPlaceholder: SidebarDropPlaceholderView?
 
     override init(frame frameRect: NSRect) {
         windowRenderabilityResolver = SidebarWindowRenderability.appKitRenderableWindow
@@ -355,7 +366,7 @@ final class SidebarView: NSView {
         }
 
 #if DEBUG
-        renderInvocationCountForTesting &+= 1
+        renderInvocationCountDebug &+= 1
 #endif
         let previousActiveID = worklaneSummaries.first(where: \.isActive)?.worklaneID
         let previousSummaries = worklaneSummaries
@@ -462,20 +473,7 @@ final class SidebarView: NSView {
     /// resize handle) WITHOUT re-configuring worklane buttons. Use after
     /// structural mutations where buttons are already configured.
     private func applySidebarChrome(theme: ZenttyTheme, animated: Bool) {
-        let sidebarAppearance = NSAppearance(named: theme.sidebarGlassAppearance.nsAppearanceName)
-        appearance = sidebarAppearance
-        listScrollView.appearance = sidebarAppearance
-        listDocumentView.appearance = sidebarAppearance
-        listStack.appearance = sidebarAppearance
-        addWorklaneButton.configure(theme: theme, animated: animated)
-        bookmarksButton.configure(theme: theme, animated: animated)
-        updateAvailableRowView.configure(theme: theme, animated: animated)
-        resizeHandleView.apply(theme: theme, animated: animated)
-        backgroundView.apply(theme: theme, animated: animated)
-
-        performThemeAnimation(animated: animated) {
-            self.layer?.backgroundColor = NSColor.clear.cgColor
-        }
+        chrome.apply(theme: theme, animated: animated)
     }
 
     private func isWorklaneVisible(id: WorklaneID) -> Bool {
@@ -500,20 +498,7 @@ final class SidebarView: NSView {
 
     func apply(theme: ZenttyTheme, animated: Bool) {
         currentTheme = theme
-        let sidebarAppearance = NSAppearance(named: theme.sidebarGlassAppearance.nsAppearanceName)
-        appearance = sidebarAppearance
-        listScrollView.appearance = sidebarAppearance
-        listDocumentView.appearance = sidebarAppearance
-        listStack.appearance = sidebarAppearance
-        addWorklaneButton.configure(theme: theme, animated: animated)
-        bookmarksButton.configure(theme: theme, animated: animated)
-        updateAvailableRowView.configure(theme: theme, animated: animated)
-        resizeHandleView.apply(theme: theme, animated: animated)
-        backgroundView.apply(theme: theme, animated: animated)
-
-        performThemeAnimation(animated: animated) {
-            self.layer?.backgroundColor = NSColor.clear.cgColor
-        }
+        applySidebarChrome(theme: theme, animated: animated)
 
         worklaneButtons.enumerated().forEach { index, button in
             guard worklaneSummaries.indices.contains(index) else {
@@ -713,32 +698,18 @@ final class SidebarView: NSView {
     }
 
     func setHighlightedDropTargetWorklane(_ worklaneID: WorklaneID?) {
-        for button in worklaneButtons {
-            button.setDropTargetHighlighted(button.worklaneID == worklaneID)
-        }
+        paneDropPresenter.setHighlightedDropTargetWorklane(
+            worklaneID,
+            buttons: worklaneButtons
+        )
     }
 
     func showNewWorklanePlaceholder() {
-        guard dropPlaceholder == nil else { return }
-
-        let placeholder = SidebarDropPlaceholderView()
-        placeholder.translatesAutoresizingMaskIntoConstraints = false
-        listStack.addArrangedSubview(placeholder)
-        NSLayoutConstraint.activate([
-            placeholder.leadingAnchor.constraint(equalTo: listStack.leadingAnchor),
-            placeholder.trailingAnchor.constraint(equalTo: listStack.trailingAnchor),
-            placeholder.heightAnchor.constraint(equalToConstant: ShellMetrics.sidebarCompactRowHeight),
-        ])
-        dropPlaceholder = placeholder
-        placeholder.animateIn()
+        paneDropPresenter.showNewWorklanePlaceholder()
     }
 
     func hideNewWorklanePlaceholder() {
-        guard let placeholder = dropPlaceholder else { return }
-        placeholder.animateOut { [weak self] in
-            placeholder.removeFromSuperview()
-            self?.dropPlaceholder = nil
-        }
+        paneDropPresenter.hideNewWorklanePlaceholder()
     }
 
     @objc
@@ -800,7 +771,7 @@ final class SidebarView: NSView {
         case .changed, .ended:
             let translation = recognizer.translation(in: self).x
             onResized?(
-                unclampedResizeWidth(
+                SidebarResizeModel.proposedWidth(
                     startWidth: resizeStartWidth,
                     translation: translation
                 )
@@ -810,227 +781,34 @@ final class SidebarView: NSView {
         }
     }
 
-    private func unclampedResizeWidth(
-        startWidth: CGFloat,
-        translation: CGFloat
-    ) -> CGFloat {
-        return startWidth + translation
-    }
-
 #if DEBUG
-    var worklanePrimaryTexts: [String] {
-        worklaneSummaries.map(\.primaryText)
-    }
-
-    var worklaneContextTexts: [String] {
-        worklaneSummaries.map(\.contextText)
-    }
-
-    var worklaneButtonsForTesting: [NSButton] {
-        worklaneButtons
-    }
-
-    var arrangedWorklaneIDsForTesting: [WorklaneID] {
-        listStack.arrangedSubviews.compactMap { view in
-            (view as? SidebarWorklaneRowButton)?.worklaneID
-        }
-    }
-
-    var reorderSpacerHeightForTesting: CGFloat {
-        reorderSpacerView?.spacerHeight ?? 0
-    }
-
-    var worklaneRowFramesForReorderingForTesting: [(WorklaneID, CGRect)] {
-        worklaneRowFramesForReordering()
-    }
-
-    func listStackHasConstraintsReferencingViewForTesting(_ view: NSView) -> Bool {
-        listStack.constraints.contains { constraint in
-            (constraint.firstItem as AnyObject?) === view
-                || (constraint.secondItem as AnyObject?) === view
-        }
-    }
-
-    var addWorklaneTitle: String {
-        addWorklaneButton.titleText
-    }
-
-    var isHeaderHidden: Bool {
-        headerView.isHidden
-    }
-
-    var hasVisibleDivider: Bool {
-        false
-    }
-
-    var firstWorklaneTopInset: CGFloat {
-        guard let firstButton = worklaneButtons.first else {
-            return .greatestFiniteMagnitude
-        }
-
-        let buttonFrame = convert(firstButton.bounds, from: firstButton)
-        return listScrollView.frame.maxY - buttonFrame.maxY
-    }
-
-    var firstWorklaneMinY: CGFloat {
-        guard let firstButton = worklaneButtons.first else {
-            return 0
-        }
-
-        return convert(firstButton.bounds, from: firstButton).minY
-    }
-
-    var firstWorklaneMaxY: CGFloat {
-        guard let firstButton = worklaneButtons.first else {
-            return 0
-        }
-
-        return convert(firstButton.bounds, from: firstButton).maxY
-    }
-
-    var addWorklaneMinY: CGFloat {
-        convert(addWorklaneButton.bounds, from: addWorklaneButton).minY
-    }
-
-    var addWorklaneMaxY: CGFloat {
-        convert(addWorklaneButton.bounds, from: addWorklaneButton).maxY
-    }
-
-    var addWorklaneButtonMinX: CGFloat {
-        convert(addWorklaneButton.bounds, from: addWorklaneButton).minX
-    }
-
-    var addWorklaneButtonWidth: CGFloat {
-        convert(addWorklaneButton.bounds, from: addWorklaneButton).width
-    }
-
-    var addWorklaneButtonMidY: CGFloat {
-        convert(addWorklaneButton.bounds, from: addWorklaneButton).midY
-    }
-
-    var firstWorklaneWidth: CGFloat {
-        worklaneButtons.first.map { convert($0.bounds, from: $0).width } ?? 0
-    }
-
-    var firstWorklanePrimaryMinX: CGFloat {
-        worklaneButtons.first.map { $0.primaryMinX(in: self) } ?? 0
-    }
-
-    var secondWorklanePrimaryMinX: CGFloat {
-        guard worklaneButtons.count > 1 else {
-            return 0
-        }
-
-        return worklaneButtons[1].primaryMinX(in: self)
-    }
-
-    var worklaneDetailTexts: [[String]] {
-        worklaneButtons.map(\.detailTextsForTesting)
-    }
-
-    var worklaneOverflowTexts: [String] {
-        worklaneButtons.map(\.overflowTextForTesting)
-    }
-
-    var addWorklaneContentMinX: CGFloat {
-        addWorklaneButton.contentMinX(in: self)
-    }
-
-    var addWorklaneWidthConstraintConstant: CGFloat {
-        addWorklaneWidthConstraint?.constant ?? 0
-    }
-
-    var addWorklaneContentMidX: CGFloat {
-        addWorklaneButton.contentMidX(in: self)
-    }
-
-    var addWorklaneIconAlpha: CGFloat {
-        addWorklaneButton.iconAlpha
-    }
-
-    var addWorklaneTitleAlpha: CGFloat {
-        addWorklaneButton.titleAlpha
-    }
-
-    var addWorklaneBackgroundAlpha: CGFloat {
-        addWorklaneButton.backgroundAlpha
-    }
-
-    var addWorklaneBorderAlpha: CGFloat {
-        addWorklaneButton.borderAlpha
-    }
-
-    var addWorklaneUsesPointingHandCursor: Bool {
-        addWorklaneButton.usesPointingHandCursorForTesting
-    }
-
-    func setAddWorklaneHoveredForTesting(_ isHovered: Bool) {
-        addWorklaneButton.setHoveredForTesting(isHovered)
-    }
-
-    var resizeHandleMinX: CGFloat {
-        resizeHandleView.frame.minX
-    }
-
-    var resizeHandleMaxX: CGFloat {
-        resizeHandleView.frame.maxX
-    }
-
-    var resizeHandleFillAlpha: CGFloat {
-        resizeHandleView.fillAlpha
-    }
-
-    var resizeHandleWidthForTesting: CGFloat {
-        resizeHandleView.frame.width
-    }
-
-    var isResizeHandleHidden: Bool {
-        resizeHandleView.isHidden
-    }
-
-    var trailingEdgeHitTargetsResizeHandle: Bool {
-        hitTest(NSPoint(x: bounds.maxX - 1, y: bounds.midY)) === resizeHandleView
-    }
-
-    func hitTargetsResizeHandle(atX x: CGFloat) -> Bool {
-        hitTest(NSPoint(x: x, y: bounds.midY)) === resizeHandleView
-    }
-
-    var appearanceMatchForTesting: NSAppearance.Name? {
-        appearance?.bestMatch(from: [.darkAqua, .aqua])
-    }
-
-    var shimmerDriverIsRunningForTesting: Bool {
-        shimmerCoordinator.isRunningForTesting
-    }
-
-    func updateShimmerVisibilityForTesting() {
-        syncShimmerVisibility()
-    }
-
-    var isUpdateRowHiddenForTesting: Bool {
-        updateAvailableRowView.isHidden
-    }
-
-    var isUpdateAvailableRowVisible: Bool {
-        !updateAvailableRowView.isHidden
-    }
-
-    var updateAvailableRowHeightForTesting: CGFloat {
-        updateAvailableRowView.frame.height
-    }
-
-    func performUpdateAvailableRowClickForTesting() {
-        updateAvailableRowView.performClickForTesting()
-    }
-
-    func proposedResizeWidthForTesting(
-        startWidth: CGFloat,
-        translation: CGFloat
-    ) -> CGFloat {
-        unclampedResizeWidth(
-            startWidth: startWidth,
-            translation: translation
+    var debugAccessForTesting: SidebarViewDebugAccess {
+        SidebarViewDebugAccess(
+            sidebarView: self,
+            renderInvocationCount: renderInvocationCountDebug,
+            reorderPreviewLastAnimationDuration: reorderPreviewLastAnimationDurationDebug,
+            worklaneButtons: worklaneButtons,
+            worklaneSummaries: worklaneSummaries,
+            listStack: listStack,
+            reorderSpacerView: reorderSpacerView,
+            resizeHandleView: resizeHandleView,
+            updateAvailableRowView: updateAvailableRowView,
+            addWorklaneButton: addWorklaneButton,
+            addWorklaneWidthConstraintConstant: addWorklaneWidthConstraint?.constant ?? 0,
+            headerView: headerView,
+            listScrollView: listScrollView,
+            appearance: appearance,
+            shimmerDriverIsRunning: shimmerCoordinator.isRunningForTesting,
+            performAction: { [weak self] action in
+                switch action {
+                case .setAddWorklaneHovered(let isHovered):
+                    self?.addWorklaneButton.setHoveredForTesting(isHovered)
+                case .updateShimmerVisibility:
+                    self?.syncShimmerVisibility()
+                case .performUpdateAvailableRowClick:
+                    self?.updateAvailableRowView.performClickForTesting()
+                }
+            }
         )
     }
 #endif
@@ -1039,7 +817,7 @@ final class SidebarView: NSView {
 private extension SidebarView {
     func renderDragPreview(animated: Bool) {
 #if DEBUG
-        reorderPreviewLastAnimationDurationForTesting = animated
+        reorderPreviewLastAnimationDurationDebug = animated
             ? Layout.reorderPreviewAnimationDuration
             : 0
 #endif

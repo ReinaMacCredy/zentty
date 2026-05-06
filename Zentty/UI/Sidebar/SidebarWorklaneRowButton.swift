@@ -3,17 +3,6 @@ import QuartzCore
 
 @MainActor
 final class SidebarWorklaneRowButton: NSButton {
-    private enum DropTargetHighlightAnimation {
-        static let scaleKey = "dropTargetScale"
-        static let shadowOpacityKey = "dropTargetShadowOpacity"
-        static let scale: CGFloat = 1.025
-        static let shadowOpacity: Float = 0.7
-        static let springMass: CGFloat = 1.0
-        static let springStiffness: CGFloat = 300
-        static let springDamping: CGFloat = 20
-        static let shadowFadeDuration: CFTimeInterval = 0.15
-    }
-
     private enum Layout {
         static let contentInset = min(
             ShellMetrics.sidebarPaneRowHorizontalInset,
@@ -44,14 +33,19 @@ final class SidebarWorklaneRowButton: NSButton {
 
     private var detailLabels: [SidebarStaticLabel] = []
     private let paneRowRenderer = SidebarPaneRowRenderer(paneWrapperInset: Layout.paneWrapperInset)
+    private lazy var contentRenderer = SidebarWorklaneRowContentRenderer(
+        textStack: textStack,
+        textWrapperInset: Layout.textWrapperInset
+    )
     private var panePrimaryRows: [SidebarPanePrimaryRowView] { paneRowRenderer.panePrimaryRows }
     private var paneDetailLabels: [SidebarStaticLabel] { paneRowRenderer.paneDetailLabels }
     private var paneStatusRows: [SidebarPaneTextRowView] { paneRowRenderer.paneStatusRows }
     private var paneRowButtons: [SidebarPaneRowButton] { paneRowRenderer.paneRowButtons }
     private var paneRowContainers: [SidebarInsetContainerView] { paneRowRenderer.paneRowContainers }
-    private let tintLayer = CALayer()
+    private let chrome = SidebarWorklaneRowChrome()
+    private let menuController = SidebarWorklaneRowMenuController()
     private var currentSummary: WorklaneSidebarSummary?
-    private var currentPresentation: SidebarWorklaneRowPresentation?
+    private var currentRenderPlan: SidebarWorklaneRowRenderPlan?
     private var currentTheme = ZenttyTheme.fallback(for: nil)
     private var lastAppliedBoundsWidth: CGFloat = -1
 #if DEBUG
@@ -70,7 +64,6 @@ final class SidebarWorklaneRowButton: NSButton {
     private var isWorking = false
     private var isApplyingResolvedSummary = false
     private var shimmerCoordinator: SidebarShimmerCoordinator?
-    private var isDropTargetHighlighted = false
     private var isReorderDragActive = false
     private var worklaneMoveAvailability: SidebarWorklaneMoveAvailability = .none
     private let reducedMotionProvider: () -> Bool
@@ -91,8 +84,6 @@ final class SidebarWorklaneRowButton: NSButton {
             paneRowRenderer.setOnlyWorklane(isOnlyWorklane)
         }
     }
-
-    private var activeContextPicker: WorklaneColorMenuItemView?
 
     init(
         worklaneID: WorklaneID?,
@@ -140,10 +131,7 @@ final class SidebarWorklaneRowButton: NSButton {
             return
         }
 
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        tintLayer.frame = bounds
-        CATransaction.commit()
+        chrome.updateTintFrame(bounds)
 
         applyResolvedSummary(animated: false)
     }
@@ -155,18 +143,9 @@ final class SidebarWorklaneRowButton: NSButton {
         bezelStyle = .regularSquare
         title = ""
         image = nil
-        wantsLayer = true
-        layer?.cornerRadius = ChromeGeometry.rowRadius
-        layer?.cornerCurve = .continuous
-        layer?.masksToBounds = false
+        chrome.install(in: self)
         translatesAutoresizingMaskIntoConstraints = false
         setButtonType(.momentaryChange)
-
-        tintLayer.cornerRadius = ChromeGeometry.rowRadius
-        tintLayer.cornerCurve = .continuous
-        tintLayer.backgroundColor = NSColor.clear.cgColor
-        tintLayer.zPosition = -1
-        layer?.insertSublayer(tintLayer, at: 0)
 
         configureLabel(
             topLabel,
@@ -300,57 +279,20 @@ final class SidebarWorklaneRowButton: NSButton {
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
-        guard let worklaneID else { return nil }
-        let originID = currentSummary?.bookmarkOriginID
-        let result = SidebarWorklaneContextMenu.makeMenu(
-            context: SidebarWorklaneContextMenuContext(
-                origin: .worklane,
-                moveAvailability: worklaneMoveAvailability,
-                worklaneColor: currentSummary?.color,
-                bookmarkOriginID: originID,
-                bookmarkName: originID.flatMap { bookmarkNameLookup?($0) },
-                isOnlyWorklane: false
-            ),
-            actions: SidebarWorklaneContextMenuActions(
-                target: self,
-                closeWorklaneAction: #selector(handleCloseWorklane),
-                closePaneAction: nil,
-                moveUpAction: #selector(handleMoveWorklaneUp),
-                moveDownAction: #selector(handleMoveWorklaneDown),
-                splitHorizontalAction: nil,
-                splitVerticalAction: nil,
-                movePaneToNewWindowAction: nil,
-                bookmarkAction: #selector(handleBookmarkMenuItem(_:)),
-                colorChanged: { [weak self] picked in
-                    self?.onWorklaneColorChanged?(worklaneID, picked)
-                }
-            )
+        syncMenuControllerCallbacks()
+        return menuController.makeMenu(
+            worklaneID: worklaneID,
+            summary: currentSummary,
+            moveAvailability: worklaneMoveAvailability
         )
-        activeContextPicker = result.activePicker
-        return result.menu
     }
 
-    @objc private func handleCloseWorklane() {
-        onCloseWorklaneRequested?()
-    }
-
-    @objc
-    private func handleBookmarkMenuItem(_ sender: NSMenuItem) {
-        guard let worklaneID,
-              let box = sender.representedObject as? SidebarBookmarkRowActionBox else {
-            return
-        }
-        onBookmarkAction?(worklaneID, box.action)
-    }
-
-    @objc private func handleMoveWorklaneUp() {
-        guard let worklaneID else { return }
-        onWorklaneMoveRequested?(worklaneID, .up)
-    }
-
-    @objc private func handleMoveWorklaneDown() {
-        guard let worklaneID else { return }
-        onWorklaneMoveRequested?(worklaneID, .down)
+    private func syncMenuControllerCallbacks() {
+        menuController.onCloseWorklaneRequested = onCloseWorklaneRequested
+        menuController.onWorklaneColorChanged = onWorklaneColorChanged
+        menuController.onWorklaneMoveRequested = onWorklaneMoveRequested
+        menuController.onBookmarkAction = onBookmarkAction
+        menuController.bookmarkNameLookup = bookmarkNameLookup
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
@@ -392,57 +334,11 @@ final class SidebarWorklaneRowButton: NSButton {
     }
 
     func setDropTargetHighlighted(_ highlighted: Bool) {
-        guard wantsLayer, let layer else { return }
-        guard highlighted != isDropTargetHighlighted else { return }
-        isDropTargetHighlighted = highlighted
-
-        let targetTransform = highlighted
-            ? CATransform3DMakeScale(
-                DropTargetHighlightAnimation.scale,
-                DropTargetHighlightAnimation.scale,
-                1
-            )
-            : CATransform3DIdentity
-        let targetShadowOpacity: Float = highlighted
-            ? DropTargetHighlightAnimation.shadowOpacity
-            : 0
-
-        layer.removeAnimation(forKey: DropTargetHighlightAnimation.scaleKey)
-        layer.removeAnimation(forKey: DropTargetHighlightAnimation.shadowOpacityKey)
-        if highlighted {
-            layer.shadowColor = NSColor.controlAccentColor.cgColor
-            layer.shadowRadius = 8
-            layer.shadowOffset = .zero
-        }
-
-        let currentTransform = layer.presentation()?.transform ?? layer.transform
-        let currentShadowOpacity = layer.presentation()?.shadowOpacity ?? layer.shadowOpacity
-
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        layer.transform = targetTransform
-        layer.shadowOpacity = targetShadowOpacity
-        CATransaction.commit()
-
-        if reducedMotionProvider() {
-            return
-        }
-
-        let spring = CASpringAnimation(keyPath: "transform")
-        spring.mass = DropTargetHighlightAnimation.springMass
-        spring.stiffness = DropTargetHighlightAnimation.springStiffness
-        spring.damping = DropTargetHighlightAnimation.springDamping
-        spring.fromValue = currentTransform
-        spring.toValue = targetTransform
-        spring.isRemovedOnCompletion = true
-        layer.add(spring, forKey: DropTargetHighlightAnimation.scaleKey)
-
-        let fade = CABasicAnimation(keyPath: "shadowOpacity")
-        fade.fromValue = currentShadowOpacity
-        fade.toValue = targetShadowOpacity
-        fade.duration = DropTargetHighlightAnimation.shadowFadeDuration
-        fade.isRemovedOnCompletion = true
-        layer.add(fade, forKey: DropTargetHighlightAnimation.shadowOpacityKey)
+        chrome.setDropTargetHighlighted(
+            highlighted,
+            layer: layer,
+            reducedMotion: reducedMotionProvider()
+        )
     }
 
     override func updateTrackingAreas() {
@@ -573,10 +469,9 @@ final class SidebarWorklaneRowButton: NSButton {
         isApplyingResolvedSummary = true
         defer { isApplyingResolvedSummary = false }
 
-        let presentation = SidebarWorklaneRowPresentation(summary: summary, availableWidth: bounds.width)
-        currentPresentation = presentation
-        let layout = presentation.layout
-        applyTextStackVerticalInsets(hasPaneRows: summary.paneRows.isEmpty == false)
+        let renderPlan = SidebarWorklaneRowRenderPlan(summary: summary, availableWidth: bounds.width)
+        currentRenderPlan = renderPlan
+        applyTextStackVerticalInsets(renderPlan)
 
         topLabel.stringValue = summary.topLabel ?? ""
         overflowLabel.stringValue = summary.overflowText ?? ""
@@ -585,14 +480,14 @@ final class SidebarWorklaneRowButton: NSButton {
             primaryBaseLabel.stringValue = summary.primaryText
             primaryLabel.stringValue = summary.primaryText
             applyWorklanePrimaryPresentation()
-            statusBaseLabel.stringValue = presentation.statusDisplayText
-            statusLabel.stringValue = presentation.statusDisplayText
+            statusBaseLabel.stringValue = renderPlan.statusDisplayText
+            statusLabel.stringValue = renderPlan.statusDisplayText
             statusProgressRevealView.configure(
                 taskProgress: summary.taskProgress,
                 color: currentTheme.statusRunning,
                 font: statusBaseLabel.font ?? ShellMetrics.sidebarStatusFont()
             )
-            currentStatusSymbolName = presentation.statusSymbolName
+            currentStatusSymbolName = renderPlan.statusSymbolName
             statusIconView.image =
                 currentStatusSymbolName.isEmpty
                 ? nil
@@ -600,7 +495,7 @@ final class SidebarWorklaneRowButton: NSButton {
                     .withSymbolConfiguration(.init(pointSize: 11, weight: .semibold))
             statusIconView.isHidden = statusIconView.image == nil
             applyWorklaneStatusPresentation(
-                lineCount: presentation.statusLineCount
+                lineCount: renderPlan.statusLineCount
             )
             configureDetailLabels(for: summary.detailLines)
         } else {
@@ -616,26 +511,26 @@ final class SidebarWorklaneRowButton: NSButton {
             currentStatusSymbolName = ""
             statusIconView.image = nil
             statusIconView.isHidden = true
-            configurePaneRows(for: presentation.paneRows, animated: animated)
+            configurePaneRows(for: renderPlan.paneRows, animated: animated)
         }
 
         textStack.setViews(
-            groupedViews(for: layout),
+            contentRenderer.groupedViews(
+                for: renderPlan,
+                labels: contentLabels(),
+                paneRows: contentPaneRows()
+            ),
             in: .top
         )
-        heightConstraint?.constant = layout.rowHeight
+        heightConstraint?.constant = renderPlan.rowHeight
         invalidateIntrinsicContentSize()
 
         applyCurrentAppearance(animated: animated)
     }
 
-    private func applyTextStackVerticalInsets(hasPaneRows: Bool) {
-        textStackTopConstraint?.constant = hasPaneRows
-            ? ShellMetrics.sidebarPaneRowVerticalInset
-            : ShellMetrics.sidebarRowTopInset
-        textStackBottomConstraint?.constant = hasPaneRows
-            ? -ShellMetrics.sidebarPaneRowVerticalInset
-            : -ShellMetrics.sidebarRowBottomInset
+    private func applyTextStackVerticalInsets(_ renderPlan: SidebarWorklaneRowRenderPlan) {
+        textStackTopConstraint?.constant = renderPlan.textStackTopInset
+        textStackBottomConstraint?.constant = renderPlan.textStackBottomInset
     }
 
     private func applyWorklanePrimaryPresentation() {
@@ -712,7 +607,7 @@ final class SidebarWorklaneRowButton: NSButton {
     }
 
     private func configurePaneRows(
-        for panePresentations: [SidebarWorklaneRowPresentation.PaneRow],
+        for panePresentations: [SidebarWorklaneRowRenderPlan.PaneRow],
         animated: Bool
     ) {
         paneRowRenderer.configure(
@@ -807,7 +702,7 @@ final class SidebarWorklaneRowButton: NSButton {
             )
             statusIconView.contentTintColor =
                 statusBaseLabel.textColor ?? currentTheme.secondaryText
-            let statusWraps = (currentPresentation?.statusLineCount ?? 1) > 1
+            let statusWraps = (currentRenderPlan?.statusLineCount ?? 1) > 1
             statusProgressIndicator.configure(
                 taskProgress: statusWraps ? nil : summary.taskProgress,
                 color: currentTheme.statusRunning,
@@ -859,41 +754,16 @@ final class SidebarWorklaneRowButton: NSButton {
             )
         }
 
-        let activeBackground = currentTheme.sidebarButtonActiveBackground
-        let hoverBackground = currentTheme.sidebarButtonHoverBackground
-        let inactiveBackground = currentTheme.sidebarButtonInactiveBackground
-        let activeBorder = currentTheme.sidebarButtonActiveBorder
-        let inactiveBorder = currentTheme.sidebarButtonInactiveBorder.withAlphaComponent(
-            isHovered ? 0.16 : 0.10)
-
-        performThemeAnimation(animated: animated) {
-            self.layer?.zPosition = summary.isActive ? 10 : 0
-            self.layer?.backgroundColor =
-                SidebarWorklaneRowStyleResolver.resolvedBackgroundColor(
-                    isActive: summary.isActive,
-                    isWorking: self.isWorking,
-                    isHovered: self.isHovered,
-                    isPaneRowHovered: self.isPaneRowHovered,
-                    isReorderDragActive: self.isReorderDragActive,
-                    activeBackground: activeBackground,
-                    hoverBackground: hoverBackground,
-                    inactiveBackground: inactiveBackground,
-                    theme: self.currentTheme
-                ).cgColor
-            self.layer?.borderColor = (summary.isActive ? activeBorder : inactiveBorder).cgColor
-            self.layer?.borderWidth = summary.isActive ? 0.8 : 1
-            self.layer?.shadowColor =
-                NSColor.black.withAlphaComponent(summary.isActive ? 0.08 : 0.02).cgColor
-            self.layer?.shadowOpacity = 1
-            self.layer?.shadowRadius = summary.isActive ? 12 : 4
-            self.layer?.shadowOffset = CGSize(width: 0, height: -1)
-            self.tintLayer.backgroundColor = SidebarWorklaneRowStyleResolver.tintColor(
-                worklaneColor: summary.color,
-                isActive: summary.isActive,
-                isHovered: self.isHovered,
-                isPaneRowHovered: self.isPaneRowHovered
-            )
-        }
+        chrome.apply(
+            summary: summary,
+            theme: currentTheme,
+            isWorking: isWorking,
+            isHovered: isHovered,
+            isPaneRowHovered: isPaneRowHovered,
+            isReorderDragActive: isReorderDragActive,
+            animated: animated,
+            layer: layer
+        )
     }
 
     private func updateShimmerState() {
@@ -930,7 +800,7 @@ final class SidebarWorklaneRowButton: NSButton {
             isActive: isActive,
             theme: currentTheme
         )
-        let statusWraps = (currentPresentation?.statusLineCount ?? 1) > 1
+        let statusWraps = (currentRenderPlan?.statusLineCount ?? 1) > 1
         let shimmersStatus =
             summary.attentionState == .running
             && statusWraps == false
@@ -979,7 +849,7 @@ final class SidebarWorklaneRowButton: NSButton {
                 theme: currentTheme
             )
             let presentationMode: SidebarPaneRowPresentationMode
-            if let panePresentations = currentPresentation?.paneRows,
+            if let panePresentations = currentRenderPlan?.paneRows,
                panePresentations.indices.contains(index) {
                 presentationMode = panePresentations[index].presentationMode
             } else {
@@ -1045,49 +915,25 @@ final class SidebarWorklaneRowButton: NSButton {
 
     // MARK: - Layout Composition
 
-    private func groupedViews(for layout: SidebarWorklaneRowLayout) -> [NSView] {
-        layout.contentGroups.map { group in
-            switch group {
-            case .standalone(let row):
-                return insetWrappedView(for: label(for: row))
-            case .pane(let index, let rows):
-                paneRowButtons[index].setContent(rows.map(label(for:)))
-                return paneRowContainers[index]
-            }
-        }
-    }
-
-    private func insetWrappedView(for view: NSView) -> NSView {
-        return SidebarInsetContainerView(
-            contentView: view,
-            horizontalInset: Layout.textWrapperInset,
-            referenceWidthView: textStack
+    private func contentLabels() -> SidebarWorklaneRowContentRenderer.Labels {
+        SidebarWorklaneRowContentRenderer.Labels(
+            topLabel: topLabel,
+            primaryTextContainer: primaryTextContainer,
+            contextPrefixLabel: contextPrefixLabel,
+            statusContentStack: statusContentStack,
+            detailLabels: detailLabels,
+            overflowLabel: overflowLabel
         )
     }
 
-    private func label(for row: WorklaneRowTextRow) -> NSView {
-        switch row {
-        case .topLabel:
-            topLabel
-        case .primary:
-            primaryTextContainer
-        case .contextPrefix:
-            contextPrefixLabel
-        case .status:
-            statusContentStack
-        case .panePrimary(let index):
-            panePrimaryRows[index]
-        case .paneDetail(let index):
-            paneDetailLabels[index]
-        case .paneStatus(let index):
-            paneStatusRows[index]
-        case .context:
-            detailLabels.first ?? overflowLabel
-        case .detail(let index):
-            detailLabels[index]
-        case .overflow:
-            overflowLabel
-        }
+    private func contentPaneRows() -> SidebarWorklaneRowContentRenderer.PaneRows {
+        SidebarWorklaneRowContentRenderer.PaneRows(
+            primaryRows: panePrimaryRows,
+            detailLabels: paneDetailLabels,
+            statusRows: paneStatusRows,
+            buttons: paneRowButtons,
+            containers: paneRowContainers
+        )
     }
 
     func primaryMinX(in view: NSView) -> CGFloat {
@@ -1111,419 +957,41 @@ final class SidebarWorklaneRowButton: NSButton {
     }
 
 #if DEBUG
-    // MARK: - Test Accessors
-    //
-    // The block below is read-only support for XCTest assertions. It uses
-    // `@testable import Zentty` to reach these internal/private members.
-    // Production code must not depend on anything in this section — it is
-    // reviewable as one contiguous skippable block in the minimap.
-
-    var detailTextsForTesting: [String] {
-        if currentSummary?.paneRows.isEmpty == false {
-            return
-                paneDetailLabels
-                .prefix(currentSummary?.paneRows.count ?? 0)
-                .map(\.stringValue)
-                .filter { $0.isEmpty == false }
-        }
-
-        return detailLabels.prefix(currentSummary?.detailLines.count ?? 0).map(\.stringValue)
-    }
-
-    var overflowTextForTesting: String {
-        currentSummary?.overflowText ?? ""
-    }
-
-    var statusTextForTesting: String {
-        if currentSummary?.paneRows.isEmpty == false {
-            return paneStatusRows.first?.text ?? ""
-        }
-
-        return statusBaseLabel.stringValue
-    }
-
-    var statusTextColorForTesting: NSColor {
-        if currentSummary?.paneRows.isEmpty == false {
-            return paneStatusRows.first?.textColor ?? .clear
-        }
-
-        return statusBaseLabel.textColor ?? .clear
-    }
-
-    var statusSymbolNameForTesting: String {
-        if currentSummary?.paneRows.isEmpty == false {
-            return paneStatusRows.first?.symbolName ?? ""
-        }
-
-        return currentStatusSymbolName
-    }
-
-    var topLabelColorForTesting: NSColor {
-        topLabel.textColor ?? .clear
-    }
-
-    var tintLayerBackgroundColorForTesting: CGColor? {
-        tintLayer.backgroundColor
-    }
-
-    func setHoveredForTesting(_ hovered: Bool) {
-        isHovered = hovered
-        applyCurrentAppearance(animated: false)
-    }
-
-    var isWorkingForTesting: Bool {
-        isWorking
-    }
-
-    var shimmerIsAnimatingForTesting: Bool {
-        primaryLabel.shimmerIsAnimating
-    }
-
-    var primaryShimmerViewIsHiddenForTesting: Bool {
-        primaryLabel.isHidden
-    }
-
-    var primaryBaseLabelMaximumNumberOfLinesForTesting: Int {
-        primaryBaseLabel.maximumNumberOfLines
-    }
-
-    var contextPrefixTextForTesting: String {
-        contextPrefixLabel.stringValue
-    }
-
-    var contextPrefixRowIsVisibleForTesting: Bool {
-        textStack.arrangedSubviews.contains { view in
-            view === contextPrefixLabel || view.containsDescendant(contextPrefixLabel)
-        }
-    }
-
-    var statusShimmerIsAnimatingForTesting: Bool {
-        statusLabel.shimmerIsAnimating
-    }
-
-    var shimmerCoordinatorIdentifierForTesting: ObjectIdentifier? {
-        shimmerCoordinator.map(ObjectIdentifier.init)
-    }
-
-    var shimmerColorForTesting: NSColor {
-        primaryLabel.shimmerColor
-    }
-
-    var statusShimmerColorForTesting: NSColor {
-        statusLabel.shimmerColor
-    }
-
-    var statusProgressIndicatorIsVisibleForTesting: Bool {
-        statusProgressIndicator.isHidden == false
-    }
-
-    var statusProgressFractionForTesting: CGFloat {
-        statusProgressIndicator.fraction
-    }
-
-    var statusProgressToolTipForTesting: String {
-        statusProgressIndicator.tooltipText
-    }
-
-    var statusProgressRevealTextForTesting: String {
-        statusProgressRevealView.revealText
-    }
-
-    var statusProgressRevealIsExpandedForTesting: Bool {
-        statusProgressRevealView.isRevealed
-    }
-
-    var statusProgressRevealLastUpdateWasAnimatedForTesting: Bool {
-        statusProgressRevealView.lastUpdateWasAnimated
-    }
-
-    var statusProgressRevealLastAnimationDurationForTesting: TimeInterval? {
-        statusProgressRevealView.lastAnimationDuration
-    }
-
-    var statusProgressColorForTesting: NSColor {
-        statusProgressIndicator.progressColor
-    }
-
-    var statusProgressLastUpdateWasAnimatedForTesting: Bool {
-        statusProgressIndicator.lastUpdateWasAnimated
-    }
-
-    var statusTextContainerWidthForTesting: CGFloat {
-        statusContentStack.textContainerWidthForTesting
-    }
-
-    var statusProgressRevealWidthForTesting: CGFloat {
-        statusContentStack.progressRevealWidthForTesting
-    }
-
-    var statusProgressRevealIsHiddenForTesting: Bool {
-        statusProgressRevealView.isHidden
-    }
-
-    func simulateStatusProgressIconHoverForTesting() {
-        simulateStatusProgressIconHoverForTesting(animated: true)
-    }
-
-    func simulateStatusProgressIconHoverForTesting(animated: Bool) {
-        setStatusProgressRevealVisible(true, animated: animated)
-    }
-
-    func simulateStatusLineHoverForTesting() {
-        statusContentStack.simulateMouseEnteredForTesting()
-    }
-
-    func simulateStatusLineExitForTesting() {
-        setStatusProgressRevealVisible(false, animated: true)
-    }
-
-    func simulateStatusLineExitForTesting(pointerStillInsideLine: Bool) {
-        statusContentStack.simulateMouseExitedForTesting(pointerStillInsideLine: pointerStillInsideLine)
-    }
-
-    func simulateStatusLineHoverReconciliationForTesting(pointerInsideLine: Bool) {
-        statusContentStack.simulateHoverReconciliationForTesting(pointerInsideLine: pointerInsideLine)
-    }
-
-    var shimmerPhaseOffsetForTesting: CGFloat {
-        primaryLabel.shimmerPhaseOffsetForTesting
-    }
-
-    var statusShimmerPhaseOffsetForTesting: CGFloat {
-        statusLabel.shimmerPhaseOffsetForTesting
-    }
-
-    var primaryTextColorForTesting: NSColor {
-        primaryBaseLabel.textColor ?? .clear
-    }
-
-    var primaryRowIndexForTesting: Int? {
-        if currentSummary?.paneRows.isEmpty == false {
-            guard let firstPaneButton = paneRowButtons.first else {
-                return nil
+    var debugAccessForTesting: SidebarWorklaneRowDebugAccess {
+        SidebarWorklaneRowDebugAccess(
+            owner: self,
+            currentSummary: currentSummary,
+            currentStatusSymbolName: currentStatusSymbolName,
+            isWorking: isWorking,
+            shimmerCoordinator: shimmerCoordinator,
+            configureApplyCount: configureApplyCountForTesting,
+            textStack: textStack,
+            topLabel: topLabel,
+            primaryTextContainer: primaryTextContainer,
+            primaryBaseLabel: primaryBaseLabel,
+            primaryLabel: primaryLabel,
+            contextPrefixLabel: contextPrefixLabel,
+            statusBaseLabel: statusBaseLabel,
+            statusLabel: statusLabel,
+            statusContentStack: statusContentStack,
+            statusProgressIndicator: statusProgressIndicator,
+            statusProgressRevealView: statusProgressRevealView,
+            overflowLabel: overflowLabel,
+            detailLabels: detailLabels,
+            panePrimaryRows: panePrimaryRows,
+            paneDetailLabels: paneDetailLabels,
+            paneStatusRows: paneStatusRows,
+            paneRowButtons: paneRowButtons,
+            paneRowContainers: paneRowContainers,
+            tintLayer: chrome.tintLayer,
+            setHovered: { [weak self] hovered in
+                self?.isHovered = hovered
+                self?.applyCurrentAppearance(animated: false)
+            },
+            setStatusProgressRevealVisible: { [weak self] isVisible, animated in
+                self?.setStatusProgressRevealVisible(isVisible, animated: animated)
             }
-
-            return textStack.arrangedSubviews.firstIndex(of: firstPaneButton)
-        }
-
-        return textStack.arrangedSubviews.firstIndex {
-            $0 === primaryTextContainer || $0.containsDescendant(primaryTextContainer)
-        }
-    }
-
-    var primaryTextsForTesting: [String] {
-        panePrimaryRows.prefix(currentSummary?.paneRows.count ?? 0).map(\.primaryText)
-    }
-
-    var firstPanePrimaryTextColorForTesting: NSColor? {
-        panePrimaryRows.first?.renderedPrimaryTextColorForTesting
-    }
-
-    var firstPanePrimaryShimmerColorForTesting: NSColor? {
-        panePrimaryRows.first?.shimmerColorForTesting
-    }
-
-    var firstPaneStatusShimmerColorForTesting: NSColor? {
-        paneStatusRows.first?.shimmerColorForTesting
-    }
-
-    var firstPanePrimaryHeightForTesting: CGFloat? {
-        panePrimaryRows.first.map { max($0.bounds.height, $0.fittingSize.height) }
-    }
-
-    var firstPaneTrailingTextColorForTesting: NSColor? {
-        panePrimaryRows.first?.renderedTrailingTextColorForTesting
-    }
-
-    var panePrimaryShimmerPhaseOffsetsForTesting: [CGFloat] {
-        panePrimaryRows.prefix(currentSummary?.paneRows.count ?? 0).map(\.shimmerPhaseOffsetForTesting)
-    }
-
-    var primaryTrailingTextsForTesting: [String] {
-        panePrimaryRows.prefix(currentSummary?.paneRows.count ?? 0).compactMap(\.trailingText)
-    }
-
-    var paneStatusTextsForTesting: [String] {
-        paneStatusRows.prefix(currentSummary?.paneRows.count ?? 0)
-            .map(\.text)
-            .filter { $0.isEmpty == false }
-    }
-
-    var paneStatusTrailingTextsForTesting: [String] {
-        paneStatusRows.prefix(currentSummary?.paneRows.count ?? 0)
-            .compactMap { row in
-                row.isTrailingVisibleForTesting ? row.trailingText : nil
-            }
-    }
-
-    var paneStatusSymbolNamesForTesting: [String] {
-        paneStatusRows.prefix(currentSummary?.paneRows.count ?? 0)
-            .map(\.symbolName)
-            .filter { $0.isEmpty == false }
-    }
-
-    var paneStatusShimmerPhaseOffsetsForTesting: [CGFloat] {
-        paneStatusRows.prefix(currentSummary?.paneRows.count ?? 0)
-            .map(\.shimmerPhaseOffsetForTesting)
-    }
-
-    var firstPaneStatusTextColorForTesting: NSColor? {
-        paneStatusRows.first?.textColor
-    }
-
-    var firstPaneStatusProgressIndicatorIsVisibleForTesting: Bool {
-        paneStatusRows.first?.progressIndicatorIsVisibleForTesting ?? false
-    }
-
-    var firstPaneStatusProgressFractionForTesting: CGFloat {
-        paneStatusRows.first?.progressFractionForTesting ?? 0
-    }
-
-    var firstPaneStatusProgressToolTipForTesting: String {
-        paneStatusRows.first?.progressToolTipForTesting ?? ""
-    }
-
-    var firstPaneStatusProgressRevealTextForTesting: String {
-        paneStatusRows.first?.progressRevealTextForTesting ?? ""
-    }
-
-    var firstPaneStatusProgressRevealIsExpandedForTesting: Bool {
-        paneStatusRows.first?.progressRevealIsExpandedForTesting ?? false
-    }
-
-    var firstPaneStatusProgressRevealLastUpdateWasAnimatedForTesting: Bool {
-        paneStatusRows.first?.progressRevealLastUpdateWasAnimatedForTesting ?? false
-    }
-
-    var firstPaneStatusProgressRevealLastAnimationDurationForTesting: TimeInterval? {
-        paneStatusRows.first?.progressRevealLastAnimationDurationForTesting
-    }
-
-    var firstPaneStatusProgressRevealLastConfigureSyncedPresentationForTesting: Bool {
-        paneStatusRows.first?.progressRevealLastConfigureSyncedPresentationForTesting ?? false
-    }
-
-    var firstPaneStatusProgressColorForTesting: NSColor? {
-        paneStatusRows.first?.progressColorForTesting
-    }
-
-    var firstPaneStatusTextContainerWidthForTesting: CGFloat? {
-        paneStatusRows.first?.textContainerWidthForTesting
-    }
-
-    var firstPaneStatusProgressRevealWidthForTesting: CGFloat? {
-        paneStatusRows.first?.progressRevealWidthForTesting
-    }
-
-    var firstPaneStatusProgressRevealIsHiddenForTesting: Bool? {
-        paneStatusRows.first?.progressRevealIsHiddenForTesting
-    }
-
-    var firstPaneStatusTrailingLabelWidthForTesting: CGFloat? {
-        paneStatusRows.first?.trailingLabelWidthForTesting
-    }
-
-    func simulateFirstPaneStatusProgressIconHoverForTesting() {
-        simulateFirstPaneStatusProgressIconHoverForTesting(animated: true)
-    }
-
-    func simulateFirstPaneStatusProgressIconHoverForTesting(animated: Bool) {
-        paneStatusRows.first?.simulateProgressIconHoverForTesting(animated: animated)
-    }
-
-    func simulateFirstPaneStatusLineHoverForTesting() {
-        paneStatusRows.first?.simulateProgressLineHoverForTesting()
-    }
-
-    func simulateFirstPaneStatusLineExitForTesting() {
-        paneStatusRows.first?.simulateProgressLineExitForTesting()
-    }
-
-    func simulateFirstPaneStatusLineExitForTesting(pointerStillInsideLine: Bool) {
-        paneStatusRows.first?.simulateProgressLineExitForTesting(
-            pointerStillInsideLine: pointerStillInsideLine
         )
-    }
-
-    func simulateFirstPaneStatusLineHoverReconciliationForTesting(pointerInsideLine: Bool) {
-        paneStatusRows.first?.simulateProgressLineHoverReconciliationForTesting(
-            pointerInsideLine: pointerInsideLine
-        )
-    }
-
-    var paneRowWidthConstraintCountForTesting: Int {
-        paneRowContainers.filter(\.hasActiveWidthConstraintForTesting).count
-    }
-
-    var firstPaneRowMinXForTesting: CGFloat? {
-        paneRowButtons.first.map { convert($0.bounds, from: $0).minX }
-    }
-
-    var firstPaneRowMaxTrailingInsetForTesting: CGFloat? {
-        paneRowButtons.first.map { bounds.maxX - convert($0.bounds, from: $0).maxX }
-    }
-
-    var firstPaneRowContentMinXForTesting: CGFloat? {
-        paneRowButtons.first?.contentMinXForTesting
-    }
-
-    var firstPaneRowContentMaxTrailingInsetForTesting: CGFloat? {
-        paneRowButtons.first?.contentMaxTrailingInsetForTesting
-    }
-
-    var firstPaneRowMinYForTesting: CGFloat? {
-        paneRowButtons.first.map { convert($0.bounds, from: $0).minY }
-    }
-
-    var firstPaneRowMaxTopInsetForTesting: CGFloat? {
-        paneRowButtons.first.map { bounds.maxY - convert($0.bounds, from: $0).maxY }
-    }
-
-    var firstPaneRowContentMinYForTesting: CGFloat? {
-        paneRowButtons.first?.contentMinYForTesting
-    }
-
-    var firstPaneRowContentMaxTopInsetForTesting: CGFloat? {
-        paneRowButtons.first?.contentMaxTopInsetForTesting
-    }
-
-    var firstPaneRowCornerRadiusForTesting: CGFloat? {
-        paneRowButtons.first?.cornerRadiusForTesting
-    }
-
-    func setWorklaneMoveAvailabilityForTesting(_ availability: SidebarWorklaneMoveAvailability) {
-        setWorklaneMoveAvailability(availability)
-    }
-
-    func firstPaneRowMenuForTesting(event: NSEvent) -> NSMenu? {
-        paneRowButtons.first?.menu(for: event)
-    }
-
-    var primaryTextMinXForTesting: CGFloat? {
-        guard currentSummary?.paneRows.isEmpty != false,
-              let superview = primaryTextContainer.superview else {
-            return nil
-        }
-
-        return convert(primaryTextContainer.frame, from: superview).minX
-    }
-
-    var primaryTextMaxTrailingInsetForTesting: CGFloat? {
-        guard currentSummary?.paneRows.isEmpty != false,
-              let superview = primaryTextContainer.superview else {
-            return nil
-        }
-
-        let primaryTextFrame = convert(primaryTextContainer.frame, from: superview)
-        return bounds.maxX - primaryTextFrame.maxX
-    }
-
-    var backgroundColorForTesting: NSColor? {
-        layer?.backgroundColor.flatMap(NSColor.init(cgColor:))
-    }
-
-    var appearanceMatchForTesting: NSAppearance.Name? {
-        appearance?.bestMatch(from: [.darkAqua, .aqua])
     }
 #endif
 }

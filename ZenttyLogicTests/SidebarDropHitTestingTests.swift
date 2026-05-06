@@ -2,22 +2,22 @@ import CoreGraphics
 import XCTest
 @testable import Zentty
 
-final class SidebarDropHitTestingTests: XCTestCase {
+final class SidebarPaneDropHitTestingTests: XCTestCase {
     func test_target_returns_hovered_non_active_worklane() {
         XCTAssertEqual(
-            SidebarDropHitTesting.target(
+            SidebarPaneDropHitTesting.target(
                 cursorInStrip: CGPoint(x: 20, y: 152),
                 worklaneFrames: worklaneFrames,
                 activeWorklaneID: WorklaneID("A"),
                 sidebarBottomY: 0
             ),
-            .row(WorklaneID("B"))
+            .existingWorklane(WorklaneID("B"))
         )
     }
 
     func test_target_excludes_active_worklane() {
         XCTAssertEqual(
-            SidebarDropHitTesting.target(
+            SidebarPaneDropHitTesting.target(
                 cursorInStrip: CGPoint(x: 20, y: 152),
                 worklaneFrames: worklaneFrames,
                 activeWorklaneID: WorklaneID("B"),
@@ -29,7 +29,7 @@ final class SidebarDropHitTestingTests: XCTestCase {
 
     func test_target_returns_new_worklane_below_last_row() {
         XCTAssertEqual(
-            SidebarDropHitTesting.target(
+            SidebarPaneDropHitTesting.target(
                 cursorInStrip: CGPoint(x: 20, y: 60),
                 worklaneFrames: worklaneFrames,
                 activeWorklaneID: WorklaneID("A"),
@@ -41,7 +41,7 @@ final class SidebarDropHitTestingTests: XCTestCase {
 
     func test_target_returns_none_outside_rows_and_new_worklane_zone() {
         XCTAssertEqual(
-            SidebarDropHitTesting.target(
+            SidebarPaneDropHitTesting.target(
                 cursorInStrip: CGPoint(x: 20, y: 300),
                 worklaneFrames: worklaneFrames,
                 activeWorklaneID: WorklaneID("A"),
@@ -53,7 +53,7 @@ final class SidebarDropHitTestingTests: XCTestCase {
 
     func test_target_maps_empty_sidebar_lower_area_to_new_worklane() {
         XCTAssertEqual(
-            SidebarDropHitTesting.target(
+            SidebarPaneDropHitTesting.target(
                 cursorInStrip: CGPoint(x: 20, y: 32),
                 worklaneFrames: [],
                 activeWorklaneID: nil,

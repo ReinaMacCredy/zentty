@@ -1,6 +1,6 @@
 import CoreGraphics
 
-struct SidebarWorklaneRowPresentation: Equatable {
+struct SidebarWorklaneRowRenderPlan: Equatable {
     struct PaneRow: Equatable {
         let row: WorklaneSidebarPaneRow
         let presentationMode: SidebarPaneRowPresentationMode
@@ -11,7 +11,12 @@ struct SidebarWorklaneRowPresentation: Equatable {
     }
 
     let summary: WorklaneSidebarSummary
-    let layout: SidebarWorklaneRowLayout
+    let mode: WorklaneRowMode
+    let visibleTextRows: [WorklaneRowTextRow]
+    let contentGroups: [SidebarWorklaneRowContentGroup]
+    let rowHeight: CGFloat
+    let textStackTopInset: CGFloat
+    let textStackBottomInset: CGFloat
     let statusDisplayText: String
     let statusSymbolName: String
     let statusLineCount: Int
@@ -19,7 +24,17 @@ struct SidebarWorklaneRowPresentation: Equatable {
 
     init(summary: WorklaneSidebarSummary, availableWidth: CGFloat?) {
         self.summary = summary
-        layout = SidebarWorklaneRowLayout(summary: summary, availableWidth: availableWidth)
+        let layout = SidebarWorklaneRowLayout(summary: summary, availableWidth: availableWidth)
+        mode = layout.mode
+        visibleTextRows = layout.visibleTextRows
+        contentGroups = layout.contentGroups
+        rowHeight = layout.rowHeight
+        textStackTopInset = summary.paneRows.isEmpty
+            ? ShellMetrics.sidebarRowTopInset
+            : ShellMetrics.sidebarPaneRowVerticalInset
+        textStackBottomInset = summary.paneRows.isEmpty
+            ? -ShellMetrics.sidebarRowBottomInset
+            : -ShellMetrics.sidebarPaneRowVerticalInset
         statusDisplayText = SidebarStatusResolver.resolveDisplayStatusText(
             statusText: summary.statusText,
             attentionState: summary.attentionState,

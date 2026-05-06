@@ -81,3 +81,45 @@ final class SidebarDropPlaceholderView: NSView {
         layer?.add(spring, forKey: "placeholderScaleOut")
     }
 }
+
+@MainActor
+final class SidebarPaneDropPresenter {
+    private weak var targetStack: NSStackView?
+    private var dropPlaceholder: SidebarDropPlaceholderView?
+
+    init(targetStack: NSStackView) {
+        self.targetStack = targetStack
+    }
+
+    func setHighlightedDropTargetWorklane(
+        _ worklaneID: WorklaneID?,
+        buttons: [SidebarWorklaneRowButton]
+    ) {
+        for button in buttons {
+            button.setDropTargetHighlighted(button.worklaneID == worklaneID)
+        }
+    }
+
+    func showNewWorklanePlaceholder() {
+        guard dropPlaceholder == nil, let targetStack else { return }
+
+        let placeholder = SidebarDropPlaceholderView()
+        placeholder.translatesAutoresizingMaskIntoConstraints = false
+        targetStack.addArrangedSubview(placeholder)
+        NSLayoutConstraint.activate([
+            placeholder.leadingAnchor.constraint(equalTo: targetStack.leadingAnchor),
+            placeholder.trailingAnchor.constraint(equalTo: targetStack.trailingAnchor),
+            placeholder.heightAnchor.constraint(equalToConstant: ShellMetrics.sidebarCompactRowHeight),
+        ])
+        dropPlaceholder = placeholder
+        placeholder.animateIn()
+    }
+
+    func hideNewWorklanePlaceholder() {
+        guard let placeholder = dropPlaceholder else { return }
+        placeholder.animateOut { [weak self] in
+            placeholder.removeFromSuperview()
+            self?.dropPlaceholder = nil
+        }
+    }
+}

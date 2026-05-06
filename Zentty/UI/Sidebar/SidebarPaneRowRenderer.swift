@@ -62,7 +62,7 @@ final class SidebarPaneRowRenderer {
     }
 
     func configure(
-        panePresentations: [SidebarWorklaneRowPresentation.PaneRow],
+        panePresentations: [SidebarWorklaneRowRenderPlan.PaneRow],
         animated: Bool,
         worklaneColor: WorklaneColor?,
         referenceWidthView: NSView,
@@ -169,5 +169,95 @@ final class SidebarPaneRowRenderer {
         label.cell?.truncatesLastVisibleLine = true
         label.cell?.usesSingleLineMode = true
         label.translatesAutoresizingMaskIntoConstraints = false
+    }
+}
+
+@MainActor
+final class SidebarWorklaneRowContentRenderer {
+    struct Labels {
+        let topLabel: NSView
+        let primaryTextContainer: NSView
+        let contextPrefixLabel: NSView
+        let statusContentStack: NSView
+        let detailLabels: [NSView]
+        let overflowLabel: NSView
+    }
+
+    struct PaneRows {
+        let primaryRows: [NSView]
+        let detailLabels: [NSView]
+        let statusRows: [NSView]
+        let buttons: [SidebarPaneRowButton]
+        let containers: [NSView]
+    }
+
+    private weak var textStack: NSStackView?
+    private let textWrapperInset: CGFloat
+
+    init(
+        textStack: NSStackView,
+        textWrapperInset: CGFloat
+    ) {
+        self.textStack = textStack
+        self.textWrapperInset = textWrapperInset
+    }
+
+    func groupedViews(
+        for renderPlan: SidebarWorklaneRowRenderPlan,
+        labels: Labels,
+        paneRows: PaneRows
+    ) -> [NSView] {
+        renderPlan.contentGroups.map { group in
+            switch group {
+            case .standalone(let row):
+                return insetWrappedView(for: view(for: row, labels: labels, paneRows: paneRows))
+            case .pane(let index, let rows):
+                paneRows.buttons[index].setContent(
+                    rows.map { view(for: $0, labels: labels, paneRows: paneRows) }
+                )
+                return paneRows.containers[index]
+            }
+        }
+    }
+
+    private func insetWrappedView(for view: NSView) -> NSView {
+        guard let textStack else {
+            return view
+        }
+
+        return SidebarInsetContainerView(
+            contentView: view,
+            horizontalInset: textWrapperInset,
+            referenceWidthView: textStack
+        )
+    }
+
+    private func view(
+        for row: WorklaneRowTextRow,
+        labels: Labels,
+        paneRows: PaneRows
+    ) -> NSView {
+        switch row {
+        case .topLabel:
+            labels.topLabel
+        case .primary:
+            labels.primaryTextContainer
+        case .contextPrefix:
+            labels.contextPrefixLabel
+        case .status:
+            labels.statusContentStack
+        case .panePrimary(let index):
+            paneRows.primaryRows[index]
+        case .paneDetail(let index):
+            paneRows.detailLabels[index]
+        case .paneStatus(let index):
+            paneRows.statusRows[index]
+        case .context:
+            labels.detailLabels.first ?? labels.overflowLabel
+        case .detail(let index):
+            labels.detailLabels[index]
+        case .overflow:
+            labels.overflowLabel
+        }
     }
 }

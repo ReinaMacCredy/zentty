@@ -2,7 +2,7 @@ import XCTest
 
 @testable import Zentty
 
-final class SidebarWorklaneRowPresentationTests: XCTestCase {
+final class SidebarWorklaneRowRenderPlanTests: XCTestCase {
     func test_presentation_resolves_top_level_status_once() {
         let summary = WorklaneSidebarSummary(
             worklaneID: WorklaneID("worklane-api"),
@@ -16,7 +16,7 @@ final class SidebarWorklaneRowPresentationTests: XCTestCase {
             isActive: true
         )
 
-        let presentation = SidebarWorklaneRowPresentation(summary: summary, availableWidth: 280)
+        let presentation = SidebarWorklaneRowRenderPlan(summary: summary, availableWidth: 280)
 
         XCTAssertEqual(presentation.statusDisplayText, "Editing")
         XCTAssertEqual(presentation.statusSymbolName, "pencil")
@@ -42,8 +42,8 @@ final class SidebarWorklaneRowPresentationTests: XCTestCase {
             isActive: true
         )
 
-        let wide = SidebarWorklaneRowPresentation(summary: summary, availableWidth: 900)
-        let narrow = SidebarWorklaneRowPresentation(summary: summary, availableWidth: 220)
+        let wide = SidebarWorklaneRowRenderPlan(summary: summary, availableWidth: 900)
+        let narrow = SidebarWorklaneRowRenderPlan(summary: summary, availableWidth: 220)
 
         XCTAssertEqual(wide.paneRows.first?.presentationMode, .inline)
         XCTAssertEqual(narrow.paneRows.first?.presentationMode, .adaptive)

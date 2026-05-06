@@ -1,22 +1,27 @@
 import CoreGraphics
 
-enum SidebarDropHitTarget: Equatable {
-    case row(WorklaneID)
+/// Hit testing for pane transfer/duplicate drops onto the sidebar.
+///
+/// This intentionally excludes the active worklane because dropping a pane
+/// onto its own worklane is a no-op. Worklane reordering uses
+/// `SidebarWorklaneReorderModel` instead.
+enum SidebarPaneDropTarget: Equatable {
+    case existingWorklane(WorklaneID)
     case newWorklane
     case none
 }
 
-enum SidebarDropHitTesting {
+enum SidebarPaneDropHitTesting {
     static func target(
         cursorInStrip: CGPoint,
         worklaneFrames: [(WorklaneID, CGRect)],
         activeWorklaneID: WorklaneID?,
         sidebarBottomY: CGFloat
-    ) -> SidebarDropHitTarget {
+    ) -> SidebarPaneDropTarget {
         for (worklaneID, frame) in worklaneFrames {
             guard worklaneID != activeWorklaneID else { continue }
             if frame.contains(cursorInStrip) {
-                return .row(worklaneID)
+                return .existingWorklane(worklaneID)
             }
         }
 

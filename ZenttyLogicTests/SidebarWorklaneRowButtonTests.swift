@@ -24,9 +24,9 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
             animated: false
         )
 
-        XCTAssertTrue(row.isWorkingForTesting)
-        XCTAssertFalse(row.shimmerIsAnimatingForTesting)
-        XCTAssertFalse(row.statusShimmerIsAnimatingForTesting)
+        XCTAssertTrue(row.debugSnapshotForTesting.isWorking)
+        XCTAssertFalse(row.debugSnapshotForTesting.shimmerIsAnimating)
+        XCTAssertFalse(row.debugSnapshotForTesting.statusShimmerIsAnimating)
     }
 
     func test_working_worklane_row_keeps_primary_single_line_and_exposes_context_prefix_row() throws
@@ -57,22 +57,22 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
             window.orderOut(nil)
             window.close()
         }
-        sidebarView.updateShimmerVisibilityForTesting()
+        sidebarView.performDebugActionForTesting(.updateShimmerVisibility)
         sidebarView.layoutSubtreeIfNeeded()
 
         let row = try XCTUnwrap(
-            sidebarView.worklaneButtonsForTesting.first as? SidebarWorklaneRowButton
+            sidebarView.debugSnapshotForTesting.worklaneButtons.first as? SidebarWorklaneRowButton
         )
 
-        XCTAssertTrue(row.isWorkingForTesting)
+        XCTAssertTrue(row.debugSnapshotForTesting.isWorking)
         XCTAssertFalse(
-            row.primaryShimmerViewIsHiddenForTesting,
+            row.debugSnapshotForTesting.primaryShimmerViewIsHidden,
             "primary shimmer view must stay visible on running rows — this is the 191703a regression"
         )
-        XCTAssertEqual(row.primaryBaseLabelMaximumNumberOfLinesForTesting, 1)
-        XCTAssertTrue(row.shimmerIsAnimatingForTesting)
-        XCTAssertTrue(row.contextPrefixRowIsVisibleForTesting)
-        XCTAssertEqual(row.contextPrefixTextForTesting, "…/Development")
+        XCTAssertEqual(row.debugSnapshotForTesting.primaryBaseLabelMaximumNumberOfLines, 1)
+        XCTAssertTrue(row.debugSnapshotForTesting.shimmerIsAnimating)
+        XCTAssertTrue(row.debugSnapshotForTesting.contextPrefixRowIsVisible)
+        XCTAssertEqual(row.debugSnapshotForTesting.contextPrefixText, "…/Development")
     }
 
     func test_idle_worklane_row_stays_static_when_it_is_not_hosted_in_a_visible_sidebar() {
@@ -88,8 +88,8 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
             theme: ZenttyTheme.fallback(for: nil),
             animated: false
         )
-        XCTAssertFalse(row.shimmerIsAnimatingForTesting)
-        XCTAssertFalse(row.statusShimmerIsAnimatingForTesting)
+        XCTAssertFalse(row.debugSnapshotForTesting.shimmerIsAnimating)
+        XCTAssertFalse(row.debugSnapshotForTesting.statusShimmerIsAnimating)
 
         row.configure(
             with: makeSummary(primaryText: "project"),
@@ -97,9 +97,9 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
             animated: false
         )
 
-        XCTAssertFalse(row.isWorkingForTesting)
-        XCTAssertFalse(row.shimmerIsAnimatingForTesting)
-        XCTAssertFalse(row.statusShimmerIsAnimatingForTesting)
+        XCTAssertFalse(row.debugSnapshotForTesting.isWorking)
+        XCTAssertFalse(row.debugSnapshotForTesting.shimmerIsAnimating)
+        XCTAssertFalse(row.debugSnapshotForTesting.statusShimmerIsAnimating)
     }
 
     func test_working_active_worklane_row_uses_distinct_background_tint() {
@@ -112,7 +112,7 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
             animated: false
         )
         let idleBackground = try! XCTUnwrap(
-            row.backgroundColorForTesting?.usingColorSpace(.deviceRGB))
+            row.debugSnapshotForTesting.backgroundColor?.usingColorSpace(.deviceRGB))
 
         row.configure(
             with: makeSummary(
@@ -126,13 +126,13 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
             animated: false
         )
         let workingBackground = try! XCTUnwrap(
-            row.backgroundColorForTesting?.usingColorSpace(.deviceRGB))
+            row.debugSnapshotForTesting.backgroundColor?.usingColorSpace(.deviceRGB))
 
         XCTAssertGreaterThan(
             abs(idleBackground.redComponent - workingBackground.redComponent), 0.001)
         XCTAssertGreaterThan(
             abs(idleBackground.greenComponent - workingBackground.greenComponent), 0.001)
-        XCTAssertFalse(row.shimmerIsAnimatingForTesting)
+        XCTAssertFalse(row.debugSnapshotForTesting.shimmerIsAnimating)
     }
 
     func test_working_inactive_worklane_row_keeps_same_background_as_idle_inactive_row() {
@@ -145,7 +145,7 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
             animated: false
         )
         let idleBackground = try! XCTUnwrap(
-            row.backgroundColorForTesting?.usingColorSpace(.deviceRGB))
+            row.debugSnapshotForTesting.backgroundColor?.usingColorSpace(.deviceRGB))
 
         row.configure(
             with: makeSummary(
@@ -159,7 +159,7 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
             animated: false
         )
         let workingBackground = try! XCTUnwrap(
-            row.backgroundColorForTesting?.usingColorSpace(.deviceRGB))
+            row.debugSnapshotForTesting.backgroundColor?.usingColorSpace(.deviceRGB))
 
         XCTAssertEqual(idleBackground.redComponent, workingBackground.redComponent, accuracy: 0.001)
         XCTAssertEqual(
@@ -179,12 +179,12 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
             theme: theme,
             animated: false
         )
-        let normalBackground = try XCTUnwrap(row.backgroundColorForTesting?.srgbClamped)
+        let normalBackground = try XCTUnwrap(row.debugSnapshotForTesting.backgroundColor?.srgbClamped)
         XCTAssertLessThan(normalBackground.alphaComponent, 1)
 
         row.setReorderDragActive(true)
 
-        let dragBackground = try XCTUnwrap(row.backgroundColorForTesting?.srgbClamped)
+        let dragBackground = try XCTUnwrap(row.debugSnapshotForTesting.backgroundColor?.srgbClamped)
         let sidebarSurface = theme.sidebarBackground.composited(over: theme.windowBackground)
         let expectedBackground = normalBackground
             .composited(over: sidebarSurface)
@@ -197,7 +197,7 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
 
         row.setReorderDragActive(false)
 
-        let restoredBackground = try XCTUnwrap(row.backgroundColorForTesting?.srgbClamped)
+        let restoredBackground = try XCTUnwrap(row.debugSnapshotForTesting.backgroundColor?.srgbClamped)
         XCTAssertEqual(restoredBackground.alphaComponent, normalBackground.alphaComponent, accuracy: 0.001)
         XCTAssertEqual(restoredBackground.redComponent, normalBackground.redComponent, accuracy: 0.001)
         XCTAssertEqual(restoredBackground.greenComponent, normalBackground.greenComponent, accuracy: 0.001)
@@ -213,13 +213,13 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
             animated: false
         )
 
-        row.setWorklaneMoveAvailabilityForTesting(.init(canMoveUp: false, canMoveDown: false))
+        row.setWorklaneMoveAvailability(.init(canMoveUp: false, canMoveDown: false))
         XCTAssertEqual(
             menuTitles(row.menu(for: event)),
             ["Close Worklane", "Worklane Color", "Bookmark Worklane…", "Save as Preset…"]
         )
 
-        row.setWorklaneMoveAvailabilityForTesting(.init(canMoveUp: false, canMoveDown: true))
+        row.setWorklaneMoveAvailability(.init(canMoveUp: false, canMoveDown: true))
         XCTAssertEqual(
             menuTitles(row.menu(for: event)),
             [
@@ -231,7 +231,7 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
             ]
         )
 
-        row.setWorklaneMoveAvailabilityForTesting(.init(canMoveUp: true, canMoveDown: true))
+        row.setWorklaneMoveAvailability(.init(canMoveUp: true, canMoveDown: true))
         XCTAssertEqual(
             menuTitles(row.menu(for: event)),
             [
@@ -244,7 +244,7 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
             ]
         )
 
-        row.setWorklaneMoveAvailabilityForTesting(.init(canMoveUp: true, canMoveDown: false))
+        row.setWorklaneMoveAvailability(.init(canMoveUp: true, canMoveDown: false))
         XCTAssertEqual(
             menuTitles(row.menu(for: event)),
             [
@@ -268,7 +268,7 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
         row.onWorklaneMoveRequested = { worklaneID, direction in
             moves.append((worklaneID, direction))
         }
-        row.setWorklaneMoveAvailabilityForTesting(.init(canMoveUp: true, canMoveDown: true))
+        row.setWorklaneMoveAvailability(.init(canMoveUp: true, canMoveDown: true))
         row.configure(
             with: makeSummary(primaryText: "Claude Code"),
             theme: ZenttyTheme.fallback(for: nil),
@@ -297,7 +297,7 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
 
     func test_paneRowContextMenu_sharesWorklaneItemsAndIncludesPaneOnlyItems() throws {
         let row = makeRow(width: 320, height: 110)
-        row.setWorklaneMoveAvailabilityForTesting(.init(canMoveUp: true, canMoveDown: true))
+        row.setWorklaneMoveAvailability(.init(canMoveUp: true, canMoveDown: true))
         row.configure(
             with: makeSummary(
                 primaryText: "Claude Code",
@@ -307,7 +307,7 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
             animated: false
         )
 
-        let menu = try XCTUnwrap(row.firstPaneRowMenuForTesting(event: try makeContextMenuEvent()))
+        let menu = try XCTUnwrap(row.debugMenuForTesting(.firstPaneRow, event: try makeContextMenuEvent()))
 
         XCTAssertEqual(
             menuTitles(menu),
@@ -342,7 +342,7 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
             animated: false
         )
 
-        let menu = try XCTUnwrap(row.firstPaneRowMenuForTesting(event: try makeContextMenuEvent()))
+        let menu = try XCTUnwrap(row.debugMenuForTesting(.firstPaneRow, event: try makeContextMenuEvent()))
 
         XCTAssertNotNil(menu.item(withTitle: "Close Pane"))
         XCTAssertEqual(
@@ -372,7 +372,7 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
             animated: false
         )
 
-        let menu = try XCTUnwrap(row.firstPaneRowMenuForTesting(event: try makeContextMenuEvent()))
+        let menu = try XCTUnwrap(row.debugMenuForTesting(.firstPaneRow, event: try makeContextMenuEvent()))
         let moveToWindow = try XCTUnwrap(menu.item(withTitle: "Move Pane to New Window"))
 
         XCTAssertFalse(moveToWindow.isEnabled)
@@ -394,8 +394,8 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
             animated: false
         )
 
-        XCTAssertEqual(row.statusTextForTesting, "Needs input")
-        XCTAssertEqual(row.statusSymbolNameForTesting, "")
+        XCTAssertEqual(row.debugSnapshotForTesting.statusText, "Needs input")
+        XCTAssertEqual(row.debugSnapshotForTesting.statusSymbolName, "")
     }
 
     func test_worklane_row_prefers_specific_top_level_question_copy_and_icon() {
@@ -414,11 +414,11 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
             animated: false
         )
 
-        XCTAssertEqual(row.statusTextForTesting, "Needs decision")
-        XCTAssertEqual(row.statusSymbolNameForTesting, "list.bullet")
+        XCTAssertEqual(row.debugSnapshotForTesting.statusText, "Needs decision")
+        XCTAssertEqual(row.debugSnapshotForTesting.statusSymbolName, "list.bullet")
         let theme = ZenttyTheme.fallback(for: nil)
         XCTAssertEqual(
-            row.statusTextColorForTesting.srgbClamped,
+            row.debugSnapshotForTesting.statusTextColor.srgbClamped,
             theme.statusNeedsInput.srgbClamped
         )
     }
@@ -447,24 +447,24 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
         )
         row.layoutSubtreeIfNeeded()
 
-        XCTAssertEqual(row.primaryTextsForTesting, ["General coding assistance session"])
-        XCTAssertEqual(row.primaryTrailingTextsForTesting, ["main"])
-        XCTAssertEqual(row.detailTextsForTesting, ["…/nimbu"])
-        XCTAssertEqual(row.paneStatusTextsForTesting, ["╰ Idle"])
+        XCTAssertEqual(row.debugSnapshotForTesting.primaryTexts, ["General coding assistance session"])
+        XCTAssertEqual(row.debugSnapshotForTesting.primaryTrailingTexts, ["main"])
+        XCTAssertEqual(row.debugSnapshotForTesting.detailTexts, ["…/nimbu"])
+        XCTAssertEqual(row.debugSnapshotForTesting.paneStatusTexts, ["╰ Idle"])
 
-        let paneRowMinX = try! XCTUnwrap(row.firstPaneRowMinXForTesting)
-        let paneRowMaxTrailingInset = try! XCTUnwrap(row.firstPaneRowMaxTrailingInsetForTesting)
-        let paneRowContentMinX = try! XCTUnwrap(row.firstPaneRowContentMinXForTesting)
+        let paneRowMinX = try! XCTUnwrap(row.debugSnapshotForTesting.firstPaneRowMinX)
+        let paneRowMaxTrailingInset = try! XCTUnwrap(row.debugSnapshotForTesting.firstPaneRowMaxTrailingInset)
+        let paneRowContentMinX = try! XCTUnwrap(row.debugSnapshotForTesting.firstPaneRowContentMinX)
         let paneRowContentMaxTrailingInset = try! XCTUnwrap(
-            row.firstPaneRowContentMaxTrailingInsetForTesting
+            row.debugSnapshotForTesting.firstPaneRowContentMaxTrailingInset
         )
-        let paneRowMinY = try! XCTUnwrap(row.firstPaneRowMinYForTesting)
-        let paneRowMaxTopInset = try! XCTUnwrap(row.firstPaneRowMaxTopInsetForTesting)
-        let paneRowContentMinY = try! XCTUnwrap(row.firstPaneRowContentMinYForTesting)
+        let paneRowMinY = try! XCTUnwrap(row.debugSnapshotForTesting.firstPaneRowMinY)
+        let paneRowMaxTopInset = try! XCTUnwrap(row.debugSnapshotForTesting.firstPaneRowMaxTopInset)
+        let paneRowContentMinY = try! XCTUnwrap(row.debugSnapshotForTesting.firstPaneRowContentMinY)
         let paneRowContentMaxTopInset = try! XCTUnwrap(
-            row.firstPaneRowContentMaxTopInsetForTesting
+            row.debugSnapshotForTesting.firstPaneRowContentMaxTopInset
         )
-        let paneRowCornerRadius = try! XCTUnwrap(row.firstPaneRowCornerRadiusForTesting)
+        let paneRowCornerRadius = try! XCTUnwrap(row.debugSnapshotForTesting.firstPaneRowCornerRadius)
 
         XCTAssertEqual(
             paneRowMinX,
@@ -536,8 +536,8 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
         )
         row.layoutSubtreeIfNeeded()
 
-        let primaryTextMinX = try! XCTUnwrap(row.primaryTextMinXForTesting)
-        let primaryTextMaxTrailingInset = try! XCTUnwrap(row.primaryTextMaxTrailingInsetForTesting)
+        let primaryTextMinX = try! XCTUnwrap(row.debugSnapshotForTesting.primaryTextMinX)
+        let primaryTextMaxTrailingInset = try! XCTUnwrap(row.debugSnapshotForTesting.primaryTextMaxTrailingInset)
 
         XCTAssertEqual(
             primaryTextMinX,
@@ -608,11 +608,11 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
             animated: false
         )
 
-        XCTAssertEqual(row.paneStatusTextsForTesting, ["╰ Needs decision"])
-        XCTAssertEqual(row.paneStatusSymbolNamesForTesting, ["list.bullet"])
+        XCTAssertEqual(row.debugSnapshotForTesting.paneStatusTexts, ["╰ Needs decision"])
+        XCTAssertEqual(row.debugSnapshotForTesting.paneStatusSymbolNames, ["list.bullet"])
         let theme = ZenttyTheme.fallback(for: nil)
         XCTAssertEqual(
-            row.statusTextColorForTesting.srgbClamped,
+            row.debugSnapshotForTesting.statusTextColor.srgbClamped,
             theme.statusNeedsInput.srgbClamped
         )
     }
@@ -660,8 +660,8 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
             animated: false
         )
 
-        XCTAssertEqual(row.paneStatusTextsForTesting, ["Agent ready"])
-        XCTAssertEqual(row.paneStatusSymbolNamesForTesting, ["checkmark.circle.fill"])
+        XCTAssertEqual(row.debugSnapshotForTesting.paneStatusTexts, ["Agent ready"])
+        XCTAssertEqual(row.debugSnapshotForTesting.paneStatusSymbolNames, ["checkmark.circle.fill"])
     }
 
     func test_worklane_row_renders_idle_with_sleep_icon_from_sidebar_summary() {
@@ -699,8 +699,8 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
             animated: false
         )
 
-        XCTAssertEqual(row.paneStatusTextsForTesting, ["Idle"])
-        XCTAssertEqual(row.paneStatusSymbolNamesForTesting, ["moon.fill"])
+        XCTAssertEqual(row.debugSnapshotForTesting.paneStatusTexts, ["Idle"])
+        XCTAssertEqual(row.debugSnapshotForTesting.paneStatusSymbolNames, ["moon.fill"])
     }
 
     func test_worklane_row_keeps_short_branch_trailing_for_single_pane_agent_rows() {
@@ -726,9 +726,9 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
             animated: false
         )
 
-        XCTAssertEqual(row.primaryTextsForTesting, ["General coding assistance session"])
-        XCTAssertEqual(row.primaryTrailingTextsForTesting, ["main"])
-        XCTAssertEqual(row.detailTextsForTesting, [])
+        XCTAssertEqual(row.debugSnapshotForTesting.primaryTexts, ["General coding assistance session"])
+        XCTAssertEqual(row.debugSnapshotForTesting.primaryTrailingTexts, ["main"])
+        XCTAssertEqual(row.debugSnapshotForTesting.detailTexts, [])
     }
 
     func test_worklane_row_renders_path_primary_with_branch_in_trailing_slot() {
@@ -755,10 +755,10 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
         )
         row.layoutSubtreeIfNeeded()
 
-        XCTAssertEqual(row.primaryTextsForTesting, ["…/zentty"])
-        XCTAssertEqual(row.primaryTrailingTextsForTesting, ["main"])
-        XCTAssertEqual(row.detailTextsForTesting, [])
-        XCTAssertEqual(row.paneStatusTextsForTesting, [])
+        XCTAssertEqual(row.debugSnapshotForTesting.primaryTexts, ["…/zentty"])
+        XCTAssertEqual(row.debugSnapshotForTesting.primaryTrailingTexts, ["main"])
+        XCTAssertEqual(row.debugSnapshotForTesting.detailTexts, [])
+        XCTAssertEqual(row.debugSnapshotForTesting.paneStatusTexts, [])
     }
 
     func test_agent_ready_and_stopped_early_use_distinct_status_colors() {
@@ -808,12 +808,12 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
         )
 
         XCTAssertEqual(
-            readyRow.statusTextColorForTesting.srgbClamped, theme.statusReady.srgbClamped)
+            readyRow.debugSnapshotForTesting.statusTextColor.srgbClamped, theme.statusReady.srgbClamped)
         XCTAssertEqual(
-            stoppedRow.statusTextColorForTesting.srgbClamped, theme.statusStopped.srgbClamped)
+            stoppedRow.debugSnapshotForTesting.statusTextColor.srgbClamped, theme.statusStopped.srgbClamped)
         XCTAssertNotEqual(
-            readyRow.statusTextColorForTesting.srgbClamped,
-            stoppedRow.statusTextColorForTesting.srgbClamped)
+            readyRow.debugSnapshotForTesting.statusTextColor.srgbClamped,
+            stoppedRow.debugSnapshotForTesting.statusTextColor.srgbClamped)
     }
 
     func test_worklane_row_moves_long_branch_to_lower_metadata_row_when_width_is_tight() throws {
@@ -841,9 +841,9 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
             animated: false
         )
 
-        XCTAssertEqual(row.primaryTextsForTesting, ["Fix zsh startup"])
-        XCTAssertEqual(row.primaryTrailingTextsForTesting, [])
-        XCTAssertEqual(row.detailTextsForTesting, [])
+        XCTAssertEqual(row.debugSnapshotForTesting.primaryTexts, ["Fix zsh startup"])
+        XCTAssertEqual(row.debugSnapshotForTesting.primaryTrailingTexts, [])
+        XCTAssertEqual(row.debugSnapshotForTesting.detailTexts, [])
 
         let branchLabel = try XCTUnwrap(findLabel(withText: branch, in: row))
         let statusLabel = try XCTUnwrap(findLabel(withText: status, in: row))
@@ -879,9 +879,9 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
         )
         row.layoutSubtreeIfNeeded()
 
-        XCTAssertEqual(row.primaryTrailingTextsForTesting, [])
-        XCTAssertEqual(row.paneStatusTrailingTextsForTesting, [])
-        XCTAssertEqual(row.paneStatusTextsForTesting, [status])
+        XCTAssertEqual(row.debugSnapshotForTesting.primaryTrailingTexts, [])
+        XCTAssertEqual(row.debugSnapshotForTesting.paneStatusTrailingTexts, [])
+        XCTAssertEqual(row.debugSnapshotForTesting.paneStatusTexts, [status])
     }
 
     func test_worklane_row_restores_long_branch_to_trailing_slot_after_growing_wider() {
@@ -907,17 +907,17 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
             animated: false
         )
 
-        XCTAssertEqual(row.primaryTrailingTextsForTesting, [])
-        XCTAssertEqual(row.detailTextsForTesting, [])
+        XCTAssertEqual(row.debugSnapshotForTesting.primaryTrailingTexts, [])
+        XCTAssertEqual(row.debugSnapshotForTesting.detailTexts, [])
 
         setRowWidth(row, to: 720)
         row.layoutSubtreeIfNeeded()
 
         XCTAssertEqual(
-            row.primaryTrailingTextsForTesting,
+            row.debugSnapshotForTesting.primaryTrailingTexts,
             ["feature/autoresearch/zsh-startup-2026-03-22"]
         )
-        XCTAssertEqual(row.detailTextsForTesting, [])
+        XCTAssertEqual(row.debugSnapshotForTesting.detailTexts, [])
     }
 
     func test_worklane_row_restores_long_branch_in_status_row_after_growing_wider() {
@@ -946,13 +946,13 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
         )
         row.layoutSubtreeIfNeeded()
 
-        XCTAssertEqual(row.paneStatusTrailingTextsForTesting, [])
+        XCTAssertEqual(row.debugSnapshotForTesting.paneStatusTrailingTexts, [])
 
         setRowWidth(row, to: 360)
         row.layoutSubtreeIfNeeded()
 
-        XCTAssertEqual(row.paneStatusTrailingTextsForTesting, [branch])
-        XCTAssertEqual(row.paneStatusTextsForTesting, [status])
+        XCTAssertEqual(row.debugSnapshotForTesting.paneStatusTrailingTexts, [branch])
+        XCTAssertEqual(row.debugSnapshotForTesting.paneStatusTexts, [status])
     }
 
     func test_worklane_row_moves_long_branch_to_lower_metadata_row_when_detail_is_already_present()
@@ -983,8 +983,8 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
         )
         row.layoutSubtreeIfNeeded()
 
-        XCTAssertEqual(row.primaryTrailingTextsForTesting, [])
-        XCTAssertEqual(row.detailTextsForTesting, ["…/zentty"])
+        XCTAssertEqual(row.debugSnapshotForTesting.primaryTrailingTexts, [])
+        XCTAssertEqual(row.debugSnapshotForTesting.detailTexts, ["…/zentty"])
 
         let branchLabel = try XCTUnwrap(findLabel(withText: branch, in: row))
         let statusLabel = try XCTUnwrap(findLabel(withText: status, in: row))
@@ -1020,14 +1020,14 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
         )
         row.layoutSubtreeIfNeeded()
 
-        XCTAssertEqual(row.primaryTrailingTextsForTesting, [])
-        XCTAssertEqual(row.paneStatusTrailingTextsForTesting, [])
-        XCTAssertEqual(row.paneStatusTextsForTesting, [])
+        XCTAssertEqual(row.debugSnapshotForTesting.primaryTrailingTexts, [])
+        XCTAssertEqual(row.debugSnapshotForTesting.paneStatusTrailingTexts, [])
+        XCTAssertEqual(row.debugSnapshotForTesting.paneStatusTexts, [])
 
         let branchLabel = try XCTUnwrap(findLabel(withText: branch, in: row))
         let branchFrame = row.convert(branchLabel.bounds, from: branchLabel)
-        let paneRowMinX = try XCTUnwrap(row.firstPaneRowMinXForTesting)
-        let paneContentMinX = try XCTUnwrap(row.firstPaneRowContentMinXForTesting)
+        let paneRowMinX = try XCTUnwrap(row.debugSnapshotForTesting.firstPaneRowMinX)
+        let paneContentMinX = try XCTUnwrap(row.debugSnapshotForTesting.firstPaneRowContentMinX)
 
         XCTAssertLessThanOrEqual(branchFrame.minX, paneRowMinX + paneContentMinX + 0.5)
     }
@@ -1059,7 +1059,7 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
 
         let branchLabel = try XCTUnwrap(findLabel(withText: branch, in: row))
 
-        XCTAssertEqual(row.paneStatusTrailingTextsForTesting, [branch])
+        XCTAssertEqual(row.debugSnapshotForTesting.paneStatusTrailingTexts, [branch])
         XCTAssertEqual(branchLabel.lineBreakMode, .byTruncatingMiddle)
     }
 
@@ -1087,7 +1087,7 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
         sidebarView.layoutSubtreeIfNeeded()
 
         let row = try XCTUnwrap(
-            sidebarView.worklaneButtonsForTesting.first as? SidebarWorklaneRowButton)
+            sidebarView.debugSnapshotForTesting.worklaneButtons.first as? SidebarWorklaneRowButton)
         let primaryLabel = try XCTUnwrap(findLabel(withText: primaryText, in: row))
         let statusLabel = try XCTUnwrap(findLabel(withText: statusText, in: row))
         let primaryFrame = row.convert(primaryLabel.bounds, from: primaryLabel)
@@ -1131,7 +1131,7 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
         sidebarView.layoutSubtreeIfNeeded()
 
         let row = try XCTUnwrap(
-            sidebarView.worklaneButtonsForTesting.first as? SidebarWorklaneRowButton)
+            sidebarView.debugSnapshotForTesting.worklaneButtons.first as? SidebarWorklaneRowButton)
         let statusLabel = try XCTUnwrap(findLabel(withText: statusText, in: row))
         let statusFrame = row.convert(statusLabel.bounds, from: statusLabel)
 
@@ -1162,15 +1162,15 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
             animated: false
         )
 
-        XCTAssertEqual(row.paneRowWidthConstraintCountForTesting, 1)
+        XCTAssertEqual(row.debugSnapshotForTesting.paneRowWidthConstraintCount, 1)
 
         setRowWidth(row, to: 260)
         row.layoutSubtreeIfNeeded()
-        XCTAssertEqual(row.paneRowWidthConstraintCountForTesting, 1)
+        XCTAssertEqual(row.debugSnapshotForTesting.paneRowWidthConstraintCount, 1)
 
         setRowWidth(row, to: 720)
         row.layoutSubtreeIfNeeded()
-        XCTAssertEqual(row.paneRowWidthConstraintCountForTesting, 1)
+        XCTAssertEqual(row.debugSnapshotForTesting.paneRowWidthConstraintCount, 1)
     }
 
     func
@@ -1198,7 +1198,7 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
             animated: false
         )
 
-        XCTAssertEqual(row.paneRowWidthConstraintCountForTesting, 1)
+        XCTAssertEqual(row.debugSnapshotForTesting.paneRowWidthConstraintCount, 1)
 
         row.configure(
             with: makeSummary(
@@ -1211,7 +1211,7 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
             animated: false
         )
 
-        XCTAssertEqual(row.paneRowWidthConstraintCountForTesting, 0)
+        XCTAssertEqual(row.debugSnapshotForTesting.paneRowWidthConstraintCount, 0)
     }
 
     func test_worklane_row_moves_primary_view_to_focused_pane_position() {
@@ -1231,9 +1231,9 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
             animated: false
         )
 
-        XCTAssertEqual(row.primaryRowIndexForTesting, 1)
+        XCTAssertEqual(row.debugSnapshotForTesting.primaryRowIndex, 1)
         XCTAssertEqual(
-            row.detailTextsForTesting, ["feature/scaleway-transactional-mails", "Personal"])
+            row.debugSnapshotForTesting.detailTexts, ["feature/scaleway-transactional-mails", "Personal"])
     }
 
     func test_working_worklane_row_uses_bright_title_shimmer_overlay() {
@@ -1252,11 +1252,11 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
         )
 
         XCTAssertGreaterThanOrEqual(
-            row.shimmerColorForTesting.perceivedLuminance,
-            row.primaryTextColorForTesting.perceivedLuminance
+            row.debugSnapshotForTesting.shimmerColor.perceivedLuminance,
+            row.debugSnapshotForTesting.primaryTextColor.perceivedLuminance
         )
         XCTAssertEqual(
-            row.primaryTextColorForTesting.srgbClamped,
+            row.debugSnapshotForTesting.primaryTextColor.srgbClamped,
             theme.sidebarButtonInactiveText.srgbClamped
         )
     }
@@ -1277,7 +1277,7 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
         )
 
         XCTAssertEqual(
-            row.statusTextColorForTesting.srgbClamped,
+            row.debugSnapshotForTesting.statusTextColor.srgbClamped,
             theme.statusRunning.srgbClamped
         )
     }
@@ -1298,14 +1298,14 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
             animated: false
         )
 
-        XCTAssertEqual(row.statusTextForTesting, "Running")
-        XCTAssertTrue(row.statusProgressIndicatorIsVisibleForTesting)
-        XCTAssertEqual(row.statusProgressFractionForTesting, 0.4, accuracy: 0.001)
-        XCTAssertEqual(row.statusProgressToolTipForTesting, "")
+        XCTAssertEqual(row.debugSnapshotForTesting.statusText, "Running")
+        XCTAssertTrue(row.debugSnapshotForTesting.statusProgressIndicatorIsVisible)
+        XCTAssertEqual(row.debugSnapshotForTesting.statusProgressFraction, 0.4, accuracy: 0.001)
+        XCTAssertEqual(row.debugSnapshotForTesting.statusProgressToolTip, "")
         XCTAssertEqual(
-            row.statusProgressColorForTesting.srgbClamped, theme.statusRunning.srgbClamped)
-        XCTAssertEqual(row.statusProgressRevealTextForTesting, "2/5 tasks ・")
-        XCTAssertFalse(row.statusProgressRevealIsExpandedForTesting)
+            row.debugSnapshotForTesting.statusProgressColor.srgbClamped, theme.statusRunning.srgbClamped)
+        XCTAssertEqual(row.debugSnapshotForTesting.statusProgressRevealText, "2/5 tasks ・")
+        XCTAssertFalse(row.debugSnapshotForTesting.statusProgressRevealIsExpanded)
     }
 
     func test_task_progress_indicator_starts_fill_at_top_and_advances_clockwise_through_right_side()
@@ -1336,21 +1336,21 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
             animated: false
         )
 
-        XCTAssertFalse(row.statusProgressRevealIsExpandedForTesting)
+        XCTAssertFalse(row.debugSnapshotForTesting.statusProgressRevealIsExpanded)
 
-        row.simulateStatusProgressIconHoverForTesting()
+        row.performDebugInteractionForTesting(.statusProgressIconHover(animated: true))
 
-        XCTAssertTrue(row.statusProgressRevealIsExpandedForTesting)
-        XCTAssertEqual(row.statusProgressRevealTextForTesting, "2/5 tasks ・")
-        XCTAssertEqual(row.statusTextForTesting, "Running")
-        XCTAssertTrue(row.statusProgressRevealLastUpdateWasAnimatedForTesting)
+        XCTAssertTrue(row.debugSnapshotForTesting.statusProgressRevealIsExpanded)
+        XCTAssertEqual(row.debugSnapshotForTesting.statusProgressRevealText, "2/5 tasks ・")
+        XCTAssertEqual(row.debugSnapshotForTesting.statusText, "Running")
+        XCTAssertTrue(row.debugSnapshotForTesting.statusProgressRevealLastUpdateWasAnimated)
 
-        row.simulateStatusLineExitForTesting()
+        row.performDebugInteractionForTesting(.statusLineExit(pointerStillInsideLine: false))
 
-        XCTAssertFalse(row.statusProgressRevealIsExpandedForTesting)
-        XCTAssertTrue(row.statusProgressRevealLastUpdateWasAnimatedForTesting)
+        XCTAssertFalse(row.debugSnapshotForTesting.statusProgressRevealIsExpanded)
+        XCTAssertTrue(row.debugSnapshotForTesting.statusProgressRevealLastUpdateWasAnimated)
         XCTAssertEqual(
-            try XCTUnwrap(row.statusProgressRevealLastAnimationDurationForTesting),
+            try XCTUnwrap(row.debugSnapshotForTesting.statusProgressRevealLastAnimationDuration),
             0.12,
             accuracy: 0.001
         )
@@ -1372,13 +1372,13 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
             animated: false
         )
 
-        row.simulateStatusLineHoverForTesting()
+        row.performDebugInteractionForTesting(.statusLineHover)
 
-        XCTAssertTrue(row.statusProgressRevealIsExpandedForTesting)
-        XCTAssertEqual(row.statusProgressRevealTextForTesting, "2/5 tasks ・")
-        XCTAssertTrue(row.statusProgressRevealLastUpdateWasAnimatedForTesting)
+        XCTAssertTrue(row.debugSnapshotForTesting.statusProgressRevealIsExpanded)
+        XCTAssertEqual(row.debugSnapshotForTesting.statusProgressRevealText, "2/5 tasks ・")
+        XCTAssertTrue(row.debugSnapshotForTesting.statusProgressRevealLastUpdateWasAnimated)
         XCTAssertEqual(
-            try XCTUnwrap(row.statusProgressRevealLastAnimationDurationForTesting),
+            try XCTUnwrap(row.debugSnapshotForTesting.statusProgressRevealLastAnimationDuration),
             0.16,
             accuracy: 0.001
         )
@@ -1408,19 +1408,19 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
         )
         row.layoutSubtreeIfNeeded()
 
-        row.simulateStatusProgressIconHoverForTesting(animated: false)
+        row.performDebugInteractionForTesting(.statusProgressIconHover(animated: false))
         row.layoutSubtreeIfNeeded()
 
-        XCTAssertTrue(row.statusProgressRevealIsExpandedForTesting)
-        XCTAssertFalse(row.statusProgressRevealIsHiddenForTesting)
-        XCTAssertEqual(row.statusTextForTesting, "Running")
+        XCTAssertTrue(row.debugSnapshotForTesting.statusProgressRevealIsExpanded)
+        XCTAssertFalse(row.debugSnapshotForTesting.statusProgressRevealIsHidden)
+        XCTAssertEqual(row.debugSnapshotForTesting.statusText, "Running")
         XCTAssertGreaterThanOrEqual(
-            row.statusTextContainerWidthForTesting,
+            row.debugSnapshotForTesting.statusTextContainerWidth,
             SidebarTextMetrics.measuredWidth(for: "Running", font: ShellMetrics.sidebarStatusFont())
                 - 1
         )
         XCTAssertGreaterThanOrEqual(
-            row.statusProgressRevealWidthForTesting,
+            row.debugSnapshotForTesting.statusProgressRevealWidth,
             SidebarTextMetrics.measuredWidth(
                 for: "2/10 tasks ・", font: ShellMetrics.sidebarStatusFont()) - 1
         )
@@ -1441,7 +1441,7 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
             theme: theme,
             animated: false
         )
-        row.simulateStatusProgressIconHoverForTesting(animated: false)
+        row.performDebugInteractionForTesting(.statusProgressIconHover(animated: false))
 
         row.configure(
             with: makeSummary(
@@ -1456,10 +1456,10 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
         )
         row.layoutSubtreeIfNeeded()
 
-        XCTAssertTrue(row.statusProgressRevealIsExpandedForTesting)
-        XCTAssertEqual(row.statusProgressRevealTextForTesting, "2/10 tasks ・")
+        XCTAssertTrue(row.debugSnapshotForTesting.statusProgressRevealIsExpanded)
+        XCTAssertEqual(row.debugSnapshotForTesting.statusProgressRevealText, "2/10 tasks ・")
         XCTAssertGreaterThanOrEqual(
-            row.statusProgressRevealWidthForTesting,
+            row.debugSnapshotForTesting.statusProgressRevealWidth,
             SidebarTextMetrics.measuredWidth(
                 for: "2/10 tasks ・", font: ShellMetrics.sidebarStatusFont()) - 1
         )
@@ -1483,14 +1483,14 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
             animated: false
         )
 
-        row.simulateStatusProgressIconHoverForTesting()
-        row.simulateStatusLineExitForTesting(pointerStillInsideLine: true)
+        row.performDebugInteractionForTesting(.statusProgressIconHover(animated: true))
+        row.performDebugInteractionForTesting(.statusLineExit(pointerStillInsideLine: true))
 
-        XCTAssertTrue(row.statusProgressRevealIsExpandedForTesting)
+        XCTAssertTrue(row.debugSnapshotForTesting.statusProgressRevealIsExpanded)
 
-        row.simulateStatusLineExitForTesting(pointerStillInsideLine: false)
+        row.performDebugInteractionForTesting(.statusLineExit(pointerStillInsideLine: false))
 
-        XCTAssertFalse(row.statusProgressRevealIsExpandedForTesting)
+        XCTAssertFalse(row.debugSnapshotForTesting.statusProgressRevealIsExpanded)
     }
 
     func test_worklane_status_task_progress_reconciliation_hides_after_missed_exit() {
@@ -1509,10 +1509,10 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
             animated: false
         )
 
-        row.simulateStatusProgressIconHoverForTesting()
-        row.simulateStatusLineHoverReconciliationForTesting(pointerInsideLine: false)
+        row.performDebugInteractionForTesting(.statusProgressIconHover(animated: true))
+        row.performDebugInteractionForTesting(.statusLineHoverReconciliation(pointerInsideLine: false))
 
-        XCTAssertFalse(row.statusProgressRevealIsExpandedForTesting)
+        XCTAssertFalse(row.debugSnapshotForTesting.statusProgressRevealIsExpanded)
     }
 
     func test_worklane_status_task_progress_reveal_respects_reduced_motion() {
@@ -1531,10 +1531,10 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
             animated: false
         )
 
-        row.simulateStatusProgressIconHoverForTesting()
+        row.performDebugInteractionForTesting(.statusProgressIconHover(animated: true))
 
-        XCTAssertTrue(row.statusProgressRevealIsExpandedForTesting)
-        XCTAssertFalse(row.statusProgressRevealLastUpdateWasAnimatedForTesting)
+        XCTAssertTrue(row.debugSnapshotForTesting.statusProgressRevealIsExpanded)
+        XCTAssertFalse(row.debugSnapshotForTesting.statusProgressRevealLastUpdateWasAnimated)
     }
 
     func test_worklane_status_task_progress_animates_value_changes() {
@@ -1552,7 +1552,7 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
             theme: theme,
             animated: false
         )
-        XCTAssertFalse(row.statusProgressLastUpdateWasAnimatedForTesting)
+        XCTAssertFalse(row.debugSnapshotForTesting.statusProgressLastUpdateWasAnimated)
 
         row.configure(
             with: makeSummary(
@@ -1566,8 +1566,8 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
             animated: true
         )
 
-        XCTAssertEqual(row.statusProgressFractionForTesting, 0.6, accuracy: 0.001)
-        XCTAssertTrue(row.statusProgressLastUpdateWasAnimatedForTesting)
+        XCTAssertEqual(row.debugSnapshotForTesting.statusProgressFraction, 0.6, accuracy: 0.001)
+        XCTAssertTrue(row.debugSnapshotForTesting.statusProgressLastUpdateWasAnimated)
     }
 
     func test_pane_status_task_progress_renders_indicator_between_icon_and_text() {
@@ -1595,15 +1595,15 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
             animated: false
         )
 
-        XCTAssertEqual(row.paneStatusTextsForTesting, ["Idle"])
-        XCTAssertTrue(row.firstPaneStatusProgressIndicatorIsVisibleForTesting)
-        XCTAssertEqual(row.firstPaneStatusProgressFractionForTesting, 0.25, accuracy: 0.001)
-        XCTAssertEqual(row.firstPaneStatusProgressToolTipForTesting, "")
+        XCTAssertEqual(row.debugSnapshotForTesting.paneStatusTexts, ["Idle"])
+        XCTAssertTrue(row.debugSnapshotForTesting.firstPaneStatusProgressIndicatorIsVisible)
+        XCTAssertEqual(row.debugSnapshotForTesting.firstPaneStatusProgressFraction, 0.25, accuracy: 0.001)
+        XCTAssertEqual(row.debugSnapshotForTesting.firstPaneStatusProgressToolTip, "")
         XCTAssertEqual(
-            row.firstPaneStatusProgressColorForTesting?.srgbClamped, theme.statusRunning.srgbClamped
+            row.debugSnapshotForTesting.firstPaneStatusProgressColor?.srgbClamped, theme.statusRunning.srgbClamped
         )
-        XCTAssertEqual(row.firstPaneStatusProgressRevealTextForTesting, "1/4 tasks ・")
-        XCTAssertFalse(row.firstPaneStatusProgressRevealIsExpandedForTesting)
+        XCTAssertEqual(row.debugSnapshotForTesting.firstPaneStatusProgressRevealText, "1/4 tasks ・")
+        XCTAssertFalse(row.debugSnapshotForTesting.firstPaneStatusProgressRevealIsExpanded)
     }
 
     func test_pane_status_task_progress_reveals_count_from_icon_until_status_line_exits() {
@@ -1631,21 +1631,21 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
             animated: false
         )
 
-        XCTAssertFalse(row.firstPaneStatusProgressRevealIsExpandedForTesting)
+        XCTAssertFalse(row.debugSnapshotForTesting.firstPaneStatusProgressRevealIsExpanded)
 
-        row.simulateFirstPaneStatusProgressIconHoverForTesting()
+        row.performDebugInteractionForTesting(.firstPaneStatusProgressIconHover(animated: true))
 
-        XCTAssertTrue(row.firstPaneStatusProgressRevealIsExpandedForTesting)
-        XCTAssertEqual(row.firstPaneStatusProgressRevealTextForTesting, "1/4 tasks ・")
-        XCTAssertEqual(row.paneStatusTextsForTesting, ["Idle"])
-        XCTAssertTrue(row.firstPaneStatusProgressRevealLastUpdateWasAnimatedForTesting)
+        XCTAssertTrue(row.debugSnapshotForTesting.firstPaneStatusProgressRevealIsExpanded)
+        XCTAssertEqual(row.debugSnapshotForTesting.firstPaneStatusProgressRevealText, "1/4 tasks ・")
+        XCTAssertEqual(row.debugSnapshotForTesting.paneStatusTexts, ["Idle"])
+        XCTAssertTrue(row.debugSnapshotForTesting.firstPaneStatusProgressRevealLastUpdateWasAnimated)
 
-        row.simulateFirstPaneStatusLineExitForTesting()
+        row.performDebugInteractionForTesting(.firstPaneStatusLineExit(pointerStillInsideLine: false))
 
-        XCTAssertFalse(row.firstPaneStatusProgressRevealIsExpandedForTesting)
-        XCTAssertTrue(row.firstPaneStatusProgressRevealLastUpdateWasAnimatedForTesting)
+        XCTAssertFalse(row.debugSnapshotForTesting.firstPaneStatusProgressRevealIsExpanded)
+        XCTAssertTrue(row.debugSnapshotForTesting.firstPaneStatusProgressRevealLastUpdateWasAnimated)
         XCTAssertEqual(
-            try XCTUnwrap(row.firstPaneStatusProgressRevealLastAnimationDurationForTesting),
+            try XCTUnwrap(row.debugSnapshotForTesting.firstPaneStatusProgressRevealLastAnimationDuration),
             0.12,
             accuracy: 0.001
         )
@@ -1676,13 +1676,13 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
             animated: false
         )
 
-        row.simulateFirstPaneStatusLineHoverForTesting()
+        row.performDebugInteractionForTesting(.firstPaneStatusLineHover)
 
-        XCTAssertTrue(row.firstPaneStatusProgressRevealIsExpandedForTesting)
-        XCTAssertEqual(row.firstPaneStatusProgressRevealTextForTesting, "1/4 tasks ・")
-        XCTAssertTrue(row.firstPaneStatusProgressRevealLastUpdateWasAnimatedForTesting)
+        XCTAssertTrue(row.debugSnapshotForTesting.firstPaneStatusProgressRevealIsExpanded)
+        XCTAssertEqual(row.debugSnapshotForTesting.firstPaneStatusProgressRevealText, "1/4 tasks ・")
+        XCTAssertTrue(row.debugSnapshotForTesting.firstPaneStatusProgressRevealLastUpdateWasAnimated)
         XCTAssertEqual(
-            try XCTUnwrap(row.firstPaneStatusProgressRevealLastAnimationDurationForTesting),
+            try XCTUnwrap(row.debugSnapshotForTesting.firstPaneStatusProgressRevealLastAnimationDuration),
             0.16,
             accuracy: 0.001
         )
@@ -1722,24 +1722,24 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
         )
         row.layoutSubtreeIfNeeded()
 
-        row.simulateFirstPaneStatusProgressIconHoverForTesting(animated: false)
+        row.performDebugInteractionForTesting(.firstPaneStatusProgressIconHover(animated: false))
         row.layoutSubtreeIfNeeded()
 
-        XCTAssertTrue(row.firstPaneStatusProgressRevealIsExpandedForTesting)
-        XCTAssertFalse(try XCTUnwrap(row.firstPaneStatusProgressRevealIsHiddenForTesting))
-        XCTAssertEqual(row.paneStatusTextsForTesting, ["Running"])
+        XCTAssertTrue(row.debugSnapshotForTesting.firstPaneStatusProgressRevealIsExpanded)
+        XCTAssertFalse(try XCTUnwrap(row.debugSnapshotForTesting.firstPaneStatusProgressRevealIsHidden))
+        XCTAssertEqual(row.debugSnapshotForTesting.paneStatusTexts, ["Running"])
         XCTAssertGreaterThanOrEqual(
-            try XCTUnwrap(row.firstPaneStatusTextContainerWidthForTesting),
+            try XCTUnwrap(row.debugSnapshotForTesting.firstPaneStatusTextContainerWidth),
             SidebarTextMetrics.measuredWidth(for: "Running", font: ShellMetrics.sidebarStatusFont())
                 - 1
         )
         XCTAssertGreaterThanOrEqual(
-            try XCTUnwrap(row.firstPaneStatusProgressRevealWidthForTesting),
+            try XCTUnwrap(row.debugSnapshotForTesting.firstPaneStatusProgressRevealWidth),
             SidebarTextMetrics.measuredWidth(
                 for: "1/10 tasks ・", font: ShellMetrics.sidebarStatusFont()) - 1
         )
         XCTAssertLessThan(
-            try XCTUnwrap(row.firstPaneStatusTrailingLabelWidthForTesting),
+            try XCTUnwrap(row.debugSnapshotForTesting.firstPaneStatusTrailingLabelWidth),
             SidebarTextMetrics.measuredWidth(
                 for: trailingText, font: ShellMetrics.sidebarDetailFont())
         )
@@ -1779,24 +1779,24 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
         )
         row.layoutSubtreeIfNeeded()
 
-        row.simulateFirstPaneStatusProgressIconHoverForTesting(animated: false)
+        row.performDebugInteractionForTesting(.firstPaneStatusProgressIconHover(animated: false))
         row.layoutSubtreeIfNeeded()
 
-        XCTAssertTrue(row.firstPaneStatusProgressRevealIsExpandedForTesting)
-        XCTAssertFalse(try XCTUnwrap(row.firstPaneStatusProgressRevealIsHiddenForTesting))
-        XCTAssertEqual(row.paneStatusTextsForTesting, ["Idle"])
+        XCTAssertTrue(row.debugSnapshotForTesting.firstPaneStatusProgressRevealIsExpanded)
+        XCTAssertFalse(try XCTUnwrap(row.debugSnapshotForTesting.firstPaneStatusProgressRevealIsHidden))
+        XCTAssertEqual(row.debugSnapshotForTesting.paneStatusTexts, ["Idle"])
         XCTAssertGreaterThanOrEqual(
-            try XCTUnwrap(row.firstPaneStatusTextContainerWidthForTesting),
+            try XCTUnwrap(row.debugSnapshotForTesting.firstPaneStatusTextContainerWidth),
             SidebarTextMetrics.measuredWidth(for: "Idle", font: ShellMetrics.sidebarStatusFont())
                 - 1
         )
         XCTAssertGreaterThanOrEqual(
-            try XCTUnwrap(row.firstPaneStatusProgressRevealWidthForTesting),
+            try XCTUnwrap(row.debugSnapshotForTesting.firstPaneStatusProgressRevealWidth),
             SidebarTextMetrics.measuredWidth(
                 for: "2/8 tasks ・", font: ShellMetrics.sidebarStatusFont()) - 1
         )
         XCTAssertLessThan(
-            try XCTUnwrap(row.firstPaneStatusTrailingLabelWidthForTesting),
+            try XCTUnwrap(row.debugSnapshotForTesting.firstPaneStatusTrailingLabelWidth),
             SidebarTextMetrics.measuredWidth(
                 for: trailingText, font: ShellMetrics.sidebarDetailFont())
         )
@@ -1827,14 +1827,14 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
             animated: false
         )
 
-        row.simulateFirstPaneStatusProgressIconHoverForTesting()
-        row.simulateFirstPaneStatusLineExitForTesting(pointerStillInsideLine: true)
+        row.performDebugInteractionForTesting(.firstPaneStatusProgressIconHover(animated: true))
+        row.performDebugInteractionForTesting(.firstPaneStatusLineExit(pointerStillInsideLine: true))
 
-        XCTAssertTrue(row.firstPaneStatusProgressRevealIsExpandedForTesting)
+        XCTAssertTrue(row.debugSnapshotForTesting.firstPaneStatusProgressRevealIsExpanded)
 
-        row.simulateFirstPaneStatusLineExitForTesting(pointerStillInsideLine: false)
+        row.performDebugInteractionForTesting(.firstPaneStatusLineExit(pointerStillInsideLine: false))
 
-        XCTAssertFalse(row.firstPaneStatusProgressRevealIsExpandedForTesting)
+        XCTAssertFalse(row.debugSnapshotForTesting.firstPaneStatusProgressRevealIsExpanded)
     }
 
     func test_pane_status_task_progress_reconciliation_hides_after_missed_exit() {
@@ -1862,10 +1862,10 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
             animated: false
         )
 
-        row.simulateFirstPaneStatusProgressIconHoverForTesting()
-        row.simulateFirstPaneStatusLineHoverReconciliationForTesting(pointerInsideLine: false)
+        row.performDebugInteractionForTesting(.firstPaneStatusProgressIconHover(animated: true))
+        row.performDebugInteractionForTesting(.firstPaneStatusLineHoverReconciliation(pointerInsideLine: false))
 
-        XCTAssertFalse(row.firstPaneStatusProgressRevealIsExpandedForTesting)
+        XCTAssertFalse(row.debugSnapshotForTesting.firstPaneStatusProgressRevealIsExpanded)
     }
 
     func test_pane_status_task_progress_exit_animation_survives_pane_hover_appearance_update() {
@@ -1893,13 +1893,13 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
             animated: false
         )
 
-        row.simulateFirstPaneStatusProgressIconHoverForTesting()
-        row.simulateFirstPaneStatusLineExitForTesting()
+        row.performDebugInteractionForTesting(.firstPaneStatusProgressIconHover(animated: true))
+        row.performDebugInteractionForTesting(.firstPaneStatusLineExit(pointerStillInsideLine: false))
         row.paneRowHoverChanged(isHovered: false)
 
-        XCTAssertFalse(row.firstPaneStatusProgressRevealIsExpandedForTesting)
-        XCTAssertTrue(row.firstPaneStatusProgressRevealLastUpdateWasAnimatedForTesting)
-        XCTAssertFalse(row.firstPaneStatusProgressRevealLastConfigureSyncedPresentationForTesting)
+        XCTAssertFalse(row.debugSnapshotForTesting.firstPaneStatusProgressRevealIsExpanded)
+        XCTAssertTrue(row.debugSnapshotForTesting.firstPaneStatusProgressRevealLastUpdateWasAnimated)
+        XCTAssertFalse(row.debugSnapshotForTesting.firstPaneStatusProgressRevealLastConfigureSyncedPresentation)
     }
 
     func test_running_status_shimmer_preserves_hue_and_increases_saturation() {
@@ -1918,7 +1918,7 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
         )
 
         let baseComponents = try! XCTUnwrap(hsbComponents(theme.statusRunning))
-        let shimmerComponents = try! XCTUnwrap(hsbComponents(row.statusShimmerColorForTesting))
+        let shimmerComponents = try! XCTUnwrap(hsbComponents(row.debugSnapshotForTesting.statusShimmerColor))
 
         XCTAssertEqual(shimmerComponents.hue, baseComponents.hue, accuracy: 0.02)
         XCTAssertGreaterThanOrEqual(shimmerComponents.saturation, baseComponents.saturation)
@@ -1950,11 +1950,11 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
         )
 
         XCTAssertEqual(
-            try! XCTUnwrap(row.firstPaneTrailingTextColorForTesting).srgbClamped,
+            try! XCTUnwrap(row.debugSnapshotForTesting.firstPaneTrailingTextColor).srgbClamped,
             theme.sidebarButtonInactiveText.withAlphaComponent(0.62).srgbClamped
         )
         XCTAssertEqual(
-            try! XCTUnwrap(row.firstPaneStatusTextColorForTesting).srgbClamped,
+            try! XCTUnwrap(row.debugSnapshotForTesting.firstPaneStatusTextColor).srgbClamped,
             theme.statusRunning.srgbClamped
         )
     }
@@ -1976,12 +1976,12 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
         )
 
         XCTAssertEqual(
-            row.primaryTextColorForTesting.srgbClamped,
+            row.debugSnapshotForTesting.primaryTextColor.srgbClamped,
             theme.sidebarButtonActiveText.srgbClamped
         )
         XCTAssertLessThan(
-            row.shimmerColorForTesting.perceivedLuminance,
-            row.primaryTextColorForTesting.perceivedLuminance
+            row.debugSnapshotForTesting.shimmerColor.perceivedLuminance,
+            row.debugSnapshotForTesting.primaryTextColor.perceivedLuminance
         )
     }
 
@@ -2012,12 +2012,12 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
         )
 
         XCTAssertEqual(
-            row.firstPanePrimaryTextColorForTesting?.srgbClamped,
+            row.debugSnapshotForTesting.firstPanePrimaryTextColor?.srgbClamped,
             theme.sidebarButtonActiveText.srgbClamped
         )
         XCTAssertLessThan(
-            try! XCTUnwrap(row.firstPanePrimaryShimmerColorForTesting).perceivedLuminance,
-            try! XCTUnwrap(row.firstPanePrimaryTextColorForTesting).perceivedLuminance
+            try! XCTUnwrap(row.debugSnapshotForTesting.firstPanePrimaryShimmerColor).perceivedLuminance,
+            try! XCTUnwrap(row.debugSnapshotForTesting.firstPanePrimaryTextColor).perceivedLuminance
         )
     }
 
@@ -2038,7 +2038,7 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
         )
 
         XCTAssertEqual(
-            row.topLabelColorForTesting.srgbClamped,
+            row.debugSnapshotForTesting.topLabelColor.srgbClamped,
             theme.tertiaryText.srgbClamped
         )
     }
@@ -2057,13 +2057,13 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
         )
 
         XCTAssertGreaterThan(
-            row.primaryTextColorForTesting.perceivedLuminance,
+            row.debugSnapshotForTesting.primaryTextColor.perceivedLuminance,
             theme.sidebarBackground.perceivedLuminance)
         XCTAssertGreaterThan(
-            row.topLabelColorForTesting.perceivedLuminance,
+            row.debugSnapshotForTesting.topLabelColor.perceivedLuminance,
             theme.sidebarBackground.perceivedLuminance)
         XCTAssertGreaterThan(
-            row.primaryTextColorForTesting.contrastRatio(against: theme.sidebarBackground), 4.5)
+            row.debugSnapshotForTesting.primaryTextColor.contrastRatio(against: theme.sidebarBackground), 4.5)
     }
 
     func test_dark_sidebar_theme_forces_dark_row_appearance() {
@@ -2080,7 +2080,7 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
             animated: false
         )
 
-        XCTAssertEqual(row.appearanceMatchForTesting, .darkAqua)
+        XCTAssertEqual(row.debugSnapshotForTesting.appearanceMatch, .darkAqua)
     }
 
     func test_sidebar_row_disables_vibrancy() {
@@ -2103,8 +2103,8 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
             animated: false
         )
 
-        XCTAssertEqual(row.detailTextsForTesting, ["main • …/project"])
-        XCTAssertEqual(row.statusTextForTesting, "Needs input")
+        XCTAssertEqual(row.debugSnapshotForTesting.detailTexts, ["main • …/project"])
+        XCTAssertEqual(row.debugSnapshotForTesting.statusText, "Needs input")
     }
 
     func test_sidebar_view_uses_a_single_shared_shimmer_driver_for_visible_working_rows() throws {
@@ -2123,16 +2123,16 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
             theme: ZenttyTheme.fallback(for: nil)
         )
         sidebarView.layoutSubtreeIfNeeded()
-        sidebarView.updateShimmerVisibilityForTesting()
+        sidebarView.performDebugActionForTesting(.updateShimmerVisibility)
 
         let buttons = try sidebarWorklaneButtons(in: sidebarView)
         XCTAssertEqual(buttons.count, 2)
         XCTAssertEqual(
-            buttons[0].shimmerCoordinatorIdentifierForTesting,
-            buttons[1].shimmerCoordinatorIdentifierForTesting
+            buttons[0].debugSnapshotForTesting.shimmerCoordinatorIdentifier,
+            buttons[1].debugSnapshotForTesting.shimmerCoordinatorIdentifier
         )
-        XCTAssertTrue(sidebarView.shimmerDriverIsRunningForTesting)
-        XCTAssertTrue(buttons.allSatisfy(\.shimmerIsAnimatingForTesting))
+        XCTAssertTrue(sidebarView.debugSnapshotForTesting.shimmerDriverIsRunning)
+        XCTAssertTrue(buttons.allSatisfy(\.debugSnapshotForTesting.shimmerIsAnimating))
         XCTAssertTrue(window.isVisible)
     }
 
@@ -2151,18 +2151,18 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
             theme: ZenttyTheme.fallback(for: nil)
         )
         sidebarView.layoutSubtreeIfNeeded()
-        sidebarView.updateShimmerVisibilityForTesting()
+        sidebarView.performDebugActionForTesting(.updateShimmerVisibility)
 
         var buttons = try sidebarWorklaneButtons(in: sidebarView)
-        XCTAssertFalse(sidebarView.shimmerDriverIsRunningForTesting)
-        XCTAssertFalse(buttons.first?.shimmerIsAnimatingForTesting ?? true)
+        XCTAssertFalse(sidebarView.debugSnapshotForTesting.shimmerDriverIsRunning)
+        XCTAssertFalse(buttons.first?.debugSnapshotForTesting.shimmerIsAnimating ?? true)
 
         isRenderable = true
-        sidebarView.updateShimmerVisibilityForTesting()
+        sidebarView.performDebugActionForTesting(.updateShimmerVisibility)
 
         buttons = try sidebarWorklaneButtons(in: sidebarView)
-        XCTAssertTrue(sidebarView.shimmerDriverIsRunningForTesting)
-        XCTAssertTrue(buttons.first?.shimmerIsAnimatingForTesting ?? false)
+        XCTAssertTrue(sidebarView.debugSnapshotForTesting.shimmerDriverIsRunning)
+        XCTAssertTrue(buttons.first?.debugSnapshotForTesting.shimmerIsAnimating ?? false)
     }
 
     func test_sidebar_view_assigns_distinct_phase_offsets_to_visible_working_rows() throws {
@@ -2177,13 +2177,13 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
             theme: ZenttyTheme.fallback(for: nil)
         )
         sidebarView.layoutSubtreeIfNeeded()
-        sidebarView.updateShimmerVisibilityForTesting()
+        sidebarView.performDebugActionForTesting(.updateShimmerVisibility)
 
         let buttons = try sidebarWorklaneButtons(in: sidebarView)
         XCTAssertEqual(buttons.count, 2)
         XCTAssertNotEqual(
-            buttons[0].shimmerPhaseOffsetForTesting,
-            buttons[1].shimmerPhaseOffsetForTesting
+            buttons[0].debugSnapshotForTesting.shimmerPhaseOffset,
+            buttons[1].debugSnapshotForTesting.shimmerPhaseOffset
         )
     }
 
@@ -2202,8 +2202,8 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
         )
 
         XCTAssertEqual(
-            row.shimmerPhaseOffsetForTesting,
-            row.statusShimmerPhaseOffsetForTesting
+            row.debugSnapshotForTesting.shimmerPhaseOffset,
+            row.debugSnapshotForTesting.statusShimmerPhaseOffset
         )
     }
 
@@ -2232,8 +2232,8 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
         )
 
         XCTAssertEqual(
-            row.panePrimaryShimmerPhaseOffsetsForTesting,
-            row.paneStatusShimmerPhaseOffsetsForTesting
+            row.debugSnapshotForTesting.panePrimaryShimmerPhaseOffsets,
+            row.debugSnapshotForTesting.paneStatusShimmerPhaseOffsets
         )
     }
 
@@ -2271,7 +2271,7 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
             animated: false
         )
 
-        let initialOffsets = row.panePrimaryShimmerPhaseOffsetsForTesting
+        let initialOffsets = row.debugSnapshotForTesting.panePrimaryShimmerPhaseOffsets
         XCTAssertEqual(initialOffsets.count, 2)
         XCTAssertNotEqual(initialOffsets[0], initialOffsets[1])
 
@@ -2306,7 +2306,7 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
             animated: false
         )
 
-        let rerenderedOffsets = row.panePrimaryShimmerPhaseOffsetsForTesting
+        let rerenderedOffsets = row.debugSnapshotForTesting.panePrimaryShimmerPhaseOffsets
         XCTAssertEqual(rerenderedOffsets.count, 2)
         XCTAssertEqual(rerenderedOffsets[0], initialOffsets[1])
         XCTAssertEqual(rerenderedOffsets[1], initialOffsets[0])
@@ -2326,13 +2326,13 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
             theme: ZenttyTheme.fallback(for: nil)
         )
         sidebarView.layoutSubtreeIfNeeded()
-        sidebarView.updateShimmerVisibilityForTesting()
+        sidebarView.performDebugActionForTesting(.updateShimmerVisibility)
 
         let buttons = try sidebarWorklaneButtons(in: sidebarView)
         XCTAssertEqual(buttons.count, 4)
-        XCTAssertTrue(buttons[0].shimmerIsAnimatingForTesting)
-        XCTAssertFalse(buttons.last?.shimmerIsAnimatingForTesting ?? true)
-        XCTAssertTrue(sidebarView.shimmerDriverIsRunningForTesting)
+        XCTAssertTrue(buttons[0].debugSnapshotForTesting.shimmerIsAnimating)
+        XCTAssertFalse(buttons.last?.debugSnapshotForTesting.shimmerIsAnimating ?? true)
+        XCTAssertTrue(sidebarView.debugSnapshotForTesting.shimmerDriverIsRunning)
     }
 
     func test_sidebar_view_pauses_shared_shimmer_driver_when_window_is_hidden() throws {
@@ -2349,16 +2349,16 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
             theme: ZenttyTheme.fallback(for: nil)
         )
         sidebarView.layoutSubtreeIfNeeded()
-        sidebarView.updateShimmerVisibilityForTesting()
+        sidebarView.performDebugActionForTesting(.updateShimmerVisibility)
 
-        XCTAssertTrue(sidebarView.shimmerDriverIsRunningForTesting)
+        XCTAssertTrue(sidebarView.debugSnapshotForTesting.shimmerDriverIsRunning)
 
         window.orderOut(nil)
-        sidebarView.updateShimmerVisibilityForTesting()
+        sidebarView.performDebugActionForTesting(.updateShimmerVisibility)
 
         let buttons = try sidebarWorklaneButtons(in: sidebarView)
-        XCTAssertFalse(sidebarView.shimmerDriverIsRunningForTesting)
-        XCTAssertFalse(buttons.first?.shimmerIsAnimatingForTesting ?? true)
+        XCTAssertFalse(sidebarView.debugSnapshotForTesting.shimmerDriverIsRunning)
+        XCTAssertFalse(buttons.first?.debugSnapshotForTesting.shimmerIsAnimating ?? true)
     }
 
     func test_drop_target_highlight_keeps_layer_geometry_stable() throws {
@@ -2391,6 +2391,11 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
     {
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 200))
         let row = makeRow(width: 280, height: 72)
+        row.configure(
+            with: makeSummary(primaryText: "demo", statusText: "Running"),
+            theme: .fallback(for: nil),
+            animated: false
+        )
         row.frame.origin = CGPoint(x: 20, y: 44)
         container.addSubview(row)
         container.layoutSubtreeIfNeeded()
@@ -2399,6 +2404,8 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
         let layer = try XCTUnwrap(row.layer)
         let originalAnchorPoint = layer.anchorPoint
         let originalPosition = layer.position
+        let originalShadowOpacity = layer.shadowOpacity
+        let originalShadowRadius = layer.shadowRadius
 
         row.setDropTargetHighlighted(true)
         row.setDropTargetHighlighted(false)
@@ -2407,9 +2414,33 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
         XCTAssertEqual(layer.anchorPoint.y, originalAnchorPoint.y, accuracy: 0.001)
         XCTAssertEqual(layer.position.x, originalPosition.x, accuracy: 0.001)
         XCTAssertEqual(layer.position.y, originalPosition.y, accuracy: 0.001)
-        XCTAssertEqual(layer.shadowOpacity, 0, accuracy: 0.001)
+        XCTAssertEqual(layer.shadowOpacity, originalShadowOpacity, accuracy: 0.001)
+        XCTAssertEqual(layer.shadowRadius, originalShadowRadius, accuracy: 0.001)
         XCTAssertEqual(layer.transform.m11, 1, accuracy: 0.001)
         XCTAssertEqual(layer.transform.m22, 1, accuracy: 0.001)
+    }
+
+    func test_drop_target_highlight_survives_appearance_refresh() throws {
+        let row = makeRow(width: 280, height: 72)
+        row.configure(
+            with: makeSummary(primaryText: "demo", statusText: "Running"),
+            theme: .fallback(for: nil),
+            animated: false
+        )
+        row.layoutSubtreeIfNeeded()
+
+        let layer = try XCTUnwrap(row.layer)
+        row.setDropTargetHighlighted(true)
+        let highlightedShadowOpacity = layer.shadowOpacity
+        let highlightedShadowRadius = layer.shadowRadius
+        let highlightedScale = layer.transform.m11
+
+        row.performDebugInteractionForTesting(.setHovered(true))
+
+        XCTAssertEqual(layer.shadowOpacity, highlightedShadowOpacity, accuracy: 0.001)
+        XCTAssertEqual(layer.shadowRadius, highlightedShadowRadius, accuracy: 0.001)
+        XCTAssertEqual(layer.transform.m11, highlightedScale, accuracy: 0.001)
+        XCTAssertGreaterThan(layer.transform.m11, 1)
     }
 
     func test_configure_skipsWorkWhenSummaryThemeAndBoundsWidthAreUnchanged() {
@@ -2418,11 +2449,11 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
         let summary = makeSummary(primaryText: "demo", statusText: "Running")
 
         row.configure(with: summary, theme: theme, animated: false)
-        XCTAssertEqual(row.configureApplyCountForTesting, 1)
+        XCTAssertEqual(row.debugSnapshotForTesting.configureApplyCount, 1)
 
         row.configure(with: summary, theme: theme, animated: false)
         XCTAssertEqual(
-            row.configureApplyCountForTesting,
+            row.debugSnapshotForTesting.configureApplyCount,
             1,
             "identical configure should not re-apply the resolved summary"
         )
@@ -2437,14 +2468,14 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
             theme: theme,
             animated: false
         )
-        XCTAssertEqual(row.configureApplyCountForTesting, 1)
+        XCTAssertEqual(row.debugSnapshotForTesting.configureApplyCount, 1)
 
         row.configure(
             with: makeSummary(primaryText: "demo updated", statusText: "Running"),
             theme: theme,
             animated: false
         )
-        XCTAssertEqual(row.configureApplyCountForTesting, 2)
+        XCTAssertEqual(row.debugSnapshotForTesting.configureApplyCount, 2)
     }
 
     func test_configure_runsAgainWhenBoundsWidthChanges() {
@@ -2453,12 +2484,12 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
         let summary = makeSummary(primaryText: "demo", statusText: "Running")
 
         row.configure(with: summary, theme: theme, animated: false)
-        XCTAssertEqual(row.configureApplyCountForTesting, 1)
+        XCTAssertEqual(row.debugSnapshotForTesting.configureApplyCount, 1)
 
         setRowWidth(row, to: 360)
         row.configure(with: summary, theme: theme, animated: false)
         XCTAssertEqual(
-            row.configureApplyCountForTesting,
+            row.debugSnapshotForTesting.configureApplyCount,
             2,
             "bounds.width change must re-run configure to re-apply adaptive row layout"
         )
@@ -2616,7 +2647,7 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
     private func sidebarWorklaneButtons(in sidebarView: SidebarView) throws
         -> [SidebarWorklaneRowButton]
     {
-        try sidebarView.worklaneButtonsForTesting.map { button in
+        try sidebarView.debugSnapshotForTesting.worklaneButtons.map { button in
             try XCTUnwrap(button as? SidebarWorklaneRowButton)
         }
     }

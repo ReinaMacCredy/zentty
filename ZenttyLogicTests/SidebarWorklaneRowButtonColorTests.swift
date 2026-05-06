@@ -25,29 +25,29 @@ final class SidebarWorklaneRowButtonColorTests: AppKitTestCase {
     func test_no_color_leaves_tint_layer_clear() {
         let row = makeRow()
         row.configure(with: makeSummary(color: nil, isActive: false), theme: ZenttyTheme.fallback(for: nil), animated: false)
-        let cg = row.tintLayerBackgroundColorForTesting ?? NSColor.clear.cgColor
+        let cg = row.debugSnapshotForTesting.tintLayerBackgroundColor ?? NSColor.clear.cgColor
         XCTAssertEqual(cg.alpha, 0, accuracy: 0.001)
     }
 
     func test_inactive_colored_row_uses_inactive_alpha() {
         let row = makeRow()
         row.configure(with: makeSummary(color: .red, isActive: false), theme: ZenttyTheme.fallback(for: nil), animated: false)
-        let alpha = row.tintLayerBackgroundColorForTesting?.alpha ?? -1
+        let alpha = row.debugSnapshotForTesting.tintLayerBackgroundColor?.alpha ?? -1
         XCTAssertEqual(alpha, WorklaneColor.Alpha.inactive, accuracy: 0.001)
     }
 
     func test_hovered_colored_row_uses_hover_alpha() {
         let row = makeRow()
         row.configure(with: makeSummary(color: .blue, isActive: false), theme: ZenttyTheme.fallback(for: nil), animated: false)
-        row.setHoveredForTesting(true)
-        let alpha = row.tintLayerBackgroundColorForTesting?.alpha ?? -1
+        row.performDebugInteractionForTesting(.setHovered(true))
+        let alpha = row.debugSnapshotForTesting.tintLayerBackgroundColor?.alpha ?? -1
         XCTAssertEqual(alpha, WorklaneColor.Alpha.hover, accuracy: 0.001)
     }
 
     func test_active_colored_row_uses_active_alpha() {
         let row = makeRow()
         row.configure(with: makeSummary(color: .green, isActive: true), theme: ZenttyTheme.fallback(for: nil), animated: false)
-        let alpha = row.tintLayerBackgroundColorForTesting?.alpha ?? -1
+        let alpha = row.debugSnapshotForTesting.tintLayerBackgroundColor?.alpha ?? -1
         XCTAssertEqual(alpha, WorklaneColor.Alpha.active, accuracy: 0.001)
     }
 
@@ -55,10 +55,10 @@ final class SidebarWorklaneRowButtonColorTests: AppKitTestCase {
         let row = makeRow()
         let theme = ZenttyTheme.fallback(for: nil)
         row.configure(with: makeSummary(color: .purple, isActive: false), theme: theme, animated: false)
-        XCTAssertGreaterThan(row.tintLayerBackgroundColorForTesting?.alpha ?? 0, 0)
+        XCTAssertGreaterThan(row.debugSnapshotForTesting.tintLayerBackgroundColor?.alpha ?? 0, 0)
 
         row.configure(with: makeSummary(color: nil, isActive: false), theme: theme, animated: false)
-        XCTAssertEqual(row.tintLayerBackgroundColorForTesting?.alpha ?? -1, 0, accuracy: 0.001)
+        XCTAssertEqual(row.debugSnapshotForTesting.tintLayerBackgroundColor?.alpha ?? -1, 0, accuracy: 0.001)
     }
 
     func test_colored_inactive_working_row_shimmer_preserves_worklane_hue_and_brightens_on_dark_sidebar() throws {
@@ -72,7 +72,7 @@ final class SidebarWorklaneRowButtonColorTests: AppKitTestCase {
         )
 
         let base = try XCTUnwrap(hsbComponents(WorklaneColor.blue.tint(alpha: 1)))
-        let shimmer = try XCTUnwrap(hsbComponents(row.shimmerColorForTesting))
+        let shimmer = try XCTUnwrap(hsbComponents(row.debugSnapshotForTesting.shimmerColor))
 
         XCTAssertEqual(shimmer.hue, base.hue, accuracy: 0.02)
         XCTAssertGreaterThanOrEqual(shimmer.saturation, base.saturation)
@@ -90,7 +90,7 @@ final class SidebarWorklaneRowButtonColorTests: AppKitTestCase {
         )
 
         let base = try XCTUnwrap(hsbComponents(WorklaneColor.purple.tint(alpha: 1)))
-        let shimmer = try XCTUnwrap(hsbComponents(row.shimmerColorForTesting))
+        let shimmer = try XCTUnwrap(hsbComponents(row.debugSnapshotForTesting.shimmerColor))
 
         XCTAssertEqual(shimmer.hue, base.hue, accuracy: 0.02)
         XCTAssertGreaterThanOrEqual(shimmer.saturation, base.saturation)
@@ -115,12 +115,12 @@ final class SidebarWorklaneRowButtonColorTests: AppKitTestCase {
 
         let base = try XCTUnwrap(hsbComponents(WorklaneColor.pink.tint(alpha: 1)))
         let expected = try XCTUnwrap(hsbComponents(statusShimmerBaseColor(theme)))
-        let shimmer = try XCTUnwrap(hsbComponents(row.statusShimmerColorForTesting))
+        let shimmer = try XCTUnwrap(hsbComponents(row.debugSnapshotForTesting.statusShimmerColor))
 
         XCTAssertNotEqual(shimmer.hue, base.hue, accuracy: 0.02)
         XCTAssertEqual(shimmer.hue, expected.hue, accuracy: 0.02)
-        XCTAssertEqual(row.statusTextColorForTesting.srgbClamped, theme.statusRunning.srgbClamped)
-        XCTAssertEqual(row.statusProgressColorForTesting.srgbClamped, theme.statusRunning.srgbClamped)
+        XCTAssertEqual(row.debugSnapshotForTesting.statusTextColor.srgbClamped, theme.statusRunning.srgbClamped)
+        XCTAssertEqual(row.debugSnapshotForTesting.statusProgressColor.srgbClamped, theme.statusRunning.srgbClamped)
     }
 
     func test_colored_worklane_focused_pane_title_shimmer_is_desaturated_while_status_stays_semantic() throws {
@@ -150,15 +150,15 @@ final class SidebarWorklaneRowButtonColorTests: AppKitTestCase {
 
         let base = try XCTUnwrap(hsbComponents(WorklaneColor.pink.tint(alpha: 1)))
         let expectedStatus = try XCTUnwrap(hsbComponents(statusShimmerBaseColor(theme)))
-        let primaryShimmer = try XCTUnwrap(row.firstPanePrimaryShimmerColorForTesting)
-        let statusShimmer = try XCTUnwrap(row.firstPaneStatusShimmerColorForTesting)
+        let primaryShimmer = try XCTUnwrap(row.debugSnapshotForTesting.firstPanePrimaryShimmerColor)
+        let statusShimmer = try XCTUnwrap(row.debugSnapshotForTesting.firstPaneStatusShimmerColor)
         let primaryComponents = try XCTUnwrap(hsbComponents(primaryShimmer))
 
         XCTAssertEqual(primaryComponents.hue, base.hue, accuracy: 0.02)
         XCTAssertLessThan(primaryComponents.saturation, base.saturation)
         XCTAssertLessThan(primaryShimmer.srgbClamped.alphaComponent, statusShimmer.srgbClamped.alphaComponent)
         XCTAssertEqual(try XCTUnwrap(hsbComponents(statusShimmer)).hue, expectedStatus.hue, accuracy: 0.02)
-        XCTAssertEqual(row.firstPaneStatusTextColorForTesting?.srgbClamped, theme.statusRunning.srgbClamped)
+        XCTAssertEqual(row.debugSnapshotForTesting.firstPaneStatusTextColor?.srgbClamped, theme.statusRunning.srgbClamped)
     }
 
     func test_colored_worklane_unfocused_pane_title_shimmer_is_much_more_neutral_than_focused_title() throws {
@@ -185,8 +185,8 @@ final class SidebarWorklaneRowButtonColorTests: AppKitTestCase {
             animated: false
         )
 
-        let focusedShimmer = try XCTUnwrap(focusedRow.firstPanePrimaryShimmerColorForTesting)
-        let unfocusedShimmer = try XCTUnwrap(unfocusedRow.firstPanePrimaryShimmerColorForTesting)
+        let focusedShimmer = try XCTUnwrap(focusedRow.debugSnapshotForTesting.firstPanePrimaryShimmerColor)
+        let unfocusedShimmer = try XCTUnwrap(unfocusedRow.debugSnapshotForTesting.firstPanePrimaryShimmerColor)
         let focused = try XCTUnwrap(hsbComponents(focusedShimmer))
         let unfocused = try XCTUnwrap(hsbComponents(unfocusedShimmer))
 
