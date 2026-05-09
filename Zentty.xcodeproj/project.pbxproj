@@ -92,6 +92,7 @@
 		4096366D6644DB3C2025914B /* PaneDragGhostView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4394D70AFA24A9257F4F58D0 /* PaneDragGhostView.swift */; };
 		436EBF7575C96541F36511A3 /* PaneDragSplitOverlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1A2BC275D0F7E90ACD593C6 /* PaneDragSplitOverlayView.swift */; };
 		43F75CCFD2060C335CEAEC51 /* GeneralSettingsSectionViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA88E1E64FB65E4B800852D7 /* GeneralSettingsSectionViewController.swift */; };
+		44A22AB9819823EBE62144BE /* ClaudeStopNotificationRaceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDDFDCEF34526A6C5882223E /* ClaudeStopNotificationRaceTests.swift */; };
 		4722CFBE781F555F67DA809A /* TmuxCompatStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB7A0155A7517D3459081223 /* TmuxCompatStoreTests.swift */; };
 		4777880E60AB7C29B7CD2E12 /* PaneCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = 474B9A1AC6A427A707683CA3 /* PaneCommand.swift */; };
 		47E5CD886CD0E4EEE5BB9E97 /* SettingsSectionViewControllers.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDDCADD851AB62CAFFF43AF3 /* SettingsSectionViewControllers.swift */; };
@@ -719,6 +720,7 @@
 		ECBF42F4F7C6419804A6596F /* SidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarView.swift; sourceTree = "<group>"; };
 		ED4764B4017D1DF1354C6FFB /* SidebarWidthPreference.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarWidthPreference.swift; sourceTree = "<group>"; };
 		EDB71268537F60FF02894F12 /* WindowChromeViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowChromeViewTests.swift; sourceTree = "<group>"; };
+		EDDFDCEF34526A6C5882223E /* ClaudeStopNotificationRaceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeStopNotificationRaceTests.swift; sourceTree = "<group>"; };
 		EE4A79EE9DA488020E7D0C71 /* Zentty.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Zentty.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		F1CA54C85F2342CD81275B11 /* WorklaneStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorklaneStore.swift; sourceTree = "<group>"; };
 		F32F85F7274DE278E845FF4A /* GhosttyThemeResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyThemeResolverTests.swift; sourceTree = "<group>"; };
@@ -1297,6 +1299,7 @@
 				95CBABCE53556478CD451A01 /* AppKitTestDisplayTests.swift */,
 				8BBC344380B6DDA89645BBDD /* AppUpdateStateStoreTests.swift */,
 				0EA071E0AD16A044F7C2F644 /* BookmarkStoreTests.swift */,
+				EDDFDCEF34526A6C5882223E /* ClaudeStopNotificationRaceTests.swift */,
 				FD08AC7A7561005FD819D5D4 /* CleanCopyPipelineTests.swift */,
 				3DB6DE0A6A550780FF124F3D /* CommandPaletteWorklaneColorTests.swift */,
 				A23FA3A9E846FAAD01B1BB06 /* DragReorderHapticClassifierTests.swift */,
@@ -1639,6 +1642,7 @@
 				6511CF33CD9B8F480EDB6926 /* AppUpdateStateStoreTests.swift in Sources */,
 				ADEC09B96C29BD6B05776B2A /* AppearanceSettingsSectionViewControllerTests.swift in Sources */,
 				105EFDDB2995F6500AE4DF21 /* BookmarkStoreTests.swift in Sources */,
+				44A22AB9819823EBE62144BE /* ClaudeStopNotificationRaceTests.swift in Sources */,
 				FDC316FB9C5E49E5F368CCFD /* CleanCopyPipelineTests.swift in Sources */,
 				E65DC3627B94384EE63626ED /* CommandPaletteWorklaneColorTests.swift in Sources */,
 				966CD805A3D009565385A8EC /* DragReorderHapticClassifierTests.swift in Sources */,

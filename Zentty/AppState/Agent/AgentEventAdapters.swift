@@ -1492,10 +1492,20 @@ extension AgentEventBridge {
 
         case "Stop":
             let target = try claudeResolvedTarget(for: input, environment: environment, sessionStore: sessionStore)
+            // Clear any cached structured interaction (PreToolUse(AskUserQuestion),
+            // PermissionRequest) so a late Notification arriving after Stop
+            // can't re-enter the structured-cache branch and flip the pane
+            // back to needsInput.
+            if let sessionID = input.sessionID {
+                try sessionStore.clearInteractionContext(sessionID: sessionID)
+            }
             return [claudeLifecyclePayload(target: target, state: .idle, confidence: .explicit, sessionID: input.sessionID)]
 
         case "SubagentStop":
             let target = try claudeResolvedTarget(for: input, environment: environment, sessionStore: sessionStore)
+            if let sessionID = input.sessionID {
+                try sessionStore.clearInteractionContext(sessionID: sessionID)
+            }
             return [claudeLifecyclePayload(target: target, state: .idle, confidence: .explicit, sessionID: input.sessionID)]
 
         case "SessionEnd":
