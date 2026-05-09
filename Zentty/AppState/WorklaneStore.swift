@@ -278,7 +278,7 @@ final class WorklaneStore {
     let gitContextResolver: any PaneGitContextResolving
     let terminalDiagnostics: TerminalDiagnostics
     private(set) var layoutContext: PaneLayoutContext
-    private var paneViewportHeight: CGFloat = .greatestFiniteMagnitude
+    private(set) var paneViewportHeight: CGFloat = .greatestFiniteMagnitude
     private var lastFocusedPaneReference: PaneReference?
     private var lastFocusedLocalPaneReference: PaneReference?
     private var lastFocusedLocalWorkingDirectory: String?
@@ -289,7 +289,7 @@ final class WorklaneStore {
     var waitingPaneReferencesByPath: [String: Set<PaneReference>] = [:]
     private var pendingReadyStatusTasks: [PaneReference: any WorklaneStoreScheduledHandle] = [:]
     private var pendingAgentStatusSweepTasks: [PaneReference: any WorklaneStoreScheduledHandle] = [:]
-    private let processEnvironment: [String: String]
+    let processEnvironment: [String: String]
     private let readyStatusDebounceInterval: TimeInterval
     let nonRepositoryRetryInterval: TimeInterval
     let currentDateProvider: @MainActor () -> Date
@@ -313,14 +313,6 @@ final class WorklaneStore {
     /// Set by the view layer to provide pane scrollback right before close.
     /// Returns nil if the runtime is gone or the read fails.
     var scrollbackProvider: ((PaneID) -> String?)?
-
-    var processEnvironmentSnapshot: [String: String] {
-        processEnvironment
-    }
-
-    var paneViewportHeightSnapshot: CGFloat {
-        paneViewportHeight
-    }
 
     var activeWorklaneID: WorklaneID
 

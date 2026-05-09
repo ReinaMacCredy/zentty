@@ -12,7 +12,6 @@ final class ClosedPaneCWDResolverTests: XCTestCase {
         )
 
         XCTAssertEqual(resolution.path, temp.path)
-        XCTAssertFalse(resolution.substituted)
         XCTAssertFalse(resolution.originalMissing)
     }
 
@@ -28,7 +27,6 @@ final class ClosedPaneCWDResolverTests: XCTestCase {
         )
 
         XCTAssertEqual(resolution.path, parent.path)
-        XCTAssertTrue(resolution.substituted)
         XCTAssertTrue(resolution.originalMissing)
     }
 
@@ -38,7 +36,6 @@ final class ClosedPaneCWDResolverTests: XCTestCase {
             homeDirectory: "/Users/peter"
         )
 
-        XCTAssertTrue(resolution.substituted)
         XCTAssertTrue(resolution.originalMissing)
     }
 
@@ -50,7 +47,6 @@ final class ClosedPaneCWDResolverTests: XCTestCase {
         )
 
         XCTAssertEqual(resolution.path, "/")
-        XCTAssertTrue(resolution.substituted)
         XCTAssertTrue(resolution.originalMissing)
     }
 

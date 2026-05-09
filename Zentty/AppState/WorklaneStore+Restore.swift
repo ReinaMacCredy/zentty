@@ -75,14 +75,89 @@ extension WorklaneStore {
 
     @discardableResult
     func restoreClosedPane() -> RestoreClosedPaneResult? {
+        // Validate everything we need *before* popping so a failure (no
+        // worklanes left, etc.) leaves the entry on the stack for the
+        // user's next ⌘⇧T attempt.
         let now = currentDateProvider()
-        guard let entry = closedPaneStack.popLatest(now: now) else {
+        guard let entry = closedPaneStack.peek(now: now),
+              let target = resolveRestoreTarget(for: entry)
+        else {
+            return nil
+        }
+        _ = closedPaneStack.popLatest(now: now)
+
+        let cwdResolution = ClosedPaneCWDResolver.resolve(original: entry.workingDirectory)
+        let composition = composeRestoredPane(entry: entry, cwdResolution: cwdResolution)
+
+        let newPaneID = runtimeIdentity.makePaneID()
+        let sessionRequest = TerminalSessionRequest(
+            workingDirectory: cwdResolution.path,
+            // Resume / replay commands flow via prefillText (typed at the live
+            // shell prompt) rather than nativeCommand. nativeCommand would exec
+            // the binary as PID 1 with the launch-environment PATH, where
+            // /opt/homebrew/bin and ~/.npm-global/bin aren't present.
+            prefillText: composition.prefillText,
+            surfaceContext: .split,
+            environmentVariables: sessionEnvironment(
+                windowID: windowID,
+                worklaneID: entry.originalWorklaneID,
+                paneID: newPaneID,
+                initialWorkingDirectory: cwdResolution.path
+            )
+        )
+
+        let restoredPane = PaneState(
+            id: newPaneID,
+            title: entry.title,
+            sessionRequest: sessionRequest,
+            width: entry.originalColumnWidth
+        )
+
+        if activeWorklaneID != target.worklaneID {
+            selectWorklane(id: target.worklaneID)
+        }
+        guard let worklaneIndex = worklanes.firstIndex(where: { $0.id == target.worklaneID }) else {
             return nil
         }
 
-        let cwdResolution = ClosedPaneCWDResolver.resolve(original: entry.workingDirectory)
-        let outcome = ClosedPaneRestoreCommandResolver.resolve(entry: entry)
+        var worklane = worklanes[worklaneIndex]
+        worklane.auxiliaryStateByPaneID[newPaneID] = makeRestoredPaneAuxiliary(
+            for: restoredPane,
+            workingDirectory: cwdResolution.path
+        )
+        insertRestoredPane(
+            restoredPane,
+            into: &worklane,
+            target: target,
+            originalHeightInColumn: entry.originalHeightInColumn
+        )
+        worklanes[worklaneIndex] = worklane
+        recomputePresentation(for: newPaneID, in: &worklanes[worklaneIndex])
+        refreshLastFocusedLocalWorkingDirectory()
+        notify(.paneStructure(target.worklaneID))
 
+        return RestoreClosedPaneResult(
+            restoredPaneID: newPaneID,
+            restoredWorklaneID: target.worklaneID,
+            toastMessage: composition.toastMessage
+        )
+    }
+
+    private struct RestoreComposition {
+        let prefillText: String?
+        let toastMessage: String
+    }
+
+    /// Builds the prefill text typed at the restored shell prompt and the
+    /// matching user-facing toast message, in one place. Keeping the two
+    /// derivations side-by-side makes the agent / replay / plain-shell
+    /// branching obvious and avoids drift between the toast and what
+    /// actually happens in the pane.
+    private func composeRestoredPane(
+        entry: ClosedPaneEntry,
+        cwdResolution: ClosedPaneCWDResolver.Resolution
+    ) -> RestoreComposition {
+        let outcome = ClosedPaneRestoreCommandResolver.resolve(entry: entry)
         let scrollbackURL: URL? = {
             guard let text = entry.scrollbackText,
                   !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -104,83 +179,12 @@ extension WorklaneStore {
             toastBody = "Restored \"\(entry.title)\" at \(cwdResolution.path)"
         }
 
-        // Both the previous-output hint and the resume/replay command are
-        // typed into the live shell via prefillText. That way the shell's
-        // own PATH resolves the binary (avoiding the launch-environment PATH
-        // pitfall where /opt/homebrew/bin etc. are missing), and the user
-        // ends up with a normal shell after the agent exits — not a closed
-        // pane.
-        let prefillText = makeRestorePrefill(
-            scrollbackURL: scrollbackURL,
-            command: runCommand
-        )
+        let toastMessage = cwdResolution.originalMissing
+            ? toastBody + " — original directory missing"
+            : toastBody
 
-        let toastMessage: String = {
-            if cwdResolution.originalMissing {
-                return toastBody + " — original directory missing"
-            }
-            return toastBody
-        }()
-
-        let newPaneID = runtimeIdentity.makePaneID()
-        let sessionRequest = TerminalSessionRequest(
-            workingDirectory: cwdResolution.path,
-            command: nil,
-            nativeCommand: nil,
-            waitAfterNativeCommand: false,
-            isLaunchDeferred: false,
-            prefillText: prefillText,
-            inheritFromPaneID: nil,
-            configInheritanceSourcePaneID: nil,
-            surfaceContext: .split,
-            environmentVariables: sessionEnvironment(
-                windowID: windowID,
-                worklaneID: entry.originalWorklaneID,
-                paneID: newPaneID,
-                initialWorkingDirectory: cwdResolution.path
-            )
-        )
-
-        let restoredPane = PaneState(
-            id: newPaneID,
-            title: entry.title,
-            sessionRequest: sessionRequest,
-            width: entry.originalColumnWidth
-        )
-
-        guard let target = resolveRestoreTarget(for: entry) else {
-            return nil
-        }
-
-        if activeWorklaneID != target.worklaneID {
-            selectWorklane(id: target.worklaneID)
-        }
-
-        guard let worklaneIndex = worklanes.firstIndex(where: { $0.id == target.worklaneID }) else {
-            return nil
-        }
-
-        var worklane = worklanes[worklaneIndex]
-        let initialAuxiliary = makeRestoredPaneAuxiliary(
-            for: restoredPane,
-            workingDirectory: cwdResolution.path
-        )
-        worklane.auxiliaryStateByPaneID[newPaneID] = initialAuxiliary
-
-        insertRestoredPane(
-            restoredPane,
-            into: &worklane,
-            target: target,
-            originalHeightInColumn: entry.originalHeightInColumn
-        )
-        worklanes[worklaneIndex] = worklane
-        recomputePresentation(for: newPaneID, in: &worklanes[worklaneIndex])
-        refreshLastFocusedLocalWorkingDirectory()
-        notify(.paneStructure(target.worklaneID))
-
-        return RestoreClosedPaneResult(
-            restoredPaneID: newPaneID,
-            restoredWorklaneID: target.worklaneID,
+        return RestoreComposition(
+            prefillText: makeRestorePrefill(scrollbackURL: scrollbackURL, command: runCommand),
             toastMessage: toastMessage
         )
     }
@@ -243,7 +247,7 @@ extension WorklaneStore {
                 columnID: worklane.paneStripState.columns[columnIndex].id,
                 targetPaneID: anchorPane.id,
                 atPaneIndex: target.paneIndex,
-                availableHeight: paneViewportHeightSnapshot
+                availableHeight: paneViewportHeight
             )
             if inserted {
                 applyOriginalHeight(
@@ -316,8 +320,8 @@ extension WorklaneStore {
         let initialShellContext = PaneShellContext(
             scope: .local,
             path: workingDirectory,
-            home: processEnvironmentSnapshot["HOME"],
-            user: processEnvironmentSnapshot["USER"],
+            home: processEnvironment["HOME"],
+            user: processEnvironment["USER"],
             host: nil
         )
         let initialRaw = PaneRawState(shellContext: initialShellContext)

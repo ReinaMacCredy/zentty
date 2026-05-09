@@ -6,7 +6,8 @@ private let restoreLogger = Logger(subsystem: "be.zenjoy.zentty", category: "res
 enum ClosedPaneCWDResolver {
     struct Resolution: Equatable {
         let path: String
-        let substituted: Bool
+        /// True when the original path didn't exist and we either walked up
+        /// to an ancestor or fell back to home.
         let originalMissing: Bool
     }
 
@@ -16,12 +17,12 @@ enum ClosedPaneCWDResolver {
         fileManager: FileManager = .default
     ) -> Resolution {
         guard let original = original?.trimmingCharacters(in: .whitespacesAndNewlines), !original.isEmpty else {
-            return Resolution(path: homeDirectory, substituted: true, originalMissing: true)
+            return Resolution(path: homeDirectory, originalMissing: true)
         }
 
         let standardized = (original as NSString).standardizingPath
         if isExistingDirectory(standardized, fileManager: fileManager) {
-            return Resolution(path: standardized, substituted: false, originalMissing: false)
+            return Resolution(path: standardized, originalMissing: false)
         }
 
         var current = standardized
@@ -31,11 +32,11 @@ enum ClosedPaneCWDResolver {
             // bottoming out a relative path returns "". Without this, "/"
             // and "" would loop forever.
             if parent == current || parent.isEmpty {
-                return Resolution(path: homeDirectory, substituted: true, originalMissing: true)
+                return Resolution(path: homeDirectory, originalMissing: true)
             }
             current = parent
             if isExistingDirectory(current, fileManager: fileManager) {
-                return Resolution(path: current, substituted: true, originalMissing: true)
+                return Resolution(path: current, originalMissing: true)
             }
         }
     }

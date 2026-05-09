@@ -100,6 +100,21 @@ final class WorklaneStoreClosedPaneRestoreTests: XCTestCase {
         XCTAssertNil(store.restoreClosedPane())
     }
 
+    func test_restore_keeps_entry_on_stack_when_no_target_can_be_found() throws {
+        // Push an entry, then strip the store down to zero worklanes so target
+        // resolution can't succeed. Restore must leave the entry on the stack
+        // so the user's next attempt (e.g. after creating a worklane) works.
+        let store = makeMultiPaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        _ = store.closePane(id: paneID)
+        XCTAssertEqual(store.closedPaneStack.count, 1)
+
+        store.replaceWorklanes([], activeWorklaneID: nil)
+
+        XCTAssertNil(store.restoreClosedPane())
+        XCTAssertEqual(store.closedPaneStack.count, 1)
+    }
+
     func test_restored_pane_has_no_native_command_only_prefill_text() throws {
         let store = makeMultiPaneStore()
         let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
