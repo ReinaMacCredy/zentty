@@ -278,7 +278,7 @@ final class WorklaneStore {
     let gitContextResolver: any PaneGitContextResolving
     let terminalDiagnostics: TerminalDiagnostics
     private(set) var layoutContext: PaneLayoutContext
-    private var paneViewportHeight: CGFloat = .greatestFiniteMagnitude
+    private(set) var paneViewportHeight: CGFloat = .greatestFiniteMagnitude
     private var lastFocusedPaneReference: PaneReference?
     private var lastFocusedLocalPaneReference: PaneReference?
     private var lastFocusedLocalWorkingDirectory: String?
@@ -289,7 +289,7 @@ final class WorklaneStore {
     var waitingPaneReferencesByPath: [String: Set<PaneReference>] = [:]
     private var pendingReadyStatusTasks: [PaneReference: any WorklaneStoreScheduledHandle] = [:]
     private var pendingAgentStatusSweepTasks: [PaneReference: any WorklaneStoreScheduledHandle] = [:]
-    private let processEnvironment: [String: String]
+    let processEnvironment: [String: String]
     private let readyStatusDebounceInterval: TimeInterval
     let nonRepositoryRetryInterval: TimeInterval
     let currentDateProvider: @MainActor () -> Date
@@ -305,6 +305,14 @@ final class WorklaneStore {
     let runtimeIdentity: WorklaneRuntimeIdentity
     let focusHistoryController = PaneFocusHistoryController()
     private var isNavigatingHistory = false
+
+    /// Per-window LIFO stack of recently closed panes for ⌘⇧T restore.
+    /// Populated in `closePane(id:source:)` for `.userCommand` closures only.
+    var closedPaneStack = ClosedPaneStack()
+
+    /// Set by the view layer to provide pane scrollback right before close.
+    /// Returns nil if the runtime is gone or the read fails.
+    var scrollbackProvider: ((PaneID) -> String?)?
 
     var activeWorklaneID: WorklaneID
 
@@ -686,7 +694,8 @@ final class WorklaneStore {
             .arrangeVertically,
             .arrangeGoldenRatio,
             .resetLayout,
-            .toggleZoomOut:
+            .toggleZoomOut,
+            .restoreClosedPane:
             activeWorklane = worklane
             return
         }
@@ -1523,11 +1532,11 @@ final class WorklaneStore {
             return .notFound
         }
 
-        return closePane(id: paneID)
+        return closePane(id: paneID, source: .userCommand)
     }
 
     @discardableResult
-    func closePane(id: PaneID) -> PaneCloseResult {
+    func closePane(id: PaneID, source: PaneCloseSource = .userCommand) -> PaneCloseResult {
         guard var worklane = activeWorklane else {
             return .notFound
         }
@@ -1543,12 +1552,23 @@ final class WorklaneStore {
             return .notFound
         }
 
-        if worklane.paneStripState.columns.count == 1,
-           worklane.paneStripState.panes.count == 1 {
-            if worklanes.count == 1 {
-                return .closeWindow
-            }
+        let isLastPaneInLastColumn = worklane.paneStripState.columns.count == 1
+            && worklane.paneStripState.panes.count == 1
 
+        // Closing the last pane in the only worklane just signals the view
+        // layer to close the window — the pane itself isn't removed here, and
+        // the user may still cancel the window-close prompt. Skip capture in
+        // that case to avoid leaving a stack entry pointing at a still-live
+        // pane (which would let ⌘⇧T duplicate it).
+        if isLastPaneInLastColumn, worklanes.count == 1 {
+            return .closeWindow
+        }
+
+        if source == .userCommand {
+            captureClosedPane(paneID: id, in: worklane)
+        }
+
+        if isLastPaneInLastColumn {
             guard removeActiveWorklaneIfPossible() else {
                 refreshLastFocusedLocalWorkingDirectory()
                 notify(.paneStructure(activeWorklaneID))
