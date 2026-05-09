@@ -79,6 +79,45 @@ class EventInferenceTests(unittest.TestCase):
         self.assertEqual(agent, "opencode")
 
 
+class SyntheticScenarioTests(unittest.TestCase):
+    def test_post_stop_notification_detector_flags_late_notification(self):
+        records = [
+            agent_bench.TraceRecord(kind="hook", agent="claude", scenario="stop_race", event_name="SessionStart"),
+            agent_bench.TraceRecord(kind="hook", agent="claude", scenario="stop_race", event_name="Stop"),
+            agent_bench.TraceRecord(kind="hook", agent="claude", scenario="stop_race", event_name="Notification"),
+        ]
+        self.assertTrue(agent_bench._trace_contains_post_stop_notification(records))
+
+    def test_post_stop_notification_detector_ignores_notification_before_stop(self):
+        records = [
+            agent_bench.TraceRecord(kind="hook", agent="claude", scenario="stop_race", event_name="Notification"),
+            agent_bench.TraceRecord(kind="hook", agent="claude", scenario="stop_race", event_name="Stop"),
+        ]
+        self.assertFalse(agent_bench._trace_contains_post_stop_notification(records))
+
+    def test_load_profiles_parses_synthetic_fields_for_stop_race_scenario(self):
+        profile_dir = ROOT / "profiles"
+        profiles = agent_bench.load_profiles(profile_dir)
+        stop_race = profiles["claude"].expectations["stop_race"]
+        self.assertTrue(stop_race.synthetic)
+        self.assertEqual(stop_race.fixture, "claude_stop_then_late_notification.jsonl")
+        self.assertTrue(stop_race.post_stop_notification_required)
+
+    def test_stop_race_fixture_contains_late_notification_after_stop(self):
+        fixture_path = ROOT / "fixtures" / "claude_stop_then_late_notification.jsonl"
+        events = []
+        for line in fixture_path.read_text(encoding="utf-8").splitlines():
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            events.append(json.loads(stripped)["hook_event_name"])
+        self.assertIn("Stop", events)
+        self.assertIn("Notification", events)
+        # The bug-trigger ordering: Notification must follow Stop in the
+        # fixture so a synthetic replay reproduces the timing pattern.
+        self.assertGreater(events.index("Notification"), events.index("Stop"))
+
+
 class ExpectationTests(unittest.TestCase):
     def test_validation_reports_missing_required_events(self):
         scenario = agent_bench.ScenarioExpectation(

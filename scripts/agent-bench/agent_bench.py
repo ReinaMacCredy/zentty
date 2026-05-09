@@ -75,6 +75,9 @@ class ScenarioExpectation:
     name: str
     required_events: list[str]
     required_terminal_phases: list[str] = dataclasses.field(default_factory=list)
+    synthetic: bool = False
+    fixture: str | None = None
+    post_stop_notification_required: bool = False
 
 
 @dataclasses.dataclass
@@ -218,6 +221,22 @@ def parse_json_object(raw: str | None) -> dict[str, Any]:
     except json.JSONDecodeError:
         return {}
     return value if isinstance(value, dict) else {}
+
+
+def _trace_contains_post_stop_notification(records: list[TraceRecord]) -> bool:
+    # Returns True if the trace contains a Notification hook arriving after a
+    # Stop hook within the same agent/scenario stream — the ingredient list
+    # for the "Claude finished but pane still says Needs input" race.
+    seen_stop = False
+    for record in records:
+        if record.kind != "hook":
+            continue
+        if record.event_name == "Stop":
+            seen_stop = True
+            continue
+        if record.event_name == "Notification" and seen_stop:
+            return True
+    return False
 
 
 def validate_scenario(agent: str, expectation: ScenarioExpectation, records: list[TraceRecord]) -> ScenarioResult:
@@ -1109,6 +1128,9 @@ def load_profiles(path: pathlib.Path) -> dict[str, AgentProfile]:
                 name=name,
                 required_events=list(value.get("required_events", [])),
                 required_terminal_phases=list(value.get("required_terminal_phases", [])),
+                synthetic=bool(value.get("synthetic", False)),
+                fixture=value.get("fixture"),
+                post_stop_notification_required=bool(value.get("post_stop_notification_required", False)),
             )
             for name, value in raw.get("expectations", {}).items()
         }
@@ -1247,6 +1269,8 @@ class BenchRunner:
                 [],
                 [],
             )
+        if profile.expectations[scenario].synthetic:
+            return self._run_synthetic_scenario(agent, scenario, env)
         command = None
         for candidate in [profile.command] + profile.real_binary_names:
             command = shutil.which(candidate, path=env["PATH"])
@@ -1320,6 +1344,82 @@ class BenchRunner:
             strict=self.args.strict,
         )
         return self._finalize_result(result, self.recorder.records(), observations)
+
+    def _run_synthetic_scenario(self, agent: str, scenario: str, env: dict[str, str]) -> ScenarioResult:
+        # Synthetic scenarios bypass the agent binary entirely. They pipe a
+        # JSONL fixture of hook events directly into the bench capture
+        # server (using the same IPC framing the Zentty CLI would). This
+        # lets us reproduce hook-ordering bugs (like Stop → late
+        # Notification) deterministically without depending on the model.
+        profile = self.profiles[agent]
+        expectation = profile.expectations[scenario]
+        if not expectation.fixture:
+            return self._finalize_result(
+                self._skip_or_fail(agent, scenario, "synthetic scenario missing 'fixture'", "scenario-skip"),
+                [],
+                [],
+            )
+        fixture_path = BENCH_ROOT / "fixtures" / expectation.fixture
+        if not fixture_path.is_file():
+            return self._finalize_result(
+                self._skip_or_fail(agent, scenario, f"fixture not found: {fixture_path}", "scenario-skip"),
+                [],
+                [],
+            )
+        socket_path_str = env.get("ZENTTY_INSTANCE_SOCKET")
+        if not socket_path_str:
+            return self._finalize_result(
+                self._skip_or_fail(agent, scenario, "ZENTTY_INSTANCE_SOCKET not set", "scenario-skip"),
+                [],
+                [],
+            )
+        socket_path = pathlib.Path(socket_path_str)
+        request_environment = {
+            key: env[key]
+            for key in (
+                "ZENTTY_WINDOW_ID",
+                "ZENTTY_WORKLANE_ID",
+                "ZENTTY_PANE_ID",
+                "ZENTTY_PANE_TOKEN",
+                "ZENTTY_INSTANCE_ID",
+                "ZENTTY_CLAUDE_PID",
+            )
+            if env.get(key)
+        }
+        for index, raw_line in enumerate(fixture_path.read_text(encoding="utf-8").splitlines()):
+            line = raw_line.strip()
+            if not line or line.startswith("#"):
+                continue
+            request = {
+                "version": 1,
+                "id": f"synthetic-{scenario}-{index}",
+                "kind": "ipc",
+                "subcommand": "agent-event",
+                "arguments": [f"--adapter={agent}"],
+                "standardInput": line,
+                "environment": request_environment,
+                # Wait for server ack so the trace record is appended before
+                # we read records() below; otherwise validation can race the
+                # capture server's worker thread.
+                "expectsResponse": True,
+                "tool": agent,
+            }
+            send_ipc(socket_path, request)
+        records = self.recorder.records()
+        scenario_records = [
+            record for record in records if record.agent == agent and record.scenario == scenario
+        ]
+        result = validate_scenario(agent, expectation, scenario_records)
+        if (
+            result.passed
+            and expectation.post_stop_notification_required
+            and not _trace_contains_post_stop_notification(scenario_records)
+        ):
+            result.passed = False
+            result.status = "fail"
+            result.detail = "expected a Notification arriving after Stop in the same session, none captured"
+            result.result_kind = "missing-hook"
+        return self._finalize_result(result, scenario_records, [])
 
     def _skip_or_fail(self, agent: str, scenario: str, detail: str, result_kind: str = "scenario-skip") -> ScenarioResult:
         return ScenarioResult(
