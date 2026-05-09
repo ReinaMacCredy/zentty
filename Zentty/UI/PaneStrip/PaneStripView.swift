@@ -1395,11 +1395,18 @@ final class PaneStripView: NSView {
         }
     }
 
+    /// Override applied to the next zoom-out target scale. The visual switcher
+    /// uses this to put active + neighbor lanes at the same uniform scale
+    /// when multiple worklanes are visible. Reset to nil when zooming back in
+    /// so the drag-zoom path keeps using the static `Self.zoomScale`.
+    private var zoomOutScaleOverride: CGFloat?
+
     private func applyZoom(animated: Bool, centerOnPaneID: PaneID? = nil) {
         // Compute the anchor: focused pane center in content space
         updateZoomAnchor()
 
-        let targetScale = isZoomedOut ? Self.zoomScale : 1.0
+        let zoomedOutScale = zoomOutScaleOverride ?? Self.zoomScale
+        let targetScale = isZoomedOut ? zoomedOutScale : 1.0
         let targetScrollX = scrollOffsetCentering(paneID: centerOnPaneID, scale: targetScale)
 
         if animated {
@@ -1592,13 +1599,35 @@ final class PaneStripView: NSView {
     /// `centerOnPaneID`, if provided, animates `dragScrollOffsetX` together
     /// with the zoom so that pane's column lands at the horizontal center of
     /// the viewport when the animation settles.
-    func beginVisualModeZoomOut(animated: Bool = true, centerOnPaneID: PaneID? = nil) {
+    /// `scaleOverride` lets the visual switcher pick a smaller scale when
+    /// neighbor lanes need to fit alongside the active band.
+    func beginVisualModeZoomOut(
+        animated: Bool = true,
+        centerOnPaneID: PaneID? = nil,
+        scaleOverride: CGFloat? = nil
+    ) {
         guard !isDragActive, !isZoomedOut else { return }
         isZoomedOut = true
+        zoomOutScaleOverride = scaleOverride
         for (_, paneView) in paneViews {
             paneView.setTerminalViewportSyncSuspended(true)
         }
         applyZoom(animated: animated, centerOnPaneID: centerOnPaneID)
+    }
+
+    /// Variant of `beginVisualModeZoomOut` for **neighbor preview lanes**:
+    /// puts the strip into the same internal zoom-out state but does *not*
+    /// suspend the per-pane terminal viewport sync, so the neighbor's
+    /// terminals keep streaming live while the user peeks.
+    ///
+    /// The carrier wraps the strip in a layer-scaled, masked container, so
+    /// viewport sync staying on doesn't reflow the terminal grid — Ghostty
+    /// sees the strip's natural canvas-sized bounds, which don't change.
+    func enterNeighborPreviewZoomOut(scale: CGFloat, centerOnPaneID: PaneID? = nil) {
+        guard !isDragActive, !isZoomedOut else { return }
+        isZoomedOut = true
+        zoomOutScaleOverride = scale
+        applyZoom(animated: false, centerOnPaneID: centerOnPaneID)
     }
 
     /// While zoomed out, animate `dragScrollOffsetX` so the given pane's
@@ -1621,6 +1650,9 @@ final class PaneStripView: NSView {
         guard isZoomedOut else { return }
         isZoomedOut = false
         applyZoom(animated: animated, centerOnPaneID: centerOnPaneID)
+        // Reset so the next drag-zoom (or another visual-mode session)
+        // starts from the canonical static scale unless explicitly overridden.
+        zoomOutScaleOverride = nil
 
         let unfreezeDelay: TimeInterval = animated ? Self.zoomAnimationDuration : 0
         let deferredWorkGeneration = self.deferredWorkGeneration

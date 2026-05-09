@@ -21,28 +21,17 @@ final class VisualSwitcherLaneView: NSView {
     private let strip: PaneStripView
     private(set) var worklaneID: WorklaneID?
     private var canvasSize: CGSize = .zero
+    /// The internal zoom scale used by both the active strip and this
+    /// neighbor preview — must match so all visible lanes share the same
+    /// visual size.
+    private var laneZoomScale: CGFloat = PaneStripView.zoomScale
     private var hasInitialZoomOut = false
 
-    /// Which "ring" of neighbors this carrier sits in. ±1 lanes are at full
-    /// neighbor scale; ±2 lanes peek smaller and dimmer as a spatial hint.
-    enum Ring {
-        case primary    // ±1
-        case peeking    // ±2
+    /// Resting opacity once the carrier has fully appeared. Neighbor lanes
+    /// stay dimmer than the active so focus stays in the centered band.
+    static let appearedAlpha: CGFloat = 0.7
 
-        /// Resting opacity once the carrier has fully appeared. Neighbors
-        /// stay dimmer than the active lane so the focus stays in the band.
-        var alpha: CGFloat {
-            switch self {
-            case .primary: return 0.7
-            case .peeking: return 0.4
-            }
-        }
-    }
-
-    let ring: Ring
-
-    init(runtimeRegistry: PaneRuntimeRegistry, ring: Ring) {
-        self.ring = ring
+    init(runtimeRegistry: PaneRuntimeRegistry) {
         self.strip = PaneStripView(runtimeRegistry: runtimeRegistry)
         super.init(frame: .zero)
         wantsLayer = true
@@ -67,10 +56,18 @@ final class VisualSwitcherLaneView: NSView {
     /// also drive the strip into its zoomed-out state so the band proportions
     /// match the active strip's. `canvasSize` is the **active** canvas size
     /// — neighbor strips render at the same dimensions so Ghostty allocates
-    /// the same terminal cells the active strip would.
-    func bind(worklane: WorklaneState, theme: ZenttyTheme, canvasSize: CGSize) {
+    /// the same terminal cells the active strip would. `zoomScale` matches
+    /// the active strip's scale so all visible lanes share the same visual
+    /// band size.
+    func bind(
+        worklane: WorklaneState,
+        theme: ZenttyTheme,
+        canvasSize: CGSize,
+        zoomScale: CGFloat
+    ) {
         worklaneID = worklane.id
         self.canvasSize = canvasSize
+        self.laneZoomScale = zoomScale
         relayoutStrip()
 
         strip.apply(theme: theme, animated: false)
@@ -82,8 +79,12 @@ final class VisualSwitcherLaneView: NSView {
         strip.layoutSubtreeIfNeeded()
 
         if !hasInitialZoomOut {
-            strip.beginVisualModeZoomOut(
-                animated: false,
+            // Use the streaming-friendly variant so terminals keep updating
+            // live while this carrier is on screen. The carrier's masked
+            // layer-scale handles the visual shrink without disturbing
+            // Ghostty's natural canvas-sized bounds.
+            strip.enterNeighborPreviewZoomOut(
+                scale: zoomScale,
                 centerOnPaneID: worklane.paneStripState.focusedPaneID
             )
             hasInitialZoomOut = true
@@ -97,10 +98,10 @@ final class VisualSwitcherLaneView: NSView {
               bounds.width > 0, bounds.height > 0 else { return }
 
         // The visible band, in strip-local coords, equals canvasSize ×
-        // PaneStripView.zoomScale (mirrors `applyZoomScale` math). We size
-        // ourselves to *show* exactly that band.
-        let bandWidth = canvasSize.width * PaneStripView.zoomScale
-        let bandHeight = canvasSize.height * PaneStripView.zoomScale
+        // laneZoomScale (mirrors `applyZoomScale` math). We size ourselves
+        // to *show* exactly that band.
+        let bandWidth = canvasSize.width * laneZoomScale
+        let bandHeight = canvasSize.height * laneZoomScale
         guard bandWidth > 0, bandHeight > 0 else { return }
 
         // Uniform scale chosen to fit the band into our bounds. Letterbox
@@ -134,8 +135,8 @@ final class VisualSwitcherLaneView: NSView {
     /// space, accounting for the layer scale applied to the strip.
     func paneFrameInCarrier(_ paneID: PaneID) -> CGRect? {
         guard canvasSize.width > 0 else { return nil }
-        let bandWidth = canvasSize.width * PaneStripView.zoomScale
-        let bandHeight = canvasSize.height * PaneStripView.zoomScale
+        let bandWidth = canvasSize.width * laneZoomScale
+        let bandHeight = canvasSize.height * laneZoomScale
         guard bandWidth > 0, bandHeight > 0 else { return nil }
 
         // Pane frame in strip-local coords (full-canvas-size strip).
@@ -156,9 +157,8 @@ final class VisualSwitcherLaneView: NSView {
         )
     }
 
-    /// Animate the carrier from invisible to its ring's resting alpha.
+    /// Animate the carrier from invisible to its resting alpha.
     func appear(after delay: TimeInterval) {
-        let target = ring.alpha
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0
             self.alphaValue = 0
@@ -168,7 +168,7 @@ final class VisualSwitcherLaneView: NSView {
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = 0.18
                 context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-                self.animator().alphaValue = target
+                self.animator().alphaValue = Self.appearedAlpha
             }
         }
     }

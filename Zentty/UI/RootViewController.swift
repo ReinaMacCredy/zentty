@@ -3076,9 +3076,25 @@ extension RootViewController: VisualWorklaneSwitcherControllerDelegate {
             }
             return nil
         }()
+
+        // Use a smaller uniform zoom scale when neighbors are about to be
+        // shown so all visible lanes (active + ±1) share the same band size
+        // and fit vertically in the canvas with comfortable gaps.
+        let allWorklanes = worklaneStore.worklanes
+        let activeIndex = allWorklanes.firstIndex(where: { $0.id == worklaneStore.activeWorklaneID })
+        let hasNeighbors: Bool = {
+            guard let activeIndex else { return false }
+            return allWorklanes.indices.contains(activeIndex - 1)
+                || allWorklanes.indices.contains(activeIndex + 1)
+        }()
+        let zoomScale: CGFloat = hasNeighbors
+            ? Self.multiLaneZoomScale
+            : PaneStripView.zoomScale
+
         appCanvasView.paneStripView.beginVisualModeZoomOut(
             animated: true,
-            centerOnPaneID: initialHighlight
+            centerOnPaneID: initialHighlight,
+            scaleOverride: zoomScale
         )
         visualSwitcherView.attach(paneStripView: appCanvasView.paneStripView)
         visualSwitcherView.isHidden = false
@@ -3086,22 +3102,20 @@ extension RootViewController: VisualWorklaneSwitcherControllerDelegate {
         // before we compute the HUD position from those bounds.
         visualSwitcherView.layoutSubtreeIfNeeded()
         visualSwitcherView.placeHUDStably(
-            targetZoomScale: PaneStripView.zoomScale,
+            targetZoomScale: zoomScale,
             visibleLeadingInset: appCanvasView.leadingVisibleInset
         )
 
-        // Build live carriers for the ±1 / ±2 neighbor worklanes so the
-        // user has a spatial sense of "what's around" while Tab cycling.
-        // Pass the active canvas size so neighbor strips render at the
-        // exact same dimensions as the active strip — that way Ghostty
-        // allocates identical terminal cells, and the layout proportions
-        // match the active worklane's zoomed-out view exactly.
-        let allWorklanes = worklaneStore.worklanes
-        if let activeIndex = allWorklanes.firstIndex(where: { $0.id == worklaneStore.activeWorklaneID }) {
+        // Build live carriers for the ±1 neighbor worklanes so the user has
+        // a spatial sense of "what's around" while Tab cycling. Pass the
+        // canvas size + zoom scale so neighbor strips render at identical
+        // dimensions and Ghostty allocates the same terminal cells.
+        if let activeIndex {
             visualSwitcherView.configureNeighborLanes(
                 worklanes: allWorklanes,
                 activeIndex: activeIndex,
                 canvasSize: appCanvasView.bounds.size,
+                zoomScale: zoomScale,
                 runtimeRegistry: runtimeRegistry,
                 theme: currentTheme
             )
@@ -3109,6 +3123,11 @@ extension RootViewController: VisualWorklaneSwitcherControllerDelegate {
 
         refreshVisualSwitcherOverlay()
     }
+
+    /// Internal zoom scale used when ≥1 neighbor worklane is present.
+    /// Smaller than `PaneStripView.zoomScale` so 3 equal-sized lanes
+    /// (active + above + below) fit vertically with breathing room.
+    private static let multiLaneZoomScale: CGFloat = 0.30
 
     func switcherDidUpdateSelection(
         _ controller: VisualWorklaneSwitcherController,
