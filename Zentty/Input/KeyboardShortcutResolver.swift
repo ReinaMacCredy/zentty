@@ -62,7 +62,6 @@ enum AppCommandID: String, CaseIterable, Equatable, Hashable, Sendable {
     case resizePaneUp = "pane.resize.up"
     case resizePaneDown = "pane.resize.down"
     case resetPaneLayout = "pane.reset_layout"
-    case toggleZoomOut = "pane.toggle_zoom_out"
     case navigateBack = "navigate.back"
     case navigateForward = "navigate.forward"
     case showCommandPalette = "command_palette.show"
@@ -660,16 +659,6 @@ enum AppCommandRegistry {
                 selector: #selector(MainWindowController.resetPaneLayout(_:))
             )
         ),
-        // Toggle Zoom Out is currently internal-only (triggered by drag).
-        // Hidden from menu and command palette until the UX is finalized.
-        AppCommandDefinition(
-            id: .toggleZoomOut,
-            title: "Toggle Zoom Out",
-            category: .panes,
-            defaultShortcut: nil,
-            action: .pane(.toggleZoomOut),
-            menuItem: nil
-        ),
         AppCommandDefinition(
             id: .showCommandPalette,
             title: "Command Palette",
@@ -928,8 +917,6 @@ extension AppCommandDefinition {
             "Grow the focused pane downward."
         case .resetPaneLayout:
             "Reset pane sizes to their defaults."
-        case .toggleZoomOut:
-            "Zoom out to see all panes and drag to reorder."
         case .showCommandPalette:
             "Open the command palette."
         case .openBranchOnRemote:

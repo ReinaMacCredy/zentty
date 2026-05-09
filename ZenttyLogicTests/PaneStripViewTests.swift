@@ -426,7 +426,7 @@ final class PaneStripViewTests: AppKitTestCase {
 
         paneStripView.render(state)
         paneStripView.layoutSubtreeIfNeeded()
-        paneStripView.toggleZoom(animated: true)
+        paneStripView.beginVisualModeZoomOut(animated: true)
 
         XCTAssertTrue(paneStripView.isZoomAnimating)
 
@@ -3418,7 +3418,7 @@ final class PaneStripViewTests: AppKitTestCase {
 
         paneStripView.render(sourceState)
         paneStripView.layoutSubtreeIfNeeded()
-        paneStripView.toggleZoom(animated: false)
+        paneStripView.beginVisualModeZoomOut(animated: false)
 
         paneStripView.render(duplicateState)
         paneStripView.layoutSubtreeIfNeeded()

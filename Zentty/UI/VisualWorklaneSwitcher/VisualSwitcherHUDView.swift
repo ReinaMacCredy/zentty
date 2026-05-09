@@ -42,16 +42,24 @@ final class VisualSwitcherHUDView: NSView {
         layer?.backgroundColor = NSColor.black.withAlphaComponent(0.55).cgColor
         layer?.cornerRadius = 10
 
-        let labels = [proctitleLabel, separator1, folderLabel, separator2, branchLabel]
-        let baseFont = NSFont.systemFont(ofSize: 13, weight: .medium)
-        for label in labels {
-            label.font = baseFont
-            label.textColor = .white
+        // Weight hierarchy: proctitle anchors the scan, folder is contextual,
+        // branch is the lightest hint. Keeping fields the same point size
+        // keeps baselines aligned in the single-line layout.
+        let allLabels = [proctitleLabel, separator1, folderLabel, separator2, branchLabel]
+        for label in allLabels {
             label.lineBreakMode = .byTruncatingTail
             label.translatesAutoresizingMaskIntoConstraints = false
         }
-        separator1.textColor = NSColor.white.withAlphaComponent(0.45)
-        separator2.textColor = NSColor.white.withAlphaComponent(0.45)
+        proctitleLabel.font = NSFont.systemFont(ofSize: 13, weight: .semibold)
+        proctitleLabel.textColor = .white
+        folderLabel.font = NSFont.systemFont(ofSize: 13, weight: .regular)
+        folderLabel.textColor = NSColor.white.withAlphaComponent(0.85)
+        branchLabel.font = NSFont.systemFont(ofSize: 13, weight: .regular)
+        branchLabel.textColor = NSColor.white.withAlphaComponent(0.65)
+        separator1.font = NSFont.systemFont(ofSize: 13, weight: .regular)
+        separator2.font = NSFont.systemFont(ofSize: 13, weight: .regular)
+        separator1.textColor = NSColor.white.withAlphaComponent(0.4)
+        separator2.textColor = NSColor.white.withAlphaComponent(0.4)
 
         stack.translatesAutoresizingMaskIntoConstraints = false
         stack.orientation = .horizontal
@@ -59,7 +67,7 @@ final class VisualSwitcherHUDView: NSView {
         stack.spacing = 8
         stack.edgeInsets = NSEdgeInsets(top: 8, left: 14, bottom: 8, right: 14)
 
-        for label in labels {
+        for label in allLabels {
             stack.addArrangedSubview(label)
         }
 

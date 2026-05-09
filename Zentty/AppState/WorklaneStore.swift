@@ -676,8 +676,7 @@ final class WorklaneStore {
             .arrangeHorizontally,
             .arrangeVertically,
             .arrangeGoldenRatio,
-            .resetLayout,
-            .toggleZoomOut:
+            .resetLayout:
             activeWorklane = worklane
             return
         }

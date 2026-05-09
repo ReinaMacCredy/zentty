@@ -1368,40 +1368,6 @@ final class PaneStripView: NSView {
 
     // MARK: - Zoom
 
-    func toggleZoom(animated: Bool = true) {
-        guard !isDragActive else { return }
-        isZoomedOut.toggle()
-
-        if isZoomedOut {
-            // Freeze terminals so they don't re-render at the zoomed pixel size
-            for (_, paneView) in paneViews {
-                paneView.beginVerticalFreeze(gravity: .top)
-                paneView.setTerminalViewportSyncSuspended(true)
-            }
-            applyZoom(animated: animated)
-        } else {
-            // Zoom back first, then unfreeze after the animation completes
-            // so the terminal re-renders at the correct full-size backing
-            applyZoom(animated: animated)
-            let unfreezeDelay = animated ? 0.35 : 0
-            let deferredWorkGeneration = self.deferredWorkGeneration
-            DispatchQueue.main.asyncAfter(deadline: .now() + unfreezeDelay) { [weak self] in
-                guard let self,
-                      deferredWorkGeneration == self.deferredWorkGeneration,
-                      !self.isZoomedOut else { return }
-                for (_, paneView) in self.paneViews {
-                    paneView.endVerticalFreeze()
-                    paneView.setTerminalViewportSyncSuspended(false)
-                }
-                // Force terminals to re-layout at correct backing size
-                for (_, paneView) in self.paneViews {
-                    paneView.needsLayout = true
-                    paneView.layoutSubtreeIfNeeded()
-                }
-            }
-        }
-    }
-
     /// Whether a zoom animation is currently in progress.
     var isZoomAnimating: Bool { zoomSpring.isRunning }
     private let zoomSpring = SpringAnimator()

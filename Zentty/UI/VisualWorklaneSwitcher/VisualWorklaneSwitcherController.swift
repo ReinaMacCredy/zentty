@@ -12,11 +12,23 @@ protocol VisualSwitcherWorklaneAccess: AnyObject {
 
 extension WorklaneStore: VisualSwitcherWorklaneAccess {}
 
+/// How the view layer should move between the previous and current selection.
+/// `.animated` triggers the spring camera pan; `.hardCut` skips animation
+/// entirely so wraps from the last pane to the first don't sweep across the
+/// whole list.
+enum VisualSwitcherSelectionTransition: Equatable {
+    case animated
+    case hardCut
+}
+
 @MainActor
 protocol VisualWorklaneSwitcherControllerDelegate: AnyObject {
     func switcherDidArm(_ controller: VisualWorklaneSwitcherController)
     func switcherDidOpenVisualMode(_ controller: VisualWorklaneSwitcherController)
-    func switcherDidUpdateSelection(_ controller: VisualWorklaneSwitcherController)
+    func switcherDidUpdateSelection(
+        _ controller: VisualWorklaneSwitcherController,
+        transition: VisualSwitcherSelectionTransition
+    )
     func switcherDidCloseVisualMode(_ controller: VisualWorklaneSwitcherController)
 }
 
@@ -101,8 +113,11 @@ final class VisualWorklaneSwitcherController {
             if case let .visualMode(selection, traversal) = phase {
                 let updated = selection.advancing(by: direction, traversal: traversal)
                 if updated != selection {
+                    let transition: VisualSwitcherSelectionTransition =
+                        traversal.wrapsAround(from: selection.current, direction: direction)
+                            ? .hardCut : .animated
                     phase = .visualMode(updated, traversal: traversal)
-                    delegate?.switcherDidUpdateSelection(self)
+                    delegate?.switcherDidUpdateSelection(self, transition: transition)
                 }
             }
 
@@ -183,8 +198,11 @@ final class VisualWorklaneSwitcherController {
         guard case let .visualMode(selection, traversal) = phase else { return }
         let updated = selection.advancing(by: direction, traversal: traversal)
         guard updated != selection else { return }
+        let transition: VisualSwitcherSelectionTransition =
+            traversal.wrapsAround(from: selection.current, direction: direction)
+                ? .hardCut : .animated
         phase = .visualMode(updated, traversal: traversal)
-        delegate?.switcherDidUpdateSelection(self)
+        delegate?.switcherDidUpdateSelection(self, transition: transition)
     }
 
     private func commit(focusing reference: WorklaneStore.PaneReference) {

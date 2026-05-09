@@ -59,5 +59,4 @@ enum PaneCommand: Equatable, Sendable {
     case arrangeVertically(PaneVerticalArrangement)
     case arrangeGoldenRatio(GoldenRatioPreset)
     case resetLayout
-    case toggleZoomOut
 }

@@ -1294,8 +1294,6 @@ final class RootViewController: NSViewController {
             } else {
                 closeFocusedPane()
             }
-        case .toggleZoomOut:
-            appCanvasView.paneStripView.toggleZoom()
         default:
             worklaneStore.send(command)
         }
@@ -3068,11 +3066,14 @@ extension RootViewController: VisualWorklaneSwitcherControllerDelegate {
         refreshVisualSwitcherOverlay()
     }
 
-    func switcherDidUpdateSelection(_ controller: VisualWorklaneSwitcherController) {
+    func switcherDidUpdateSelection(
+        _ controller: VisualWorklaneSwitcherController,
+        transition: VisualSwitcherSelectionTransition
+    ) {
         if case let .visualMode(selection, _) = controller.phase {
             appCanvasView.paneStripView.centerVisualModeOnPane(
                 selection.current.paneID,
-                animated: true
+                animated: transition == .animated
             )
         }
         refreshVisualSwitcherOverlay()

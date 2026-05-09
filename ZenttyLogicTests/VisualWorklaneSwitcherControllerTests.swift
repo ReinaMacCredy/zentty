@@ -78,10 +78,17 @@ final class VisualWorklaneSwitcherControllerTests: XCTestCase {
         var opened = 0
         var updates = 0
         var closed = 0
+        var transitions: [VisualSwitcherSelectionTransition] = []
 
         func switcherDidArm(_ controller: VisualWorklaneSwitcherController) { armed += 1 }
         func switcherDidOpenVisualMode(_ controller: VisualWorklaneSwitcherController) { opened += 1 }
-        func switcherDidUpdateSelection(_ controller: VisualWorklaneSwitcherController) { updates += 1 }
+        func switcherDidUpdateSelection(
+            _ controller: VisualWorklaneSwitcherController,
+            transition: VisualSwitcherSelectionTransition
+        ) {
+            updates += 1
+            transitions.append(transition)
+        }
         func switcherDidCloseVisualMode(_ controller: VisualWorklaneSwitcherController) { closed += 1 }
     }
 
@@ -310,6 +317,41 @@ final class VisualWorklaneSwitcherControllerTests: XCTestCase {
             return XCTFail("expected visualMode phase")
         }
         XCTAssertEqual(selection.current, ref("w2", "c"))
+        XCTAssertEqual(harness.delegate.transitions, [.hardCut])
+    }
+
+    // MARK: - Wrap behavior
+
+    func test_tab_at_last_pane_reports_hardCut_transition() {
+        let harness = makeHarness(
+            worklanes: [
+                makeWorklane("w1", panes: ["a", "b"], focused: "b"),
+            ],
+            active: "w1"
+        )
+        harness.controller.handleTab(forward: true)
+        harness.scheduler.fireAll()                  // visual at (w1,b)
+
+        harness.controller.handleTab(forward: true)  // wrap to (w1,a)
+        guard case let .visualMode(selection, _) = harness.controller.phase else {
+            return XCTFail("expected visualMode phase")
+        }
+        XCTAssertEqual(selection.current, ref("w1", "a"))
+        XCTAssertEqual(harness.delegate.transitions, [.hardCut])
+    }
+
+    func test_within_list_step_reports_animated_transition() {
+        let harness = makeHarness(
+            worklanes: [
+                makeWorklane("w1", panes: ["a", "b", "c"], focused: "a"),
+            ],
+            active: "w1"
+        )
+        harness.controller.handleTab(forward: true)
+        harness.scheduler.fireAll()                  // visual at (w1,a)
+
+        harness.controller.handleTab(forward: true)  // (w1,a) -> (w1,b), no wrap
+        XCTAssertEqual(harness.delegate.transitions, [.animated])
     }
 
     // MARK: - Commit / Cancel
