@@ -720,7 +720,7 @@ final class AgentEventBridgeTests: XCTestCase {
 
         XCTAssertEqual(payloads.count, 1)
         XCTAssertEqual(payloads[0].state, .idle)
-        XCTAssertEqual(payloads[0].lifecycleEvent, .update)
+        XCTAssertEqual(payloads[0].lifecycleEvent, .turnComplete)
     }
 
     // MARK: - Kimi Adapter
