@@ -16,9 +16,21 @@ final class CommandPaletteItemBuilderTests: XCTestCase {
     func testItemTitlesMatchDefinitions() {
         let items = CommandPaletteItemBuilder.buildItems(
             availableCommandIDs: [.splitHorizontally],
-            shortcutManager: shortcutManager
+            shortcutManager: shortcutManager,
+            rightPaneCommandPresentation: .addsToWorklane
         )
-        XCTAssertEqual(items.first?.title, "Split Horizontally")
+        XCTAssertEqual(items.first?.title, "Add Pane Right")
+    }
+
+    func testRightPaneCommandTitleCanReflectVisibleSplitBehavior() {
+        let items = CommandPaletteItemBuilder.buildItems(
+            availableCommandIDs: [.splitHorizontally],
+            shortcutManager: shortcutManager,
+            rightPaneCommandPresentation: .splitsVisibly
+        )
+
+        XCTAssertEqual(items.first?.title, "Split Right")
+        XCTAssertEqual(items.first?.subtitle, "Split the current pane area into two visible panes.")
     }
 
     func testDuplicatePaneItemIsBuiltWithoutShortcutDisplayWhenUnboundByDefault() {

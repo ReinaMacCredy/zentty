@@ -55,6 +55,8 @@ final class SidebarView: NSView {
     var onClosePaneRequested: ((WorklaneID, PaneID) -> Void)?
     var onSplitHorizontalRequested: ((WorklaneID, PaneID) -> Void)?
     var onSplitVerticalRequested: ((WorklaneID, PaneID) -> Void)?
+    var onForceSplitRightRequested: ((WorklaneID, PaneID) -> Void)?
+    var onForceAddPaneRightRequested: ((WorklaneID, PaneID) -> Void)?
     var onMovePaneToNewWindowRequested: ((WorklaneID, PaneID) -> Void)?
     var onWorklaneColorChanged: ((WorklaneID, WorklaneColor?) -> Void)?
     var onWorklaneReorderCommitted: ((WorklaneID, Int) -> Bool)?
@@ -62,6 +64,7 @@ final class SidebarView: NSView {
     var onOpenBookmarksPopoverRequested: ((NSView) -> Void)?
     var onBookmarkAction: ((WorklaneID, SidebarBookmarkRowAction) -> Void)?
     var bookmarkNameLookup: ((UUID) -> String?)?
+    var rightPaneCommandPresentationProvider: (() -> PaneRightCommandPresentation)?
     var onCheckForUpdatesRequested: (() -> Void)?
     var onResized: ((CGFloat) -> Void)?
     var onPointerEntered: (() -> Void)?
@@ -446,6 +449,15 @@ final class SidebarView: NSView {
         button.onSplitVerticalRequested = { [weak self] paneID in
             self?.onSplitVerticalRequested?(worklaneID, paneID)
         }
+        button.onForceSplitRightRequested = { [weak self] paneID in
+            self?.onForceSplitRightRequested?(worklaneID, paneID)
+        }
+        button.onForceAddPaneRightRequested = { [weak self] paneID in
+            self?.onForceAddPaneRightRequested?(worklaneID, paneID)
+        }
+        button.rightPaneCommandPresentationProvider = { [weak self] in
+            self?.rightPaneCommandPresentationProvider?() ?? .addsToWorklane
+        }
         button.onMovePaneToNewWindowRequested = { [weak self] paneID in
             self?.onMovePaneToNewWindowRequested?(worklaneID, paneID)
         }
@@ -723,8 +735,8 @@ final class SidebarView: NSView {
         paneDropPresenter.hideNewWorklanePlaceholder()
     }
 
-    func showInsertionLine(atY y: CGFloat) {
-        paneDropPresenter.showInsertionLine(atY: y)
+    func showInsertionLine(_ target: SidebarPaneInsertionLineTarget) {
+        paneDropPresenter.showInsertionLine(target, buttons: worklaneButtons)
     }
 
     func hideInsertionLine() {

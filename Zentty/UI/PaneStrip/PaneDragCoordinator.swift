@@ -78,7 +78,7 @@ final class PaneDragCoordinator {
     var onDragApproachingSidebarEdge: ((Bool) -> Void)?
     var onNewWorklanePlaceholderVisibilityChanged: ((Int?) -> Void)?
     var onSidebarScrollRequested: ((CGFloat) -> Void)?
-    var onSidebarInsertionLineChanged: ((CGFloat?) -> Void)?
+    var onSidebarInsertionLineChanged: ((SidebarPaneInsertionLineTarget?) -> Void)?
 
     // MARK: - Sidebar Providers
 
@@ -1532,7 +1532,7 @@ final class PaneDragCoordinator {
             paneFramesByID: layout.paneFramesByID,
             columnForPane: columnForPane,
             paneCountByColumn: paneCountByColumn,
-            sourceColumnID: activeState.sourceColumnID,
+            excludedPaneID: activeState.draggedPaneID,
             minimumPaneHeight: PaneStripState.minimumVerticalPaneHeight
         )
 
@@ -1640,12 +1640,12 @@ final class PaneDragCoordinator {
             paneBoundaries: paneBoundaries
         )
 
-        // Compute insertion-line Y; nil means hide the line.
-        let lineY = SidebarPaneDropHitTesting.insertionLineY(
+        // Compute insertion-line target; nil means hide the line.
+        let insertionLineTarget = SidebarPaneDropHitTesting.insertionLineTarget(
             for: hit,
             paneBoundaries: paneBoundaries
         )
-        onSidebarInsertionLineChanged?(lineY)
+        onSidebarInsertionLineChanged?(insertionLineTarget)
 
         switch hit {
         case .existingWorklane(let worklaneID):

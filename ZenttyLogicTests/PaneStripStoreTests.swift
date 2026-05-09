@@ -987,7 +987,9 @@ final class PaneStripStoreTests: XCTestCase {
         let layoutContext = PaneLayoutPreferences(
             laptopPreset: .compact,
             largeDisplayPreset: .balanced,
-            ultrawidePreset: .roomy
+            ultrawidePreset: .roomy,
+            rightSplitBehaviorMode: .alwaysAdd,
+            visibleSplitWindowWidth: .px1440
         ).makeLayoutContext(
             displayClass: .largeDisplay,
             viewportWidth: 1720,
@@ -1013,6 +1015,108 @@ final class PaneStripStoreTests: XCTestCase {
         store.send(.splitHorizontally)
 
         XCTAssertEqual(store.activeWorklane?.paneStripState.columns.map(\.width), [1600, 1600])
+    }
+
+    func test_split_horizontally_equalizes_first_column_when_adaptive_threshold_is_met() throws {
+        let layoutContext = PaneLayoutPreferences(
+            laptopPreset: .compact,
+            largeDisplayPreset: .balanced,
+            ultrawidePreset: .roomy,
+            rightSplitBehaviorMode: .adaptive,
+            visibleSplitWindowWidth: .px1440
+        ).makeLayoutContext(
+            displayClass: .largeDisplay,
+            viewportWidth: 1720,
+            leadingVisibleInset: 290
+        )
+        let store = WorklaneStore(
+            worklanes: [
+                WorklaneState(
+                    id: WorklaneID("main"),
+                    title: "MAIN",
+                    paneStripState: PaneStripState(
+                        panes: [
+                            PaneState(id: PaneID("shell"), title: "shell", width: 1600)
+                        ],
+                        focusedPaneID: PaneID("shell")
+                    )
+                )
+            ],
+            layoutContext: layoutContext,
+            activeWorklaneID: WorklaneID("main")
+        )
+
+        store.send(.splitHorizontally)
+
+        XCTAssertEqual(store.activeWorklane?.paneStripState.columns.map(\.width), [712, 712])
+    }
+
+    func test_force_add_pane_right_does_not_shrink_even_when_threshold_is_met() throws {
+        let layoutContext = PaneLayoutPreferences(
+            laptopPreset: .compact,
+            largeDisplayPreset: .balanced,
+            ultrawidePreset: .roomy,
+            rightSplitBehaviorMode: .adaptive,
+            visibleSplitWindowWidth: .px1440
+        ).makeLayoutContext(
+            displayClass: .largeDisplay,
+            viewportWidth: 1720,
+            leadingVisibleInset: 290
+        )
+        let store = WorklaneStore(
+            worklanes: [
+                WorklaneState(
+                    id: WorklaneID("main"),
+                    title: "MAIN",
+                    paneStripState: PaneStripState(
+                        panes: [
+                            PaneState(id: PaneID("shell"), title: "shell", width: 1600)
+                        ],
+                        focusedPaneID: PaneID("shell")
+                    )
+                )
+            ],
+            layoutContext: layoutContext,
+            activeWorklaneID: WorklaneID("main")
+        )
+
+        store.send(.addPaneRightWithoutResizing)
+
+        XCTAssertEqual(store.activeWorklane?.paneStripState.columns.map(\.width), [1600, 1600])
+    }
+
+    func test_force_split_right_shrinks_even_when_threshold_is_not_met() throws {
+        let layoutContext = PaneLayoutPreferences(
+            laptopPreset: .compact,
+            largeDisplayPreset: .balanced,
+            ultrawidePreset: .roomy,
+            rightSplitBehaviorMode: .alwaysAdd,
+            visibleSplitWindowWidth: .px2560
+        ).makeLayoutContext(
+            displayClass: .laptop,
+            viewportWidth: 1200,
+            leadingVisibleInset: 290
+        )
+        let store = WorklaneStore(
+            worklanes: [
+                WorklaneState(
+                    id: WorklaneID("main"),
+                    title: "MAIN",
+                    paneStripState: PaneStripState(
+                        panes: [
+                            PaneState(id: PaneID("shell"), title: "shell", width: 1200)
+                        ],
+                        focusedPaneID: PaneID("shell")
+                    )
+                )
+            ],
+            layoutContext: layoutContext,
+            activeWorklaneID: WorklaneID("main")
+        )
+
+        store.send(.splitRightVisibly)
+
+        XCTAssertEqual(store.activeWorklane?.paneStripState.columns.map(\.width), [452, 452])
     }
 
     func test_split_horizontally_equalizes_first_column_on_ultrawide_context() throws {
@@ -3812,6 +3916,103 @@ final class PaneStripStoreTests: XCTestCase {
             store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.trackedPID,
             livePID
         )
+    }
+
+    func test_restarting_codex_twice_in_same_pane_keeps_sidebar_status_visible() throws {
+        let store = WorklaneStore()
+        let worklaneID = try XCTUnwrap(store.activeWorklane?.id)
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+
+        func startCodex(sessionID: String, pid: Int32) {
+            store.applyAgentStatusPayload(
+                AgentStatusPayload(
+                    worklaneID: worklaneID,
+                    paneID: paneID,
+                    signalKind: .pid,
+                    state: nil,
+                    pid: pid,
+                    pidEvent: .attach,
+                    origin: .explicitHook,
+                    toolName: "Codex",
+                    text: nil,
+                    sessionID: sessionID,
+                    artifactKind: nil,
+                    artifactLabel: nil,
+                    artifactURL: nil
+                )
+            )
+            store.applyAgentStatusPayload(
+                AgentStatusPayload(
+                    worklaneID: worklaneID,
+                    paneID: paneID,
+                    state: .running,
+                    origin: .explicitHook,
+                    toolName: "Codex",
+                    text: nil,
+                    confidence: .explicit,
+                    sessionID: sessionID,
+                    artifactKind: nil,
+                    artifactLabel: nil,
+                    artifactURL: nil
+                )
+            )
+        }
+
+        func finishCodex() {
+            store.handleTerminalEvent(
+                paneID: paneID,
+                event: .commandFinished(exitCode: 0, durationNanoseconds: 500_000_000)
+            )
+        }
+
+        startCodex(sessionID: "codex-1", pid: 2_000_001)
+        finishCodex()
+        startCodex(sessionID: "codex-2", pid: 2_000_002)
+        finishCodex()
+        startCodex(sessionID: "codex-3", pid: 2_000_003)
+
+        let summary = WorklaneSidebarSummaryBuilder.summary(
+            for: try XCTUnwrap(store.activeWorklane),
+            isActive: true
+        )
+        let row = try XCTUnwrap(summary.paneRows.first)
+        XCTAssertEqual(row.attentionState, WorklaneAttentionState.running)
+        XCTAssertEqual(row.statusText, "Running")
+        XCTAssertEqual(row.isWorking, true)
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.sessionID, "codex-3")
+    }
+
+    func test_restarting_interactive_codex_twice_keeps_title_status_in_sidebar() throws {
+        let store = WorklaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+
+        func updateTitle(_ title: String, processName: String) {
+            store.updateMetadata(
+                paneID: paneID,
+                metadata: TerminalMetadata(
+                    title: title,
+                    currentWorkingDirectory: "/tmp/project",
+                    processName: processName,
+                    gitBranch: "main"
+                )
+            )
+        }
+
+        updateTitle("Working ⠋ zentty", processName: "zsh")
+        updateTitle("Ready | zentty", processName: "zsh")
+        updateTitle("zsh", processName: "zsh")
+        updateTitle("Working ⠋ zentty", processName: "zsh")
+        updateTitle("Ready | zentty", processName: "zsh")
+        updateTitle("zsh", processName: "zsh")
+        updateTitle("Ready | zentty", processName: "zsh")
+
+        let summary = WorklaneSidebarSummaryBuilder.summary(
+            for: try XCTUnwrap(store.activeWorklane),
+            isActive: true
+        )
+        let row = try XCTUnwrap(summary.paneRows.first)
+        XCTAssertEqual(row.primaryText, "Ready | zentty")
+        XCTAssertEqual(row.statusText, "Idle")
     }
 
     func test_progress_report_event_stores_and_removes_terminal_progress() throws {

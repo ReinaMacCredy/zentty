@@ -276,6 +276,19 @@ private final class PaneFocusGlowLayer: CALayer {
     }
 }
 
+private extension PaneCommand {
+    var contextMenuSelector: Selector {
+        switch self {
+        case .splitRightVisibly:
+            #selector(MainWindowController.forceSplitRight(_:))
+        case .addPaneRightWithoutResizing:
+            #selector(MainWindowController.forceAddPaneRight(_:))
+        default:
+            #selector(MainWindowController.addPaneRight(_:))
+        }
+    }
+}
+
 @MainActor
 final class PaneContainerView: NSView {
     enum Layout {
@@ -318,6 +331,7 @@ final class PaneContainerView: NSView {
     private var currentIsFocused: Bool
     private var currentWorklaneColor: WorklaneColor?
     private var lastRenderedSearchState = PaneSearchState()
+    var rightPaneCommandPresentationProvider: (() -> PaneRightCommandPresentation)?
     private var suppressSelectionOnNextProgrammaticFocus = false
     var onSelected: (() -> Void)?
     var onCloseRequested: (() -> Void)?
@@ -1148,29 +1162,24 @@ final class PaneContainerView: NSView {
             symbolName: "clipboard"
         ))
         customMenu.addItem(.separator())
+        let rightPaneCommandPresentation = rightPaneCommandPresentationProvider?() ?? .addsToWorklane
         customMenu.addItem(makeContextMenuItem(
-            title: "Add Pane Right",
+            title: rightPaneCommandPresentation.primaryTitle,
             action: #selector(MainWindowController.addPaneRight(_:)),
             symbolName: "arrow.right.square",
             fallbackSymbolName: "arrow.right"
         ))
         customMenu.addItem(makeContextMenuItem(
-            title: "Add Pane Left",
-            action: #selector(MainWindowController.addPaneLeft(_:)),
-            symbolName: "arrow.left.square",
-            fallbackSymbolName: "arrow.left"
-        ))
-        customMenu.addItem(makeContextMenuItem(
-            title: "Add Pane Down",
+            title: "New Pane Below",
             action: #selector(MainWindowController.addPaneDown(_:)),
             symbolName: "arrow.down.square",
             fallbackSymbolName: "arrow.down"
         ))
         customMenu.addItem(makeContextMenuItem(
-            title: "Add Pane Up",
-            action: #selector(MainWindowController.addPaneUp(_:)),
-            symbolName: "arrow.up.square",
-            fallbackSymbolName: "arrow.up"
+            title: rightPaneCommandPresentation.forceOppositeTitle,
+            action: rightPaneCommandPresentation.forceOppositeCommand.contextMenuSelector,
+            symbolName: "rectangle.split.2x1",
+            fallbackSymbolName: "arrow.right"
         ))
         customMenu.addItem(.separator())
         let moveToWindowItem = makeContextMenuItem(
@@ -1222,7 +1231,9 @@ final class PaneContainerView: NSView {
              #selector(MainWindowController.addPaneRight(_:)),
              #selector(MainWindowController.addPaneLeft(_:)),
              #selector(MainWindowController.addPaneDown(_:)),
-             #selector(MainWindowController.addPaneUp(_:)):
+             #selector(MainWindowController.addPaneUp(_:)),
+             #selector(MainWindowController.forceSplitRight(_:)),
+             #selector(MainWindowController.forceAddPaneRight(_:)):
             return false
         default:
             return true

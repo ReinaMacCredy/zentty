@@ -73,12 +73,15 @@ final class SidebarWorklaneRowButton: NSButton {
     var onClosePaneRequested: ((PaneID) -> Void)?
     var onSplitHorizontalRequested: ((PaneID) -> Void)?
     var onSplitVerticalRequested: ((PaneID) -> Void)?
+    var onForceSplitRightRequested: ((PaneID) -> Void)?
+    var onForceAddPaneRightRequested: ((PaneID) -> Void)?
     var onMovePaneToNewWindowRequested: ((PaneID) -> Void)?
     var onWorklaneColorChanged: ((WorklaneID, WorklaneColor?) -> Void)?
     var onWorklaneDragRequested: ((SidebarWorklaneRowButton, NSEvent) -> Bool)?
     var onWorklaneMoveRequested: ((WorklaneID, SidebarWorklaneMoveDirection) -> Void)?
     var onBookmarkAction: ((WorklaneID, SidebarBookmarkRowAction) -> Void)?
     var bookmarkNameLookup: ((UUID) -> String?)?
+    var rightPaneCommandPresentationProvider: (() -> PaneRightCommandPresentation)?
     var isOnlyWorklane = false {
         didSet {
             paneRowRenderer.setOnlyWorklane(isOnlyWorklane)
@@ -694,6 +697,12 @@ final class SidebarWorklaneRowButton: NSButton {
                 onSplitVerticalRequested: { [weak self] paneID in
                     self?.onSplitVerticalRequested?(paneID)
                 },
+                onForceSplitRightRequested: { [weak self] paneID in
+                    self?.onForceSplitRightRequested?(paneID)
+                },
+                onForceAddPaneRightRequested: { [weak self] paneID in
+                    self?.onForceAddPaneRightRequested?(paneID)
+                },
                 onMovePaneToNewWindowRequested: { [weak self] paneID in
                     self?.onMovePaneToNewWindowRequested?(paneID)
                 },
@@ -719,7 +728,8 @@ final class SidebarWorklaneRowButton: NSButton {
                 onMoveWorklaneRequested: { [weak self] direction in
                     guard let self, let worklaneID = self.worklaneID else { return }
                     self.onWorklaneMoveRequested?(worklaneID, direction)
-                }
+                },
+                rightPaneCommandPresentationProvider: rightPaneCommandPresentationProvider
             )
         )
     }

@@ -28,27 +28,33 @@ enum CommandPaletteItemBuilder {
         availableCommandIDs: Set<AppCommandID>,
         shortcutManager: ShortcutManager,
         focusedPanePath: String? = nil,
-        focusedBranchName: String? = nil
+        focusedBranchName: String? = nil,
+        rightPaneCommandPresentation: PaneRightCommandPresentation = .addsToWorklane
     ) -> [CommandPaletteItem] {
         AppCommandRegistry.definitions.compactMap { definition in
             guard availableCommandIDs.contains(definition.id) else {
                 return nil
             }
 
+            let title = title(
+                for: definition,
+                rightPaneCommandPresentation: rightPaneCommandPresentation
+            )
             let subtitle = enrichedSubtitle(
                 for: definition,
                 focusedPanePath: focusedPanePath,
-                focusedBranchName: focusedBranchName
+                focusedBranchName: focusedBranchName,
+                rightPaneCommandPresentation: rightPaneCommandPresentation
             )
             let shortcut = shortcutManager.shortcut(for: definition.id)
 
             return CommandPaletteItem(
                 id: .command(definition.id),
-                title: definition.title,
+                title: title,
                 subtitle: subtitle,
                 shortcutDisplay: shortcut?.displayString,
                 category: definition.category.title,
-                searchText: definition.searchText,
+                searchText: searchText(for: definition, title: title, subtitle: subtitle),
                 family: nil,
                 familySearchText: nil,
                 familyOrder: nil
@@ -124,8 +130,13 @@ enum CommandPaletteItemBuilder {
     private static func enrichedSubtitle(
         for definition: AppCommandDefinition,
         focusedPanePath: String?,
-        focusedBranchName: String?
+        focusedBranchName: String?,
+        rightPaneCommandPresentation: PaneRightCommandPresentation
     ) -> String {
+        if definition.id == .splitHorizontally {
+            return rightPaneCommandPresentation.primaryDetailDescription
+        }
+
         switch definition.id {
         case .copyFocusedPanePath:
             guard let path = focusedPanePath else {
@@ -140,6 +151,29 @@ enum CommandPaletteItemBuilder {
         default:
             return definition.detailDescription
         }
+    }
+
+    private static func title(
+        for definition: AppCommandDefinition,
+        rightPaneCommandPresentation: PaneRightCommandPresentation
+    ) -> String {
+        definition.id == .splitHorizontally
+            ? rightPaneCommandPresentation.primaryTitle
+            : definition.title
+    }
+
+    private static func searchText(
+        for definition: AppCommandDefinition,
+        title: String,
+        subtitle: String
+    ) -> String {
+        if definition.id == .splitHorizontally {
+            return [title, subtitle, "new pane right split horizontal add pane right"]
+                .joined(separator: " ")
+                .lowercased()
+        }
+
+        return definition.searchText
     }
 }
 

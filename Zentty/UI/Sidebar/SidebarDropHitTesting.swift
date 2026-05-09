@@ -23,6 +23,11 @@ struct PaneInsertionBoundary: Equatable {
     let y: CGFloat
 }
 
+struct SidebarPaneInsertionLineTarget: Equatable {
+    let worklaneID: WorklaneID
+    let y: CGFloat
+}
+
 enum SidebarPaneDropHitTesting {
 
     /// Returns the Y coordinate of an insertion boundary, or `nil` if the target
@@ -32,13 +37,23 @@ enum SidebarPaneDropHitTesting {
         for target: SidebarPaneDropTarget,
         paneBoundaries: [(WorklaneID, [PaneInsertionBoundary])]
     ) -> CGFloat? {
+        insertionLineTarget(for: target, paneBoundaries: paneBoundaries)?.y
+    }
+
+    /// Returns the insertion boundary target, or `nil` if the target does not
+    /// need a line. The worklane ID lets the presenter constrain the line to
+    /// the visual row instead of drawing across the whole sidebar document.
+    static func insertionLineTarget(
+        for target: SidebarPaneDropTarget,
+        paneBoundaries: [(WorklaneID, [PaneInsertionBoundary])]
+    ) -> SidebarPaneInsertionLineTarget? {
         switch target {
         case .existingWorklane:
             return nil
         case .existingWorklaneAtPaneIndex(let worklaneID, let paneIndex):
             guard let boundaries = paneBoundaries.first(where: { $0.0 == worklaneID })?.1,
                   paneIndex < boundaries.count else { return nil }
-            return boundaries[paneIndex].y
+            return SidebarPaneInsertionLineTarget(worklaneID: worklaneID, y: boundaries[paneIndex].y)
         case .newWorklane:
             return nil
         case .none:

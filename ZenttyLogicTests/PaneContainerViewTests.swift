@@ -1392,9 +1392,8 @@ final class PaneContainerViewTests: AppKitTestCase {
                 "Paste",
                 "---",
                 "Add Pane Right",
-                "Add Pane Left",
-                "Add Pane Down",
-                "Add Pane Up",
+                "New Pane Below",
+                "Split Right",
                 "---",
                 "Move Pane to New Window",
                 "---",
@@ -1427,13 +1426,12 @@ final class PaneContainerViewTests: AppKitTestCase {
 
         XCTAssertEqual(
             menu.items
-                .filter { $0.title.hasPrefix("Add Pane ") }
+                .filter { ["Add Pane Right", "New Pane Below", "Split Right"].contains($0.title) }
                 .map(\.action),
             [
                 #selector(MainWindowController.addPaneRight(_:)),
-                #selector(MainWindowController.addPaneLeft(_:)),
                 #selector(MainWindowController.addPaneDown(_:)),
-                #selector(MainWindowController.addPaneUp(_:)),
+                #selector(MainWindowController.forceSplitRight(_:)),
             ]
         )
     }
@@ -1463,9 +1461,8 @@ final class PaneContainerViewTests: AppKitTestCase {
             "Clean Copy",
             "Paste",
             "Add Pane Right",
-            "Add Pane Left",
-            "Add Pane Down",
-            "Add Pane Up",
+            "New Pane Below",
+            "Split Right",
             "Move Pane to New Window",
         ]
 

@@ -506,7 +506,7 @@ final class SettingsViewController: NSTabViewController {
             agentCaffeination: config.agentCaffeination
         )
         shortcutsViewController.apply(shortcuts: config.shortcuts)
-        paneLayoutViewController.apply(panes: config.panes)
+        paneLayoutViewController.apply(panes: config.panes, paneLayout: config.paneLayout)
         openWithViewController.apply(preferences: config.openWith)
         synchronizeWindow(animated: false, transitionID: currentTransitionID)
     }

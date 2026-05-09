@@ -339,6 +339,7 @@ enum PanePresentationNormalizer {
             && (
                 raw.agentStatus?.hasObservedRunning == true
                 || titlePhase == .running
+                || (recognizedTool == .codex && titlePhase == .idle)
                 || previous?.runtimePhase == .running
             )
         let taskProgress =

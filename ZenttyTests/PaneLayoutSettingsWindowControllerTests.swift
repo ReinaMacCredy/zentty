@@ -50,6 +50,8 @@ final class SettingsWindowControllerTests: XCTestCase {
         )
         XCTAssertTrue(paneLayoutController.showsPaneLabelsForTesting)
         XCTAssertEqual(paneLayoutController.inactivePaneOpacityPercentageForTesting, 70)
+        XCTAssertEqual(paneLayoutController.selectedRightSplitBehaviorModeForTesting, .adaptive)
+        XCTAssertEqual(paneLayoutController.visibleSplitWindowWidthForTesting, .px1440)
     }
 
     func test_settings_window_uses_configured_test_screen() throws {
@@ -79,6 +81,8 @@ final class SettingsWindowControllerTests: XCTestCase {
         try store.update { config in
             config.panes.showLabels = false
             config.panes.inactiveOpacity = 0.85
+            config.paneLayout.rightSplitBehaviorMode = .alwaysSplit
+            config.paneLayout.visibleSplitWindowWidth = .px1920
         }
 
         let controller = SettingsWindowController(
@@ -100,6 +104,38 @@ final class SettingsWindowControllerTests: XCTestCase {
 
         XCTAssertFalse(panesController.showsPaneLabelsForTesting)
         XCTAssertEqual(panesController.inactivePaneOpacityPercentageForTesting, 85)
+        XCTAssertEqual(panesController.selectedRightSplitBehaviorModeForTesting, .alwaysSplit)
+        XCTAssertEqual(panesController.visibleSplitWindowWidthForTesting, .px1920)
+    }
+
+    func test_panes_section_describes_adaptive_split_threshold_slider() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
+        )
+        let controller = SettingsWindowController(
+            configStore: store,
+            initialSection: .paneLayout
+        )
+        addTeardownBlock { controller.window?.close() }
+
+        controller.show(section: .paneLayout, sender: nil)
+        waitForLayout()
+
+        let contentController = try XCTUnwrap(
+            controller.window?.contentViewController as? SettingsViewController
+        )
+        let panesController = try XCTUnwrap(
+            contentController.currentSectionViewController as? PaneLayoutSettingsSectionViewController
+        )
+
+        XCTAssertNotNil(
+            panesController.view.firstDescendantLabel(stringValue: "Adaptive split threshold:")
+        )
+        XCTAssertNotNil(
+            panesController.view.firstDescendantLabel(
+                stringValue: "When Adaptive is selected, panes split once the window reaches this width."
+            )
+        )
     }
 
     func test_settings_window_can_switch_to_shortcuts_section_and_read_effective_bindings() throws {
@@ -1709,6 +1745,20 @@ private extension NSView {
         for subview in subviews {
             if let scrollView = subview.firstDescendantScrollView() {
                 return scrollView
+            }
+        }
+
+        return nil
+    }
+
+    func firstDescendantLabel(stringValue: String) -> NSTextField? {
+        if let label = self as? NSTextField, label.stringValue == stringValue {
+            return label
+        }
+
+        for subview in subviews {
+            if let label = subview.firstDescendantLabel(stringValue: stringValue) {
+                return label
             }
         }
 

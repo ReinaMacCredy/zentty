@@ -318,8 +318,9 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
                 "Worklane Color",
                 "Bookmark Worklane…",
                 "Save as Preset…",
-                "Split Horizontal",
-                "Split Vertical",
+                "Add Pane Right",
+                "New Pane Below",
+                "Split Right",
                 "Move Pane to New Window",
             ]
         )
@@ -353,8 +354,9 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
                 "Worklane Color",
                 "Bookmark Worklane…",
                 "Save as Preset…",
-                "Split Horizontal",
-                "Split Vertical",
+                "Add Pane Right",
+                "New Pane Below",
+                "Split Right",
                 "Move Pane to New Window",
             ]
         )
@@ -2453,6 +2455,8 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
         XCTAssertEqual(row.frame.origin.y, originalFrame.origin.y, accuracy: 0.001)
         XCTAssertEqual(row.frame.size.width, originalFrame.size.width, accuracy: 0.001)
         XCTAssertEqual(row.frame.size.height, originalFrame.size.height, accuracy: 0.001)
+        XCTAssertEqual(layer.transform.m11, 1, accuracy: 0.001)
+        XCTAssertEqual(layer.transform.m22, 1, accuracy: 0.001)
     }
 
     func test_clearing_drop_target_highlight_restores_visual_state_without_moving_layer_geometry()
@@ -2509,7 +2513,34 @@ final class SidebarWorklaneRowButtonTests: AppKitTestCase {
         XCTAssertEqual(layer.shadowOpacity, highlightedShadowOpacity, accuracy: 0.001)
         XCTAssertEqual(layer.shadowRadius, highlightedShadowRadius, accuracy: 0.001)
         XCTAssertEqual(layer.transform.m11, highlightedScale, accuracy: 0.001)
-        XCTAssertGreaterThan(layer.transform.m11, 1)
+        XCTAssertEqual(layer.transform.m11, 1, accuracy: 0.001)
+        XCTAssertEqual(layer.transform.m22, 1, accuracy: 0.001)
+    }
+
+    func test_sidebar_insertion_line_is_rounded_and_inset_to_target_worklane() throws {
+        let lineContainer = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 220))
+        let stack = NSStackView(frame: NSRect(x: 0, y: 0, width: 320, height: 220))
+        lineContainer.addSubview(stack)
+
+        let rowA = SidebarWorklaneRowButton(worklaneID: WorklaneID("A"), reducedMotionProvider: { true })
+        rowA.frame = NSRect(x: 10, y: 150, width: 280, height: 44)
+        let rowB = SidebarWorklaneRowButton(worklaneID: WorklaneID("B"), reducedMotionProvider: { true })
+        rowB.frame = NSRect(x: 10, y: 80, width: 280, height: 44)
+        stack.addSubview(rowA)
+        stack.addSubview(rowB)
+
+        let presenter = SidebarPaneDropPresenter(targetStack: stack, lineContainer: lineContainer)
+        presenter.showInsertionLine(
+            SidebarPaneInsertionLineTarget(worklaneID: WorklaneID("B"), y: 102),
+            buttons: [rowA, rowB]
+        )
+
+        let line = try XCTUnwrap(lineContainer.subviews.compactMap { $0 as? PaneDragInsertionLineView }.first)
+        XCTAssertEqual(line.frame.minX, rowB.frame.minX + ShellMetrics.sidebarPaneRowHorizontalInset, accuracy: 0.001)
+        XCTAssertEqual(line.frame.width, rowB.frame.width - (ShellMetrics.sidebarPaneRowHorizontalInset * 2), accuracy: 0.001)
+        XCTAssertEqual(line.frame.height, 4, accuracy: 0.001)
+        XCTAssertEqual(line.frame.midY, 102, accuracy: 0.001)
+        XCTAssertEqual(line.layer?.cornerRadius ?? 0, 2, accuracy: 0.001)
     }
 
     func test_configure_skipsWorkWhenSummaryThemeAndBoundsWidthAreUnchanged() {
