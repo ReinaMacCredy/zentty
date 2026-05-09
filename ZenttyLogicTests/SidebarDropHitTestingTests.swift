@@ -197,6 +197,20 @@ final class SidebarPaneDropHitTestingTests: XCTestCase {
         XCTAssertEqual(lineY, 152)
     }
 
+    func test_insertionLineTarget_for_pane_boundary_includes_worklane_and_y() {
+        let paneBoundaries: [(WorklaneID, [PaneInsertionBoundary])] = [
+            (WorklaneID("B"), [PaneInsertionBoundary(y: 134), PaneInsertionBoundary(y: 152)]),
+        ]
+        let target = SidebarPaneDropHitTesting.insertionLineTarget(
+            for: .existingWorklaneAtPaneIndex(WorklaneID("B"), paneIndex: 1),
+            paneBoundaries: paneBoundaries
+        )
+        XCTAssertEqual(
+            target,
+            SidebarPaneInsertionLineTarget(worklaneID: WorklaneID("B"), y: 152)
+        )
+    }
+
     func test_insertionLineY_nil_for_whole_row_hover() {
         let lineY = SidebarPaneDropHitTesting.insertionLineY(
             for: .existingWorklane(WorklaneID("B")),
@@ -211,6 +225,14 @@ final class SidebarPaneDropHitTestingTests: XCTestCase {
             paneBoundaries: []
         )
         XCTAssertNil(lineY)
+    }
+
+    func test_insertionLineTarget_nil_for_whole_row_hover() {
+        let target = SidebarPaneDropHitTesting.insertionLineTarget(
+            for: .existingWorklane(WorklaneID("B")),
+            paneBoundaries: []
+        )
+        XCTAssertNil(target)
     }
 
     private var worklaneFrames: [(WorklaneID, CGRect)] {

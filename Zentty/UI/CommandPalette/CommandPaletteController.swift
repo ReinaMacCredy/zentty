@@ -24,7 +24,8 @@ final class CommandPaletteController {
         availabilityContext: CommandAvailabilityContext,
         focusedPanePath: String?,
         focusedBranchName: String?,
-        openWithTargets: [OpenWithResolvedTarget] = []
+        openWithTargets: [OpenWithResolvedTarget] = [],
+        rightPaneCommandPresentation: PaneRightCommandPresentation = .addsToWorklane
     ) {
         if isShown {
             close()
@@ -38,7 +39,8 @@ final class CommandPaletteController {
             availableCommandIDs: availableIDs,
             shortcutManager: shortcutManager,
             focusedPanePath: focusedPanePath,
-            focusedBranchName: focusedBranchName
+            focusedBranchName: focusedBranchName,
+            rightPaneCommandPresentation: rightPaneCommandPresentation
         )
         let openWithItems = CommandPaletteItemBuilder.buildOpenWithItems(
             targets: openWithTargets,

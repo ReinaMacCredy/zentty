@@ -616,7 +616,16 @@ final class WorklaneStore {
                 recordFocusTransition(from: previousPaneRef)
             }
             return
-        case .split, .splitHorizontally, .splitAfterFocusedPane:
+        case .split, .splitHorizontally:
+            insertNewPaneRight(into: &worklane, behavior: layoutContext.rightPaneInsertionBehavior)
+            changeType = .paneStructure(activeWorklaneID)
+        case .splitRightVisibly:
+            insertNewPaneRight(into: &worklane, behavior: .visibleSplit)
+            changeType = .paneStructure(activeWorklaneID)
+        case .addPaneRightWithoutResizing:
+            insertNewPaneRight(into: &worklane, behavior: .worklaneAdd)
+            changeType = .paneStructure(activeWorklaneID)
+        case .splitAfterFocusedPane:
             insertNewPaneHorizontally(into: &worklane, placement: .afterFocused)
             changeType = .paneStructure(activeWorklaneID)
         case .splitVertically:
@@ -1233,6 +1242,41 @@ final class WorklaneStore {
         }
 
         worklane.paneStripState.insertPaneHorizontally(insertedPane, placement: placement)
+    }
+
+    private func insertNewPaneRight(
+        into worklane: inout WorklaneState,
+        behavior: PaneRightInsertionBehavior,
+        sessionRequest: TerminalSessionRequest? = nil
+    ) {
+        switch behavior {
+        case .visibleSplit:
+            insertNewPaneRightVisibly(into: &worklane, sessionRequest: sessionRequest)
+        case .worklaneAdd:
+            insertNewPaneHorizontally(
+                into: &worklane,
+                placement: .afterFocused,
+                sessionRequest: sessionRequest
+            )
+        }
+    }
+
+    private func insertNewPaneRightVisibly(
+        into worklane: inout WorklaneState,
+        sessionRequest: TerminalSessionRequest? = nil
+    ) {
+        let existingColumnCount = worklane.paneStripState.columns.count
+        var insertedPane = makePane(in: &worklane, existingPaneCount: existingColumnCount)
+        applySessionRequestOverride(sessionRequest, to: &insertedPane)
+        insertedPane.width = layoutContext.visibleSplitColumnWidth
+
+        _ = worklane.paneStripState.resizeFocusedColumnToWidth(
+            layoutContext.visibleSplitColumnWidth,
+            availableWidth: layoutContext.availableWidth,
+            minimumSizeByPaneID: [:]
+        )
+
+        worklane.paneStripState.insertPaneHorizontally(insertedPane, placement: .afterFocused)
     }
 
     private func insertNewPaneVertically(

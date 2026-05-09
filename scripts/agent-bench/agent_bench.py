@@ -23,6 +23,7 @@ import tempfile
 import threading
 import time
 import uuid
+from collections import Counter
 from typing import Any
 
 
@@ -73,6 +74,7 @@ OSC_TERMINAL_PATTERN = re.compile(r"\x1b\](?P<code>0|2|9);(?P<text>[^\x07\x1b]*)
 class ScenarioExpectation:
     name: str
     required_events: list[str]
+    required_terminal_phases: list[str] = dataclasses.field(default_factory=list)
 
 
 @dataclasses.dataclass
@@ -84,6 +86,7 @@ class AgentProfile:
     launch_args_by_scenario: dict[str, list[str]]
     expectations: dict[str, ScenarioExpectation]
     input_by_scenario: dict[str, list[dict[str, Any]]] = dataclasses.field(default_factory=dict)
+    repeat_by_scenario: dict[str, int] = dataclasses.field(default_factory=dict)
     skip_patterns: list[str] = dataclasses.field(default_factory=list)
 
 
@@ -220,7 +223,13 @@ def parse_json_object(raw: str | None) -> dict[str, Any]:
 def validate_scenario(agent: str, expectation: ScenarioExpectation, records: list[TraceRecord]) -> ScenarioResult:
     observed = [record.event_name for record in records if record.agent == agent and record.scenario == expectation.name]
     observed_values = [event for event in observed if event]
-    missing = [event for event in expectation.required_events if event not in observed_values]
+    observed_counts = Counter(observed_values)
+    missing: list[str] = []
+    for event in expectation.required_events:
+        if observed_counts[event] > 0:
+            observed_counts[event] -= 1
+        else:
+            missing.append(event)
     return ScenarioResult(
         agent=agent,
         scenario=expectation.name,
@@ -230,6 +239,25 @@ def validate_scenario(agent: str, expectation: ScenarioExpectation, records: lis
         status="pass" if not missing else "fail",
         result_kind="hook-pass" if not missing else "missing-hook",
     )
+
+
+def missing_required_terminal_phases(
+    expectation: ScenarioExpectation,
+    observations: list[TerminalObservation],
+) -> list[str]:
+    observed_phases = [
+        phase
+        for observation in observations
+        if (phase := terminal_observation_phase(observation))
+    ]
+    observed_counts = Counter(observed_phases)
+    missing: list[str] = []
+    for phase in expectation.required_terminal_phases:
+        if observed_counts[phase] > 0:
+            observed_counts[phase] -= 1
+        else:
+            missing.append(phase)
+    return missing
 
 
 def classify_completed_result(
@@ -267,6 +295,14 @@ def classify_completed_result(
             result.detail = "missing required hooks"
             result.result_kind = "missing-hook"
         return result
+    missing_terminal_phases = missing_required_terminal_phases(expectation, terminal_observations)
+    if missing_terminal_phases:
+        result.passed = False
+        result.status = "fail"
+        result.missing_events = missing_terminal_phases
+        result.detail = "missing required terminal phases"
+        result.result_kind = "missing-terminal-phase"
+        return result
     if scenario_requires_task_observation(scenario) and not task_observations_for_records(agent, scenario, records):
         result.passed = False
         result.status = "fail"
@@ -279,13 +315,13 @@ def classify_completed_result(
         result.detail = "required lifecycle hooks observed but no terminal needs-input title was captured"
         result.result_kind = "missing-terminal-needs-input"
         return result
-    if scenario_requires_scripted_input(scenario) and not scripted_input_observed(scenario, terminal_observations):
+    if scenario_requires_scripted_input(agent, scenario) and not scripted_input_observed(agent, scenario, terminal_observations):
         result.passed = False
         result.status = "fail"
         result.detail = "required lifecycle hooks observed but scripted input was not captured"
         result.result_kind = "missing-scripted-input"
         return result
-    if terminal_needs_input_persisted_after_scripted_input(scenario, terminal_observations):
+    if terminal_needs_input_persisted_after_scripted_input(agent, scenario, terminal_observations):
         result.passed = False
         result.status = "fail"
         result.detail = "terminal still reported needs-input after scripted input"
@@ -298,8 +334,16 @@ def classify_completed_result(
         result.result_kind = "missing-hook"
         return result
     if completed_by_predicate:
-        result.detail = "required events observed"
-    result.result_kind = "hook-pass"
+        result.detail = (
+            "required terminal phases observed"
+            if expectation.required_terminal_phases and not expectation.required_events
+            else "required events observed"
+        )
+    result.result_kind = (
+        "terminal-pass"
+        if expectation.required_terminal_phases and not expectation.required_events
+        else "hook-pass"
+    )
     return result
 
 
@@ -316,7 +360,14 @@ def classify_timeout_result(
 ) -> ScenarioResult:
     partial = validate_scenario(agent, expectation, records)
     if not partial.missing_events:
-        if scenario_requires_task_observation(scenario) and not task_observations_for_records(agent, scenario, records):
+        missing_terminal_phases = missing_required_terminal_phases(expectation, terminal_observations)
+        if missing_terminal_phases:
+            partial.passed = False
+            partial.status = "fail"
+            partial.missing_events = missing_terminal_phases
+            partial.detail = "missing required terminal phases"
+            partial.result_kind = "missing-terminal-phase"
+        elif scenario_requires_task_observation(scenario) and not task_observations_for_records(agent, scenario, records):
             partial.passed = False
             partial.status = "fail"
             partial.detail = "required lifecycle hooks observed but no TodoWrite task progress hook was captured"
@@ -326,12 +377,12 @@ def classify_timeout_result(
             partial.status = "fail"
             partial.detail = "required lifecycle hooks observed but no terminal needs-input title was captured"
             partial.result_kind = "missing-terminal-needs-input"
-        elif scenario_requires_scripted_input(scenario) and not scripted_input_observed(scenario, terminal_observations):
+        elif scenario_requires_scripted_input(agent, scenario) and not scripted_input_observed(agent, scenario, terminal_observations):
             partial.passed = False
             partial.status = "fail"
             partial.detail = "required lifecycle hooks observed but scripted input was not captured"
             partial.result_kind = "missing-scripted-input"
-        elif terminal_needs_input_persisted_after_scripted_input(scenario, terminal_observations):
+        elif terminal_needs_input_persisted_after_scripted_input(agent, scenario, terminal_observations):
             partial.passed = False
             partial.status = "fail"
             partial.detail = "terminal still reported needs-input after scripted input"
@@ -339,8 +390,16 @@ def classify_timeout_result(
         else:
             partial.passed = True
             partial.status = "pass"
-            partial.detail = f"required events observed before {timeout}s timeout"
-            partial.result_kind = "hook-pass"
+            partial.detail = (
+                f"required terminal phases observed before {timeout}s timeout"
+                if expectation.required_terminal_phases and not expectation.required_events
+                else f"required events observed before {timeout}s timeout"
+            )
+            partial.result_kind = (
+                "terminal-pass"
+                if expectation.required_terminal_phases and not expectation.required_events
+                else "hook-pass"
+            )
             partial.warnings.append("process timed out after required hooks were observed")
     elif bench_marker_observed(output):
         partial.passed = False
@@ -435,11 +494,13 @@ def scenario_requires_terminal_needs_input(scenario: str) -> bool:
     return scenario in {"question", "question_interrupt"}
 
 
-def scenario_requires_scripted_input(scenario: str) -> bool:
-    return scenario == "question_interrupt"
+def scenario_requires_scripted_input(agent: str, scenario: str) -> bool:
+    return scenario == "question_interrupt" or (agent == "codex" and scenario == "approval")
 
 
-def required_scripted_input_label(scenario: str) -> str | None:
+def required_scripted_input_label(agent: str, scenario: str) -> str | None:
+    if agent == "codex" and scenario == "approval":
+        return "approve-command"
     if scenario == "question_interrupt":
         return "ctrl-c"
     return None
@@ -449,8 +510,8 @@ def terminal_needs_input_observed(observations: list[TerminalObservation]) -> bo
     return any(terminal_observation_indicates_needs_input(observation) for observation in observations)
 
 
-def scripted_input_observed(scenario: str, observations: list[TerminalObservation]) -> bool:
-    required_label = required_scripted_input_label(scenario)
+def scripted_input_observed(agent: str, scenario: str, observations: list[TerminalObservation]) -> bool:
+    required_label = required_scripted_input_label(agent, scenario)
     if required_label:
         return any(
             observation.kind == "input" and observation.text == required_label
@@ -467,8 +528,10 @@ def terminal_observation_phase(observation: TerminalObservation) -> str | None:
     if observation.kind not in {"title", "progress"}:
         return None
     text = observation.text.lower()
-    if "action required" in text or "needs input" in text:
+    if "action required" in text or "needs input" in text or "requires approval" in text or "needs approval" in text:
         return "needs-input"
+    if "starting" in text:
+        return "starting"
     if "working" in text or "running" in text:
         return "running"
     if "ready" in text or "idle" in text:
@@ -485,17 +548,19 @@ def terminal_final_phase(observations: list[TerminalObservation]) -> str | None:
 
 
 def terminal_needs_input_persisted_after_scripted_input(
+    agent: str,
     scenario: str,
     observations: list[TerminalObservation],
 ) -> bool:
-    return terminal_phase_after_scripted_input(scenario, observations) == "needs-input"
+    return terminal_phase_after_scripted_input(agent, scenario, observations) == "needs-input"
 
 
 def terminal_phase_after_scripted_input(
+    agent: str,
     scenario: str,
     observations: list[TerminalObservation],
 ) -> str | None:
-    required_label = required_scripted_input_label(scenario)
+    required_label = required_scripted_input_label(agent, scenario)
     if not required_label:
         return None
 
@@ -1040,7 +1105,11 @@ def load_profiles(path: pathlib.Path) -> dict[str, AgentProfile]:
     for profile_path in sorted(path.glob("*.json")):
         raw = json.loads(profile_path.read_text(encoding="utf-8"))
         expectations = {
-            name: ScenarioExpectation(name=name, required_events=list(value.get("required_events", [])))
+            name: ScenarioExpectation(
+                name=name,
+                required_events=list(value.get("required_events", [])),
+                required_terminal_phases=list(value.get("required_terminal_phases", [])),
+            )
             for name, value in raw.get("expectations", {}).items()
         }
         profile = AgentProfile(
@@ -1051,6 +1120,7 @@ def load_profiles(path: pathlib.Path) -> dict[str, AgentProfile]:
             launch_args_by_scenario={name: list(args) for name, args in raw.get("launch_args_by_scenario", {}).items()},
             expectations=expectations,
             input_by_scenario={name: list(values) for name, values in raw.get("input_by_scenario", {}).items()},
+            repeat_by_scenario={name: int(count) for name, count in raw.get("repeat_by_scenario", {}).items()},
             skip_patterns=list(raw.get("skip_patterns", [])),
         )
         profiles[profile.name] = profile
@@ -1190,27 +1260,40 @@ class BenchRunner:
         argv = [command] + profile.launch_args_by_scenario.get(scenario, [])
         transcript_path = self.run_dir / f"{agent}-{scenario}.terminal.log"
         expectation = profile.expectations[scenario]
-        completed = run_pty(
-            argv,
-            env=env,
-            cwd=self._make_repo(agent, scenario),
-            inputs=profile.input_by_scenario.get(scenario, []),
-            timeout=self.args.timeout,
-            transcript_path=transcript_path,
-            completion_predicate=lambda _output, observations: (
-                not validate_scenario(agent, expectation, self.recorder.records()).missing_events
-                and (
-                    not scenario_requires_terminal_needs_input(scenario)
-                    or terminal_needs_input_observed(observations)
-                )
-                and (
-                    not scenario_requires_scripted_input(scenario)
-                    or scripted_input_observed(scenario, observations)
-                )
-                and not terminal_needs_input_persisted_after_scripted_input(scenario, observations)
-            ),
-        )
-        observations = completed.terminal_observations
+        observations: list[TerminalObservation] = []
+        output_parts: list[str] = []
+        completed = PtyResult(0, False, "", terminal_observations=[])
+        repeat_count = max(1, profile.repeat_by_scenario.get(scenario, 1))
+        for iteration in range(repeat_count):
+            iteration_transcript_path = transcript_path if repeat_count == 1 else self.run_dir / f"{agent}-{scenario}-{iteration + 1}.terminal.log"
+            completed = run_pty(
+                argv,
+                env=env,
+                cwd=self._make_repo(agent, scenario),
+                inputs=profile.input_by_scenario.get(scenario, []),
+                timeout=self.args.timeout,
+                transcript_path=iteration_transcript_path,
+                completion_predicate=lambda _output, current_observations: (
+                    not validate_scenario(agent, expectation, self.recorder.records()).missing_events
+                    and not missing_required_terminal_phases(expectation, observations + current_observations)
+                    and (
+                        not scenario_requires_terminal_needs_input(scenario)
+                        or terminal_needs_input_observed(observations + current_observations)
+                    )
+                    and (
+                        not scenario_requires_scripted_input(agent, scenario)
+                        or scripted_input_observed(agent, scenario, observations + current_observations)
+                    )
+                    and not terminal_needs_input_persisted_after_scripted_input(agent, scenario, observations + current_observations)
+                ),
+            )
+            observations.extend(completed.terminal_observations)
+            output_parts.append(completed.output)
+            if completed.timed_out:
+                break
+            if completed.exit_code != 0 and not completed.completed_by_predicate:
+                break
+        completed.output = "\n".join(output_parts)
         if completed.timed_out:
             result = classify_timeout_result(
                 agent=agent,
@@ -1257,7 +1340,7 @@ class BenchRunner:
         observations: list[TerminalObservation],
     ) -> ScenarioResult:
         result.terminal_final_phase = terminal_final_phase(observations)
-        result.terminal_post_scripted_input_phase = terminal_phase_after_scripted_input(result.scenario, observations)
+        result.terminal_post_scripted_input_phase = terminal_phase_after_scripted_input(result.agent, result.scenario, observations)
         result.terminal_observations = [dataclasses.asdict(observation) for observation in observations]
         result.task_observations = task_observations_for_records(result.agent, result.scenario, records)
         result.timeline = build_timeline(result.agent, result.scenario, records, observations)

@@ -686,11 +686,13 @@ final class RootViewController: NSViewController {
         appCanvasView.paneStripView.onSidebarScrollRequested = { [weak self] delta in
             self?.sidebarView.adjustScrollOffset(by: delta)
         }
-        appCanvasView.paneStripView.onSidebarInsertionLineChanged = { [weak self] lineY in
+        appCanvasView.paneStripView.onSidebarInsertionLineChanged = { [weak self] target in
             guard let self else { return }
-            if let lineY {
-                let yInDocument = self.sidebarView.convertYForInsertionLine(lineY, from: self.appCanvasView)
-                self.sidebarView.showInsertionLine(atY: yInDocument)
+            if let target {
+                let yInDocument = self.sidebarView.convertYForInsertionLine(target.y, from: self.appCanvasView)
+                self.sidebarView.showInsertionLine(
+                    SidebarPaneInsertionLineTarget(worklaneID: target.worklaneID, y: yInDocument)
+                )
             } else {
                 self.sidebarView.hideInsertionLine()
             }
@@ -728,6 +730,9 @@ final class RootViewController: NSViewController {
         }
         appCanvasView.paneStripView.worklaneCountProvider = { [weak self] in
             self?.worklaneStore.worklanes.count ?? 1
+        }
+        appCanvasView.paneStripView.rightPaneCommandPresentationProvider = { [weak self] in
+            self?.currentPaneLayoutContext.rightPaneCommandPresentation ?? .addsToWorklane
         }
         appCanvasView.paneStripView.sidebarWidthProvider = { [weak self] in
             self?.sidebarMotionCoordinator.currentSidebarWidth ?? 0
@@ -772,6 +777,17 @@ final class RootViewController: NSViewController {
         sidebarView.onSplitVerticalRequested = { [weak self] worklaneID, paneID in
             self?.worklaneStore.selectWorklaneAndFocusPane(worklaneID: worklaneID, paneID: paneID)
             self?.worklaneStore.send(.splitVertically)
+        }
+        sidebarView.onForceSplitRightRequested = { [weak self] worklaneID, paneID in
+            self?.worklaneStore.selectWorklaneAndFocusPane(worklaneID: worklaneID, paneID: paneID)
+            self?.worklaneStore.send(.splitRightVisibly)
+        }
+        sidebarView.onForceAddPaneRightRequested = { [weak self] worklaneID, paneID in
+            self?.worklaneStore.selectWorklaneAndFocusPane(worklaneID: worklaneID, paneID: paneID)
+            self?.worklaneStore.send(.addPaneRightWithoutResizing)
+        }
+        sidebarView.rightPaneCommandPresentationProvider = { [weak self] in
+            self?.currentPaneLayoutContext.rightPaneCommandPresentation ?? .addsToWorklane
         }
         sidebarView.onMovePaneToNewWindowRequested = { [weak self] worklaneID, paneID in
             self?.worklaneStore.selectWorklaneAndFocusPane(worklaneID: worklaneID, paneID: paneID)
@@ -1002,7 +1018,10 @@ final class RootViewController: NSViewController {
 
     @objc
     private func handlePaneLayoutMenuAction() {
-        paneLayoutMenuCoordinator.showMenu(worklaneStore: worklaneStore)
+        paneLayoutMenuCoordinator.showMenu(
+            worklaneStore: worklaneStore,
+            rightPaneCommandPresentation: currentPaneLayoutContext.rightPaneCommandPresentation
+        )
     }
 
     @objc
@@ -1416,7 +1435,8 @@ final class RootViewController: NSViewController {
             availabilityContext: availabilityContext,
             focusedPanePath: focusedPanePath,
             focusedBranchName: focusedBranchName,
-            openWithTargets: openWithTargets
+            openWithTargets: openWithTargets,
+            rightPaneCommandPresentation: currentPaneLayoutContext.rightPaneCommandPresentation
         )
     }
 
@@ -2309,7 +2329,10 @@ final class RootViewController: NSViewController {
         }
 
         func paneLayoutMenuCommandTitlesForTesting() -> [String] {
-            paneLayoutMenuCoordinator.makeMenu(worklaneStore: worklaneStore).items
+            paneLayoutMenuCoordinator.makeMenu(
+                worklaneStore: worklaneStore,
+                rightPaneCommandPresentation: currentPaneLayoutContext.rightPaneCommandPresentation
+            ).items
                 .filter { !$0.isSeparatorItem }
                 .map(\.title)
         }
@@ -2341,7 +2364,10 @@ final class RootViewController: NSViewController {
         }
 
         func paneLayoutSubmenuCommandTitlesForTesting(_ title: String) -> [String] {
-            paneLayoutMenuCoordinator.makeMenu(worklaneStore: worklaneStore).items
+            paneLayoutMenuCoordinator.makeMenu(
+                worklaneStore: worklaneStore,
+                rightPaneCommandPresentation: currentPaneLayoutContext.rightPaneCommandPresentation
+            ).items
                 .first { !$0.isSeparatorItem && $0.title == title }?
                 .submenu?
                 .items

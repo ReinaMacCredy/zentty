@@ -36,6 +36,8 @@ enum PaneCommand: Equatable, Sendable {
     case duplicateFocusedPane
     case split
     case splitHorizontally
+    case splitRightVisibly
+    case addPaneRightWithoutResizing
     case splitVertically
     case splitVerticallyBefore
     case splitAfterFocusedPane

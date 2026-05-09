@@ -58,12 +58,13 @@ final class PaneStripView: NSView {
     var onHoveredSidebarWorklaneChanged: ((WorklaneID?) -> Void)?
     var onNewWorklanePlaceholderVisibilityChanged: ((Int?) -> Void)?
     var onSidebarScrollRequested: ((CGFloat) -> Void)?
-    var onSidebarInsertionLineChanged: ((CGFloat?) -> Void)?
+    var onSidebarInsertionLineChanged: ((SidebarPaneInsertionLineTarget?) -> Void)?
     var onDragActiveChanged: ((Bool) -> Void)?
     var onLeadingInsetChangedDuringDrag: ((CGFloat) -> Void)?
     var activeWorklaneIDProvider: (() -> WorklaneID?)?
     var sidebarBoundsProvider: (() -> CGRect)?
     var worklaneCountProvider: (() -> Int)?
+    var rightPaneCommandPresentationProvider: (() -> PaneRightCommandPresentation)?
     var sidebarWidthProvider: (() -> CGFloat)?
     weak var dragOverlayView: NSView? {
         didSet { dragCoordinator.dragHostView = dragOverlayView }
@@ -277,8 +278,8 @@ final class PaneStripView: NSView {
         dragCoordinator.onSidebarScrollRequested = { [weak self] delta in
             self?.onSidebarScrollRequested?(delta)
         }
-        dragCoordinator.onSidebarInsertionLineChanged = { [weak self] lineY in
-            self?.onSidebarInsertionLineChanged?(lineY)
+        dragCoordinator.onSidebarInsertionLineChanged = { [weak self] target in
+            self?.onSidebarInsertionLineChanged?(target)
         }
         dragCoordinator.sidebarPaneBoundaryProvider = { [weak self] in
             self?.sidebarPaneBoundaryProvider?() ?? []
@@ -955,6 +956,9 @@ final class PaneStripView: NSView {
                 }
                 paneView.onScrollWheel = { [weak self] event in
                     self?.handlePaneSwitchScroll(event) ?? false
+                }
+                paneView.rightPaneCommandPresentationProvider = { [weak self] in
+                    self?.rightPaneCommandPresentationProvider?() ?? .addsToWorklane
                 }
                 paneView.setTerminalViewportSyncSuspended(suspendedPaneIDs.contains(pane.id))
                 if let insertionTransition, insertionTransition.paneID == pane.id {

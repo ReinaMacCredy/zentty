@@ -89,7 +89,7 @@ final class SidebarPaneDropPresenter {
     private var dropPlaceholder: SidebarDropPlaceholderView?
     private var dropPlaceholderGeneration = 0
     private var insertionLine: PaneDragInsertionLineView?
-    private var insertionLineY: CGFloat?
+    private var insertionLineFrame: CGRect?
 
     init(targetStack: NSStackView, lineContainer: NSView) {
         self.targetStack = targetStack
@@ -105,29 +105,47 @@ final class SidebarPaneDropPresenter {
         }
     }
 
-    func showInsertionLine(atY y: CGFloat) {
-        guard insertionLineY != y, let lineContainer else { return }
+    func showInsertionLine(
+        _ target: SidebarPaneInsertionLineTarget,
+        buttons: [SidebarWorklaneRowButton]
+    ) {
+        guard let lineContainer,
+              let targetButton = buttons.first(where: { $0.worklaneID == target.worklaneID })
+        else {
+            hideInsertionLine()
+            return
+        }
+
+        let rowFrame = lineContainer.convert(targetButton.bounds, from: targetButton)
+        let horizontalInset = ShellMetrics.sidebarPaneRowHorizontalInset
+        let lineHeight: CGFloat = 4
+        let frame = CGRect(
+            x: rowFrame.minX + horizontalInset,
+            y: target.y - lineHeight / 2,
+            width: max(0, rowFrame.width - (horizontalInset * 2)),
+            height: lineHeight
+        )
+        guard insertionLineFrame != frame else { return }
         hideInsertionLine()
 
         let line = PaneDragInsertionLineView()
         line.setOrientation(.horizontal)
         lineContainer.addSubview(line)
 
-        let width = lineContainer.bounds.width
-        let lineHeight: CGFloat = 4
-        line.frame = CGRect(x: 0, y: y - lineHeight / 2, width: width, height: lineHeight)
+        line.frame = frame
+        line.layer?.cornerRadius = lineHeight / 2
         line.startPulsing()
         line.alphaValue = 0.9
 
         insertionLine = line
-        insertionLineY = y
+        insertionLineFrame = frame
     }
 
     func hideInsertionLine() {
         guard let line = insertionLine else { return }
         line.removeFromSuperview()
         insertionLine = nil
-        insertionLineY = nil
+        insertionLineFrame = nil
     }
 
     func showNewWorklanePlaceholder(atIndex insertionIndex: Int) {

@@ -37,6 +37,8 @@ enum AppCommandID: String, CaseIterable, Equatable, Hashable, Sendable {
     case duplicateFocusedPane = "pane.duplicate"
     case movePaneToNewWindow = "pane.move_to_new_window"
     case splitHorizontally = "pane.split.horizontal"
+    case forceSplitRight = "pane.split.right.force"
+    case forceAddPaneRight = "pane.add_right.force"
     case splitVertically = "pane.split.vertical"
     case arrangeWidthFull = "pane.arrange.width.full"
     case arrangeWidthHalves = "pane.arrange.width.halves"
@@ -354,25 +356,41 @@ enum AppCommandRegistry {
         ),
         AppCommandDefinition(
             id: .splitHorizontally,
-            title: "Split Horizontally",
+            title: "Add Pane Right",
             category: .panes,
             defaultShortcut: .init(key: .character("d"), modifiers: [.command]),
             action: .pane(.splitHorizontally),
             menuItem: AppCommandMenuItem(
                 section: .view,
-                title: "Split Horizontally",
+                title: "Add Pane Right",
                 selector: #selector(MainWindowController.splitHorizontally(_:))
             )
         ),
         AppCommandDefinition(
+            id: .forceSplitRight,
+            title: "Split Right Visibly",
+            category: .panes,
+            defaultShortcut: nil,
+            action: .pane(.splitRightVisibly),
+            menuItem: nil
+        ),
+        AppCommandDefinition(
+            id: .forceAddPaneRight,
+            title: "Add Pane Right Without Resizing",
+            category: .panes,
+            defaultShortcut: nil,
+            action: .pane(.addPaneRightWithoutResizing),
+            menuItem: nil
+        ),
+        AppCommandDefinition(
             id: .splitVertically,
-            title: "Split Vertically",
+            title: "New Pane Below",
             category: .panes,
             defaultShortcut: .init(key: .character("d"), modifiers: [.command, .shift]),
             action: .pane(.splitVertically),
             menuItem: AppCommandMenuItem(
                 section: .view,
-                title: "Split Vertically",
+                title: "New Pane Below",
                 selector: #selector(MainWindowController.splitVertically(_:))
             )
         ),
@@ -877,9 +895,13 @@ extension AppCommandDefinition {
         case .movePaneToNewWindow:
             "Move the focused pane into its own window without restarting the terminal session."
         case .splitHorizontally:
-            "Add a pane below in the same column."
+            "Add a pane to the right using your pane split behavior setting."
+        case .forceSplitRight:
+            "Force a visible side-by-side split to the right."
+        case .forceAddPaneRight:
+            "Force adding a pane to the right without shrinking the current pane."
         case .splitVertically:
-            "Add a pane to the right in a new column."
+            "Add a pane below in the same column."
         case .arrangeWidthFull:
             "Give each column the full window width."
         case .arrangeWidthHalves:

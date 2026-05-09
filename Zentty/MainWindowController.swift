@@ -466,6 +466,16 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     }
 
     @objc
+    func forceSplitRight(_ sender: Any?) {
+        handle(.pane(.splitRightVisibly))
+    }
+
+    @objc
+    func forceAddPaneRight(_ sender: Any?) {
+        handle(.pane(.addPaneRightWithoutResizing))
+    }
+
+    @objc
     func addPaneLeft(_ sender: Any?) {
         handle(.pane(.splitBeforeFocusedPane))
     }
@@ -1382,7 +1392,10 @@ extension MainWindowController: NSMenuItemValidation {
         }
 
         switch menuItem.action {
-        case #selector(addPaneRight(_:)), #selector(addPaneLeft(_:)):
+        case #selector(addPaneRight(_:)),
+             #selector(addPaneLeft(_:)),
+             #selector(forceSplitRight(_:)),
+             #selector(forceAddPaneRight(_:)):
             return rootViewController.isCommandAvailable(.splitHorizontally)
         case #selector(addPaneDown(_:)), #selector(addPaneUp(_:)):
             return rootViewController.isCommandAvailable(.splitVertically)

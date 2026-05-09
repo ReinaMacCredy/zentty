@@ -543,10 +543,10 @@ enum AgentToolRecognizer {
 
     private static func codexFromVolatileTitle(_ title: String?) -> AgentTool? {
         guard let title,
-              TerminalMetadataChangeClassifier.volatileAgentStatusTitleSignature(
-            title,
-            recognizedTool: .codex
-        ) != nil else {
+              let signature = TerminalMetadataChangeClassifier.volatileAgentStatusTitleSignature(
+                  title,
+                  recognizedTool: .codex
+              ) else {
             return nil
         }
 
@@ -555,6 +555,13 @@ enum AgentToolRecognizer {
         }
 
         if TerminalMetadataChangeClassifier.codexTitleInteractionKind(for: title) != nil {
+            return .codex
+        }
+
+        if signature.phase == .idle,
+           title.trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .hasPrefix("ready") {
             return .codex
         }
 
