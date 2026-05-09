@@ -1,20 +1,27 @@
 import AppKit
 
 /// Carrier that hosts a live `PaneStripView` for one neighbor worklane during
-/// visual mode. Each instance renders an inactive worklane's panes at a smaller
-/// frame so their column band peeks above or below the active lane.
+/// visual mode.
 ///
-/// Lifecycle: a carrier is built when visual mode opens and destroyed on exit.
-/// While alive, it shares the app's `PaneRuntimeRegistry`, which means it
-/// claims (mounts) the host views of an inactive worklane's panes — host views
-/// that were unmounted up to that moment, so there's no conflict with the
-/// active strip in `AppCanvasView`. On exit we detach so those host views can
-/// be re-claimed if the user navigates into that worklane.
+/// **Layout strategy.** To preserve the *exact* aspect ratios and pane layout
+/// the user would see if this worklane were active, the inner `PaneStripView`
+/// is sized to the **full canvas dimensions** and put into the same
+/// zoomed-out state as the active strip (internal scale `PaneStripView.zoomScale`
+/// via `beginVisualModeZoomOut`). The visible footprint is then shrunk by a
+/// uniform layer-level scale on the strip — the carrier itself only acts as
+/// a masking window so the strip's empty area outside the band is clipped.
+///
+/// This avoids the bug where rendering the strip into a small frame caused
+/// columns/panes (and their Ghostty terminal cells) to be re-sized to the
+/// neighbor's small dimensions, giving a different cell density / visual
+/// than the active strip.
 @MainActor
 final class VisualSwitcherLaneView: NSView {
 
     private let strip: PaneStripView
     private(set) var worklaneID: WorklaneID?
+    private var canvasSize: CGSize = .zero
+    private var hasInitialZoomOut = false
 
     /// Which "ring" of neighbors this carrier sits in. ±1 lanes are at full
     /// neighbor scale; ±2 lanes peek smaller and dimmer as a spatial hint.
@@ -26,8 +33,8 @@ final class VisualSwitcherLaneView: NSView {
         /// stay dimmer than the active lane so the focus stays in the band.
         var alpha: CGFloat {
             switch self {
-            case .primary: return 0.55
-            case .peeking: return 0.32
+            case .primary: return 0.7
+            case .peeking: return 0.4
             }
         }
     }
@@ -39,50 +46,119 @@ final class VisualSwitcherLaneView: NSView {
         self.strip = PaneStripView(runtimeRegistry: runtimeRegistry)
         super.init(frame: .zero)
         wantsLayer = true
+        // Crop the strip's empty area outside its zoomed band so only the
+        // band paints inside our bounds.
         layer?.masksToBounds = true
         layer?.cornerRadius = 6
         alphaValue = 0
 
-        strip.translatesAutoresizingMaskIntoConstraints = false
+        // Strip is positioned by direct frame assignment in relayoutStrip().
+        // Translation stays on (default) so the explicit frame sticks.
+        strip.translatesAutoresizingMaskIntoConstraints = true
+        strip.wantsLayer = true
+        strip.layer?.anchorPoint = CGPoint(x: 0.5, y: 0.5)
         addSubview(strip)
-        NSLayoutConstraint.activate([
-            strip.topAnchor.constraint(equalTo: topAnchor),
-            strip.leadingAnchor.constraint(equalTo: leadingAnchor),
-            strip.trailingAnchor.constraint(equalTo: trailingAnchor),
-            strip.bottomAnchor.constraint(equalTo: bottomAnchor),
-        ])
-
-        // Drag would have no meaning in a neighbor preview; keep the strip
-        // visually live but ignore mouse input directly on it. Clicks land
-        // on the overlay instead so the controller can commit-on-click.
-        strip.setLeadingVisibleInset(0, animated: false)
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
-    /// Render the carrier's strip with `worklane`. Safe to call multiple times
-    /// during a single visual-mode session — `PaneStripView.render` diffs.
-    func bind(worklane: WorklaneState, theme: ZenttyTheme) {
+    /// Render the carrier's strip with `worklane`. On the first bind we
+    /// also drive the strip into its zoomed-out state so the band proportions
+    /// match the active strip's. `canvasSize` is the **active** canvas size
+    /// — neighbor strips render at the same dimensions so Ghostty allocates
+    /// the same terminal cells the active strip would.
+    func bind(worklane: WorklaneState, theme: ZenttyTheme, canvasSize: CGSize) {
         worklaneID = worklane.id
+        self.canvasSize = canvasSize
+        relayoutStrip()
+
         strip.apply(theme: theme, animated: false)
         strip.render(worklane.paneStripState, animated: false)
+
+        // Force layout so the strip lays panes out at full canvas dimensions
+        // before we ask it to zoom out — otherwise the zoom centering math
+        // runs against zero bounds.
+        strip.layoutSubtreeIfNeeded()
+
+        if !hasInitialZoomOut {
+            strip.beginVisualModeZoomOut(
+                animated: false,
+                centerOnPaneID: worklane.paneStripState.focusedPaneID
+            )
+            hasInitialZoomOut = true
+        }
     }
 
-    /// Returns the pane's frame inside this carrier (i.e., in the carrier's
-    /// own coordinate space). Used by the overlay to draw the selection
-    /// highlight when the highlighted pane lives in a neighbor lane.
+    /// Recomputes the strip's frame + layer scale so the strip's zoomed band
+    /// is what fills our bounds. Called on bind() and on layout().
+    func relayoutStrip() {
+        guard canvasSize.width > 0, canvasSize.height > 0,
+              bounds.width > 0, bounds.height > 0 else { return }
+
+        // The visible band, in strip-local coords, equals canvasSize ×
+        // PaneStripView.zoomScale (mirrors `applyZoomScale` math). We size
+        // ourselves to *show* exactly that band.
+        let bandWidth = canvasSize.width * PaneStripView.zoomScale
+        let bandHeight = canvasSize.height * PaneStripView.zoomScale
+        guard bandWidth > 0, bandHeight > 0 else { return }
+
+        // Uniform scale chosen to fit the band into our bounds. Letterbox
+        // (preserve aspect) rather than stretch when the carrier and band
+        // aspect ratios disagree.
+        let scaleX = bounds.width / bandWidth
+        let scaleY = bounds.height / bandHeight
+        let scale = min(scaleX, scaleY)
+
+        // Place the strip so its band-center aligns with our bounds-center.
+        // Since the strip's band is centered inside its own bounds, this
+        // means strip.frame.center == self.bounds.center.
+        strip.frame = CGRect(
+            x: bounds.midX - canvasSize.width / 2,
+            y: bounds.midY - canvasSize.height / 2,
+            width: canvasSize.width,
+            height: canvasSize.height
+        )
+        // Apply uniform scale via the layer transform. This shrinks the
+        // strip's *rendering* without shrinking its layout — panes inside
+        // keep their natural canvas-relative proportions.
+        strip.layer?.transform = CATransform3DMakeScale(scale, scale, 1)
+    }
+
+    override func layout() {
+        super.layout()
+        relayoutStrip()
+    }
+
+    /// Returns the highlighted pane's frame in the carrier's coordinate
+    /// space, accounting for the layer scale applied to the strip.
     func paneFrameInCarrier(_ paneID: PaneID) -> CGRect? {
-        strip.convertPaneFrame(paneID, to: self)
+        guard canvasSize.width > 0 else { return nil }
+        let bandWidth = canvasSize.width * PaneStripView.zoomScale
+        let bandHeight = canvasSize.height * PaneStripView.zoomScale
+        guard bandWidth > 0, bandHeight > 0 else { return nil }
+
+        // Pane frame in strip-local coords (full-canvas-size strip).
+        guard let frameInStrip = strip.convertPaneFrame(paneID, to: strip) else { return nil }
+
+        let scale = min(bounds.width / bandWidth, bounds.height / bandHeight)
+        let stripCenter = CGPoint(x: strip.bounds.midX, y: strip.bounds.midY)
+
+        // Layer scale around the strip's center maps a strip-local point P
+        // to:   carrier-center + (P − strip-center) × scale
+        let dx = (frameInStrip.minX - stripCenter.x) * scale
+        let dy = (frameInStrip.minY - stripCenter.y) * scale
+        return CGRect(
+            x: bounds.midX + dx,
+            y: bounds.midY + dy,
+            width: frameInStrip.width * scale,
+            height: frameInStrip.height * scale
+        )
     }
 
-    /// Animate the carrier from invisible to its ring's resting alpha. The
-    /// delay staggers ±1 (immediate) before ±2 (later) so the eye registers
-    /// the primary neighbors first.
+    /// Animate the carrier from invisible to its ring's resting alpha.
     func appear(after delay: TimeInterval) {
         let target = ring.alpha
-        // Drop straight to 0 and use a CABasicAnimation-equivalent via NSView
-        // animator — simple, fits the existing animation idioms here.
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0
             self.alphaValue = 0

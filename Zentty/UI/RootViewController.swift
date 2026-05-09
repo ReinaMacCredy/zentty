@@ -3092,11 +3092,16 @@ extension RootViewController: VisualWorklaneSwitcherControllerDelegate {
 
         // Build live carriers for the ±1 / ±2 neighbor worklanes so the
         // user has a spatial sense of "what's around" while Tab cycling.
+        // Pass the active canvas size so neighbor strips render at the
+        // exact same dimensions as the active strip — that way Ghostty
+        // allocates identical terminal cells, and the layout proportions
+        // match the active worklane's zoomed-out view exactly.
         let allWorklanes = worklaneStore.worklanes
         if let activeIndex = allWorklanes.firstIndex(where: { $0.id == worklaneStore.activeWorklaneID }) {
             visualSwitcherView.configureNeighborLanes(
                 worklanes: allWorklanes,
                 activeIndex: activeIndex,
+                canvasSize: appCanvasView.bounds.size,
                 runtimeRegistry: runtimeRegistry,
                 theme: currentTheme
             )

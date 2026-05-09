@@ -29,15 +29,17 @@ final class VisualWorklaneSwitcherView: NSView {
     /// Vertical gap between the column's top edge and the HUD pill above it.
     private let hudGap: CGFloat = 12
 
-    /// Layout constants for neighbor lanes. Heights are fractions of the
-    /// overlay height; gaps are in points. Tuned so a primary neighbor fits
-    /// fully above/below the active band, and a peeking neighbor shows ~10%
-    /// of itself as a hint of what lies further out.
+    /// Layout constants for neighbor lanes. Sizes are expressed as fractions
+    /// of the **active band** size so neighbors share its aspect ratio
+    /// exactly — prevents the carrier-vs-band aspect mismatch that would
+    /// cause letterboxing inside the carrier.
     private enum NeighborLayout {
-        static let primaryHeightFraction: CGFloat = 0.22
-        static let peekingHeightFraction: CGFloat = 0.10
-        static let bandGap: CGFloat = 8
-        static let widthFraction: CGFloat = 0.4
+        /// ±1 lanes — fully visible, ~55% of the active band area.
+        static let primaryFraction: CGFloat = 0.55
+        /// ±2 lanes — peeking, ~30% of the active band area.
+        static let peekingFraction: CGFloat = 0.30
+        /// Vertical gap between adjacent bands.
+        static let bandGap: CGFloat = 10
     }
 
     override init(frame frameRect: NSRect) {
@@ -91,6 +93,7 @@ final class VisualWorklaneSwitcherView: NSView {
     func configureNeighborLanes(
         worklanes: [WorklaneState],
         activeIndex: Int,
+        canvasSize: CGSize,
         runtimeRegistry: PaneRuntimeRegistry,
         theme: ZenttyTheme
     ) {
@@ -110,15 +113,18 @@ final class VisualWorklaneSwitcherView: NSView {
             insertNeighborSubview(carrier)
             laneCarriers[offset] = carrier
         }
-        // Size carriers BEFORE binding state so the strip lays panes out at
-        // the final neighbor dimensions in one pass — otherwise the first
-        // render happens with zero bounds and the strip mounts panes at 0×0.
+        // Size carriers BEFORE binding state so each carrier's bounds is
+        // known when its layer-scale math runs.
         layoutNeighborCarriers()
 
         for (offset, carrier) in laneCarriers {
             let neighborIndex = activeIndex + offset
             guard worklanes.indices.contains(neighborIndex) else { continue }
-            carrier.bind(worklane: worklanes[neighborIndex], theme: theme)
+            carrier.bind(
+                worklane: worklanes[neighborIndex],
+                theme: theme,
+                canvasSize: canvasSize
+            )
             // Stagger: ±1 fades in immediately, ±2 a beat later as a hint.
             let delay: TimeInterval = abs(offset) == 1 ? 0.10 : 0.25
             carrier.appear(after: delay)
@@ -221,37 +227,53 @@ final class VisualWorklaneSwitcherView: NSView {
             // sensibly. They'll be placed on the next placeHUDStably call.
             return
         }
+        let activeBandWidth = bounds.width * placement.targetZoomScale
         let activeBandHeight = bounds.height * placement.targetZoomScale
         let activeBandTop = bounds.midY + activeBandHeight / 2
         let activeBandBottom = bounds.midY - activeBandHeight / 2
 
         let visibleCenterX = (placement.visibleLeadingInset + bounds.width) / 2
-        let primaryWidth = bounds.width * NeighborLayout.widthFraction
-        let primaryHeight = bounds.height * NeighborLayout.primaryHeightFraction
-        let peekingHeight = bounds.height * NeighborLayout.peekingHeightFraction
-        let primaryX = visibleCenterX - primaryWidth / 2
 
-        // Primary ±1: fully visible, just above/below the active band.
+        // Neighbor carriers share the active band's aspect ratio so their
+        // internal layer-scale fills cleanly without letterboxing.
+        let primaryW = activeBandWidth * NeighborLayout.primaryFraction
+        let primaryH = activeBandHeight * NeighborLayout.primaryFraction
+        let peekingW = activeBandWidth * NeighborLayout.peekingFraction
+        let peekingH = activeBandHeight * NeighborLayout.peekingFraction
+
         if let above = laneCarriers[-1] {
-            let originY = activeBandTop + NeighborLayout.bandGap
-            above.frame = CGRect(x: primaryX, y: originY, width: primaryWidth, height: primaryHeight)
+            above.frame = CGRect(
+                x: visibleCenterX - primaryW / 2,
+                y: activeBandTop + NeighborLayout.bandGap,
+                width: primaryW,
+                height: primaryH
+            )
         }
         if let below = laneCarriers[1] {
-            let originY = activeBandBottom - NeighborLayout.bandGap - primaryHeight
-            below.frame = CGRect(x: primaryX, y: originY, width: primaryWidth, height: primaryHeight)
+            below.frame = CGRect(
+                x: visibleCenterX - primaryW / 2,
+                y: activeBandBottom - NeighborLayout.bandGap - primaryH,
+                width: primaryW,
+                height: primaryH
+            )
         }
-
-        // Peeking ±2: positioned just outside ±1 so only ~10% peeks past
-        // the overlay edge as a hint there's more.
         if let farAbove = laneCarriers[-2] {
-            let primaryTop = activeBandTop + NeighborLayout.bandGap + primaryHeight
-            let originY = primaryTop + NeighborLayout.bandGap
-            farAbove.frame = CGRect(x: primaryX, y: originY, width: primaryWidth, height: peekingHeight)
+            let primaryTop = activeBandTop + NeighborLayout.bandGap + primaryH
+            farAbove.frame = CGRect(
+                x: visibleCenterX - peekingW / 2,
+                y: primaryTop + NeighborLayout.bandGap,
+                width: peekingW,
+                height: peekingH
+            )
         }
         if let farBelow = laneCarriers[2] {
-            let primaryBottom = activeBandBottom - NeighborLayout.bandGap - primaryHeight
-            let originY = primaryBottom - NeighborLayout.bandGap - peekingHeight
-            farBelow.frame = CGRect(x: primaryX, y: originY, width: primaryWidth, height: peekingHeight)
+            let primaryBottom = activeBandBottom - NeighborLayout.bandGap - primaryH
+            farBelow.frame = CGRect(
+                x: visibleCenterX - peekingW / 2,
+                y: primaryBottom - NeighborLayout.bandGap - peekingH,
+                width: peekingW,
+                height: peekingH
+            )
         }
     }
 
