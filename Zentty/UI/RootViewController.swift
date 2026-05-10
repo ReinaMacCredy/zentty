@@ -105,6 +105,10 @@ final class RootViewController: NSViewController {
         return store
     }()
     private lazy var appCanvasView = AppCanvasView(runtimeRegistry: runtimeRegistry)
+    private let peekView = WorklanePeekView()
+    private let peekKeyMonitor = WorklanePeekKeyMonitor()
+    private let peekController: WorklanePeekController
+    private var peekSidebarFocusOverride: WorklaneSidebarFocusOverride?
     private let dragOverlayView: HitTransparentView = {
         let view = HitTransparentView()
         view.translatesAutoresizingMaskIntoConstraints = false
@@ -230,6 +234,9 @@ final class RootViewController: NSViewController {
                 configStore?.current.agentTeams.enabled ?? false
             }
         )
+        self.peekController = WorklanePeekController(
+            worklaneAccess: worklaneStore
+        )
         self.renderCoordinator = WorklaneRenderCoordinator(
             windowID: windowID,
             worklaneStore: worklaneStore,
@@ -256,6 +263,41 @@ final class RootViewController: NSViewController {
         }
         ClosedPaneScrollbackArchive.purgeStale()
         preloadOpenWithIcons()
+        wirePeek()
+    }
+
+    private func wirePeek() {
+        peekController.delegate = self
+        peekKeyMonitor.handler = { [weak self] event in
+            guard let self else { return }
+            switch event {
+            case .tab(let forward):
+                self.peekController.handleTab(forward: forward)
+            case .escape:
+                self.peekController.handleEscape()
+            case .ctrlReleased:
+                self.peekController.handleCtrlReleased()
+            }
+        }
+        appCanvasView.paneStripView.onZoomTransformChanged = { [weak self] in
+            self?.refreshPeekOverlay()
+        }
+        // Keep neighbor lanes streaming live: feed the peek-visible
+        // worklane set into the render coordinator, and re-push surface
+        // activities whenever the set changes (open, lazy carrier
+        // creation during pan, close).
+        renderCoordinator.peekVisibleWorklaneIDsProvider = { [weak self] in
+            self?.peekView.peekVisibleWorklaneIDs ?? []
+        }
+        renderCoordinator.sidebarFocusOverrideProvider = { [weak self] in
+            self?.peekSidebarFocusOverride
+        }
+        peekView.onPeekVisibleWorklanesChanged = { [weak self] in
+            self?.renderCoordinator.updateSurfaceActivities()
+        }
+        peekView.onGeometryChanged = { [weak self] in
+            self?.refreshPeekOverlay()
+        }
     }
 
     convenience init(
@@ -360,7 +402,10 @@ final class RootViewController: NSViewController {
         sidebarView.translatesAutoresizingMaskIntoConstraints = false
         sidebarHoverRailView.translatesAutoresizingMaskIntoConstraints = false
         globalSearchHUDView.translatesAutoresizingMaskIntoConstraints = false
+        peekView.translatesAutoresizingMaskIntoConstraints = false
+        peekView.isHidden = true
         view.addSubview(appCanvasView)
+        view.addSubview(peekView)
         view.addSubview(globalSearchHUDView)
         view.addSubview(windowChromeView)
         view.addSubview(sidebarHoverRailView)
@@ -418,6 +463,13 @@ final class RootViewController: NSViewController {
             dragOverlayView.leadingAnchor.constraint(equalTo: appCanvasView.leadingAnchor),
             dragOverlayView.trailingAnchor.constraint(equalTo: appCanvasView.trailingAnchor),
             dragOverlayView.bottomAnchor.constraint(equalTo: appCanvasView.bottomAnchor),
+
+            // Worklane Peek overlay matches canvas frame too — it sits above
+            // the panes but below the chrome and sidebar.
+            peekView.topAnchor.constraint(equalTo: appCanvasView.topAnchor),
+            peekView.leadingAnchor.constraint(equalTo: appCanvasView.leadingAnchor),
+            peekView.trailingAnchor.constraint(equalTo: appCanvasView.trailingAnchor),
+            peekView.bottomAnchor.constraint(equalTo: appCanvasView.bottomAnchor),
 
             windowChromeView.topAnchor.constraint(
                 equalTo: view.topAnchor, constant: ShellMetrics.headerOuterPadding),
@@ -1106,9 +1158,9 @@ final class RootViewController: NSViewController {
         case .newWorklane:
             worklaneStore.createWorklane()
         case .nextWorklane:
-            worklaneStore.selectNextWorklane()
+            peekController.handleTab(forward: true)
         case .previousWorklane:
-            worklaneStore.selectPreviousWorklane()
+            peekController.handleTab(forward: false)
         case .moveWorklaneUp:
             moveActiveWorklane(by: -1)
         case .moveWorklaneDown:
@@ -1304,8 +1356,6 @@ final class RootViewController: NSViewController {
             }
         case .restoreClosedPane:
             performRestoreClosedPane()
-        case .toggleZoomOut:
-            appCanvasView.paneStripView.toggleZoom()
         default:
             worklaneStore.send(command)
         }
@@ -3121,4 +3171,188 @@ extension RootViewController: WindowSearchHUDViewDelegate {
 /// Transparent to hit testing — allows mouse events to pass through to views below.
 private final class HitTransparentView: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
+// MARK: - Visual Worklane Switcher
+
+extension RootViewController: WorklanePeekControllerDelegate {
+
+    func peekDidArm(_ controller: WorklanePeekController) {
+        // Once armed, route subsequent Tab / Shift-Tab / Escape / Ctrl-release
+        // through the local key monitor so the menu doesn't keep firing
+        // selectNextWorklane on each subsequent tap.
+        peekKeyMonitor.install()
+    }
+
+    func peekDidOpen(_ controller: WorklanePeekController) {
+        let initialSelection: WorklaneStore.PaneReference? = {
+            if case let .peeking(selection, _) = controller.phase {
+                return selection.current
+            }
+            return nil
+        }()
+        let initialHighlight = initialSelection?.paneID
+        updatePeekSidebarFocusOverride(initialSelection)
+
+        // The active worklane stays at its canonical zoom scale even when
+        // neighbors are present — partial clipping of ±1 carriers above /
+        // below the canvas is fine; the camera pan will bring the chosen
+        // lane fully into view as the user Ctrl-Tabs further.
+        let zoomScale: CGFloat = PaneStripView.zoomScale
+
+        appCanvasView.paneStripView.beginPeekZoomOut(
+            animated: true,
+            centerOnPaneID: initialHighlight
+        )
+        peekView.attach(paneStripView: appCanvasView.paneStripView)
+        peekView.isHidden = false
+        // Force layout so the overlay's bounds reflect AppCanvasView's frame
+        // before we compute the HUD position from those bounds.
+        peekView.layoutSubtreeIfNeeded()
+        peekView.placeHUDStably(
+            targetZoomScale: zoomScale,
+            visibleLeadingInset: appCanvasView.leadingVisibleInset
+        )
+
+        // Build live carriers for the ±1 neighbor worklanes so the user has
+        // a spatial sense of "what's around" while Tab cycling. Pass the
+        // canvas size + zoom scale so neighbor strips render at identical
+        // dimensions and Ghostty allocates the same terminal cells.
+        let allWorklanes = worklaneStore.worklanes
+        if let activeIndex = allWorklanes.firstIndex(where: { $0.id == worklaneStore.activeWorklaneID }) {
+            peekView.configureNeighborLanes(
+                worklanes: allWorklanes,
+                activeIndex: activeIndex,
+                canvasSize: appCanvasView.bounds.size,
+                zoomScale: zoomScale,
+                runtimeRegistry: runtimeRegistry,
+                theme: currentTheme
+            )
+        }
+
+        refreshPeekOverlay()
+    }
+
+    func peekDidUpdateSelection(
+        _ controller: WorklanePeekController,
+        transition: WorklanePeekSelectionTransition
+    ) {
+        guard case let .peeking(selection, _) = controller.phase else {
+            updatePeekSidebarFocusOverride(nil)
+            refreshPeekOverlay()
+            return
+        }
+        updatePeekSidebarFocusOverride(selection.current)
+
+        let animated = transition == .animated
+        let originalActiveID = worklaneStore.activeWorklaneID
+        let inOriginalActiveLane = selection.current.worklaneID == originalActiveID
+
+        // Pan/create the target lane before horizontal centering. Neighbor
+        // carriers are lazy, so centering first can no-op when the user
+        // crosses into a not-yet-mounted worklane.
+        peekView.centerOn(
+            worklaneID: selection.current.worklaneID,
+            animated: animated
+        )
+
+        if inOriginalActiveLane {
+            // The selected pane lives in the lane the underlying anchor
+            // strip is bound to — center horizontally on it.
+            appCanvasView.paneStripView.centerPeekOnPane(
+                selection.current.paneID,
+                animated: animated
+            )
+        } else {
+            // The selected pane lives in a neighbor carrier — ask the
+            // overlay to center that carrier on the pane.
+            peekView.centerHorizontally(
+                paneID: selection.current.paneID,
+                animated: animated
+            )
+        }
+
+        refreshPeekOverlay()
+    }
+
+    func peekDidClose(_ controller: WorklanePeekController) {
+        updatePeekSidebarFocusOverride(nil)
+        // Pass the just-committed pane so the camera stays centered on it
+        // through the zoom-in instead of sliding horizontally back to the
+        // natural unscrolled origin (which would yank the pane sideways).
+        let committedPaneID = worklaneStore.activeWorklane?.paneStripState.focusedPaneID
+        TerminalViewportDiagnostics.shared.record(
+            .rootPeekDidClose,
+            context: TerminalViewportDiagnostics.Context(
+                paneID: committedPaneID,
+                worklaneID: worklaneStore.activeWorklaneID,
+                laneRole: .activeCanvas
+            )
+        )
+        appCanvasView.paneStripView.configureViewportDiagnostics(
+            worklaneID: worklaneStore.activeWorklaneID,
+            laneRole: .activeCanvas
+        )
+        appCanvasView.paneStripView.endPeekZoomIn(
+            animated: true,
+            centerOnPaneID: committedPaneID
+        )
+        peekView.isHidden = true
+        peekView.detach()
+        peekKeyMonitor.uninstall()
+    }
+
+    private func updatePeekSidebarFocusOverride(_ reference: WorklaneStore.PaneReference?) {
+        let nextOverride = reference.map {
+            WorklaneSidebarFocusOverride(worklaneID: $0.worklaneID, paneID: $0.paneID)
+        }
+        guard peekSidebarFocusOverride != nextOverride else {
+            return
+        }
+
+        peekSidebarFocusOverride = nextOverride
+        renderCoordinator.renderSidebar()
+    }
+
+    private func refreshPeekOverlay() {
+        guard case let .peeking(selection, _) = peekController.phase else { return }
+        let content = peekHUDContent(for: selection.current)
+        // Layout out the canvas first so livePaneFrame is stable.
+        appCanvasView.layoutSubtreeIfNeeded()
+        peekView.update(
+            highlightedPaneID: selection.current.paneID,
+            hudContent: content
+        )
+    }
+
+    private func peekHUDContent(
+        for ref: WorklaneStore.PaneReference
+    ) -> WorklanePeekHUDView.Content {
+        guard let worklane = worklaneStore.worklanes.first(where: { $0.id == ref.worklaneID }),
+              let context = worklane.paneContext(for: ref.paneID)
+        else {
+            return .init()
+        }
+        let presentation = context.presentation
+        let proctitle: String? = {
+            if let tool = presentation.recognizedTool { return tool.displayName }
+            let trimmed = presentation.rememberedTitle?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return (trimmed?.isEmpty ?? true) ? nil : trimmed
+        }()
+        let folder: String? = presentation.cwd.flatMap { path in
+            let last = (path as NSString).lastPathComponent
+            return last.isEmpty ? nil : last
+        }
+        let branch: String? = {
+            let trimmed = presentation.branchDisplayText?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return (trimmed?.isEmpty ?? true) ? nil : trimmed
+        }()
+        return WorklanePeekHUDView.Content(
+            proctitle: proctitle,
+            folder: folder,
+            branch: branch
+        )
+    }
 }

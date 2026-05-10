@@ -636,11 +636,6 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     }
 
     @objc
-    func toggleZoomOut(_ sender: Any?) {
-        handle(.pane(.toggleZoomOut))
-    }
-
-    @objc
     func copyFocusedPanePath(_ sender: Any?) {
         handle(.copyFocusedPanePath)
     }

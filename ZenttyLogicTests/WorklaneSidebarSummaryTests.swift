@@ -1306,6 +1306,77 @@ final class WorklaneSidebarSummaryTests: XCTestCase {
         XCTAssertNil(summary.contextPrefixText)
     }
 
+    func test_summaries_use_peek_focus_override_without_mutating_stored_focus() throws {
+        let shellPaneID = PaneID("worklane-main-shell")
+        let previewPaneID = PaneID("worklane-main-preview")
+        let activeWorklaneID = WorklaneID("worklane-active")
+        let previewWorklaneID = WorklaneID("worklane-main")
+        let worklanes = [
+            WorklaneState(
+                id: previewWorklaneID,
+                title: "MAIN",
+                paneStripState: PaneStripState(
+                    panes: [
+                        PaneState(id: shellPaneID, title: "shell"),
+                        PaneState(id: previewPaneID, title: "preview"),
+                    ],
+                    focusedPaneID: shellPaneID
+                ),
+                metadataByPaneID: [
+                    shellPaneID: TerminalMetadata(
+                        title: "zsh",
+                        currentWorkingDirectory: "/tmp/shell",
+                        processName: "zsh",
+                        gitBranch: "main"
+                    ),
+                    previewPaneID: TerminalMetadata(
+                        title: "zsh",
+                        currentWorkingDirectory: "/tmp/preview",
+                        processName: "zsh",
+                        gitBranch: "feature/peek"
+                    ),
+                ]
+            ),
+            WorklaneState(
+                id: activeWorklaneID,
+                title: "ACTIVE",
+                paneStripState: PaneStripState(
+                    panes: [PaneState(id: PaneID("worklane-active-shell"), title: "shell")],
+                    focusedPaneID: PaneID("worklane-active-shell")
+                )
+            ),
+        ]
+
+        let baselineSummaries = WorklaneSidebarSummaryBuilder.summaries(
+            for: worklanes,
+            activeWorklaneID: activeWorklaneID
+        )
+        let baselinePreviewSummary = try XCTUnwrap(
+            baselineSummaries.first { $0.worklaneID == previewWorklaneID }
+        )
+        XCTAssertFalse(baselinePreviewSummary.isActive)
+        XCTAssertEqual(baselinePreviewSummary.paneRows.map(\.isFocused), [true, false])
+
+        let summaries = WorklaneSidebarSummaryBuilder.summaries(
+            for: worklanes,
+            activeWorklaneID: activeWorklaneID,
+            focusOverride: WorklaneSidebarFocusOverride(
+                worklaneID: previewWorklaneID,
+                paneID: previewPaneID
+            )
+        )
+
+        let previewSummary = try XCTUnwrap(summaries.first { $0.worklaneID == previewWorklaneID })
+        let activeSummary = try XCTUnwrap(summaries.first { $0.worklaneID == activeWorklaneID })
+
+        XCTAssertTrue(previewSummary.isActive)
+        XCTAssertFalse(activeSummary.isActive)
+        XCTAssertEqual(previewSummary.primaryText, "preview")
+        XCTAssertEqual(previewSummary.paneRows.map(\.paneID), [shellPaneID, previewPaneID])
+        XCTAssertEqual(previewSummary.paneRows.map(\.isFocused), [false, true])
+        XCTAssertEqual(worklanes[0].paneStripState.focusedPaneID, shellPaneID)
+    }
+
     func test_builder_marks_worklane_as_working_when_background_terminal_progress_exists() {
         let shellPaneID = PaneID("worklane-main-shell")
         let backgroundPaneID = PaneID("worklane-main-background")
