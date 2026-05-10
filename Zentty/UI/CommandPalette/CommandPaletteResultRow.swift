@@ -14,6 +14,10 @@ struct CommandPaletteResultRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
+            Image(systemName: item.iconSystemName)
+                .font(.system(size: 16, weight: .medium))
+                .foregroundStyle(isSelected ? .white.opacity(0.9) : secondaryColor)
+                .frame(width: 22, height: 22)
             VStack(alignment: .leading, spacing: 2) {
                 Text(item.title)
                     .font(.system(size: 13, weight: .medium))

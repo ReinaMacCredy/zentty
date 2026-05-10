@@ -254,6 +254,9 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         rootViewController.onShowSettingsRequested = { [weak self] in
             self?.showSettingsWindow(section: .general, sender: nil)
         }
+        rootViewController.onShowSettingsSectionRequested = { [weak self] section in
+            self?.showSettingsWindow(section: section, sender: nil)
+        }
         rootViewController.onCheckForUpdatesRequested = { [weak self] in
             self?.onCheckForUpdatesRequested?()
         }

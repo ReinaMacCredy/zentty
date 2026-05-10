@@ -470,12 +470,20 @@ final class WorklaneStore {
         return PaneReference(worklaneID: worklane.id, paneID: paneID)
     }
 
+    var currentPaneReferenceForCommandPalette: PaneReference? {
+        currentPaneReference
+    }
+
     private var allLivePaneReferences: Set<PaneReference> {
         Set(worklanes.flatMap { worklane in
             worklane.paneStripState.panes.map {
                 PaneReference(worklaneID: worklane.id, paneID: $0.id)
             }
         })
+    }
+
+    var recentPaneReferencesForCommandPalette: [PaneReference] {
+        focusHistoryController.history.recentReferences(allPaneIDs: allLivePaneReferences)
     }
 
     private var paneReferencesInSidebarOrder: [PaneReference] {

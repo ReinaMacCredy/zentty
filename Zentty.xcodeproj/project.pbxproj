@@ -100,6 +100,7 @@
 		44A22AB9819823EBE62144BE /* ClaudeStopNotificationRaceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDDFDCEF34526A6C5882223E /* ClaudeStopNotificationRaceTests.swift */; };
 		4722CFBE781F555F67DA809A /* TmuxCompatStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB7A0155A7517D3459081223 /* TmuxCompatStoreTests.swift */; };
 		4777880E60AB7C29B7CD2E12 /* PaneCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = 474B9A1AC6A427A707683CA3 /* PaneCommand.swift */; };
+		4787C7E94BDCB1445A474610 /* CommandPaletteResultsResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3075B4E64F400647941D17F8 /* CommandPaletteResultsResolver.swift */; };
 		47E5CD886CD0E4EEE5BB9E97 /* SettingsSectionViewControllers.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDDCADD851AB62CAFFF43AF3 /* SettingsSectionViewControllers.swift */; };
 		482312E708B429D8A516E5A8 /* TmuxCompatStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCAFE9100510CB50EB0AD11C /* TmuxCompatStore.swift */; };
 		48390CEFB72081A23FE98E4F /* SidebarWorklaneRowDebugging.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91986D1792E0A3DD28D3A244 /* SidebarWorklaneRowDebugging.swift */; };
@@ -313,6 +314,7 @@
 		DB99D15DBBA9E04854EE979F /* DroidHooksInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E98A96BAD466E5847C42948 /* DroidHooksInstaller.swift */; };
 		DC139F18052FBD8126678D7F /* TerminalAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB7FF718B0E0C3314C57BFC5 /* TerminalAdapter.swift */; };
 		DC6594609ADC8C26340A0B8A /* SidebarWorklaneRowButtonTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4225E34022CEC2DFB9C70338 /* SidebarWorklaneRowButtonTests.swift */; };
+		DD1FBB3CA62ACE6EFBA1E7AD /* FuzzyMatch in Frameworks */ = {isa = PBXBuildFile; productRef = 1783CDCC7848CB005D3A519C /* FuzzyMatch */; };
 		DE22542885A2BE164FE9090E /* KeyboardShortcutPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEF1AD0DA5648D1E48300407 /* KeyboardShortcutPreview.swift */; };
 		DFC95AFE3D93BC03C215FC0E /* WorkspaceTemplate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69E99517E9EAA4D99552859C /* WorkspaceTemplate.swift */; };
 		E091B391CA413E9D9C495CB6 /* WorklaneAttentionSummaryBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C1BDFF2B71B2BDFF1DF60EA /* WorklaneAttentionSummaryBuilder.swift */; };
@@ -472,6 +474,7 @@
 		2DD8525BB06D45D74C9E00C0 /* AppearanceSettingsSectionViewControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppearanceSettingsSectionViewControllerTests.swift; sourceTree = "<group>"; };
 		2E587274DB966B186941A95A /* SidebarDropHitTesting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarDropHitTesting.swift; sourceTree = "<group>"; };
 		2F241BC22C876707D98F1182 /* SidebarToggleButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarToggleButton.swift; sourceTree = "<group>"; };
+		3075B4E64F400647941D17F8 /* CommandPaletteResultsResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteResultsResolver.swift; sourceTree = "<group>"; };
 		312AF7E528937EA1BA1B5D84 /* BundledGhosttyThemeResourcesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BundledGhosttyThemeResourcesTests.swift; sourceTree = "<group>"; };
 		315E199A7E5DFC5BA83F6225 /* ThemeCatalogServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemeCatalogServiceTests.swift; sourceTree = "<group>"; };
 		330B23C2AB3C9333615FF1F1 /* WorklaneReviewStateResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorklaneReviewStateResolverTests.swift; sourceTree = "<group>"; };
@@ -786,6 +789,7 @@
 				F42E958471B9D597F85A3894 /* GhosttyKit.xcframework in Frameworks */,
 				750B3753803EBABD25361C40 /* Sentry in Frameworks */,
 				B22ACD7ABE0FB7A703022BC4 /* Sparkle in Frameworks */,
+				DD1FBB3CA62ACE6EFBA1E7AD /* FuzzyMatch in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -953,6 +957,7 @@
 				2A52BCC7DF27C885882E1630 /* CommandPaletteItem.swift */,
 				7DCA45568C0DF115CFA41141 /* CommandPalettePanel.swift */,
 				1664363F6DAF16AD33EECA9D /* CommandPaletteResultRow.swift */,
+				3075B4E64F400647941D17F8 /* CommandPaletteResultsResolver.swift */,
 				36884D94E01C92231D935C87 /* CommandPaletteView.swift */,
 				BC0EFB8B00D5CA9A67589A3A /* FuzzyMatcher.swift */,
 				E89BAAA51D175EA4CC9174AA /* RecentCommandsTracker.swift */,
@@ -1531,6 +1536,7 @@
 			packageProductDependencies = (
 				7B6C0F6F7A5305E09ECE2C65 /* Sentry */,
 				C3FED8AC4087BC3A3CFCC755 /* Sparkle */,
+				1783CDCC7848CB005D3A519C /* FuzzyMatch */,
 			);
 			productName = Zentty;
 			productReference = EE4A79EE9DA488020E7D0C71 /* Zentty.app */;
@@ -1577,6 +1583,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				5651DAECD5465FD6C6AA7DDF /* XCRemoteSwiftPackageReference "swift-argument-parser" */,
+				A70DD7B4E8719B15567E9E62 /* XCRemoteSwiftPackageReference "FuzzyMatch" */,
 				878A54334D2B91363EA6D039 /* XCRemoteSwiftPackageReference "sentry-cocoa" */,
 				1CA4AE4566F84BDDF088EC1B /* XCRemoteSwiftPackageReference "Sparkle" */,
 			);
@@ -1831,6 +1838,7 @@
 				9977740E789BA5C77113EBE4 /* CommandPaletteItem.swift in Sources */,
 				30B9ACBE47351D6E5EF639C5 /* CommandPalettePanel.swift in Sources */,
 				371FB2F8A67CC747CF1FFD4F /* CommandPaletteResultRow.swift in Sources */,
+				4787C7E94BDCB1445A474610 /* CommandPaletteResultsResolver.swift in Sources */,
 				F41BF0F2213D63594DF10864 /* CommandPaletteView.swift in Sources */,
 				FA751D5D7BCE3C7048198953 /* CopilotOSCProgressReducer.swift in Sources */,
 				4CCDF0D69B99D52B07074B08 /* CopilotTitleNeedsInputReducer.swift in Sources */,
@@ -2539,9 +2547,22 @@
 				minimumVersion = 9.9.0;
 			};
 		};
+		A70DD7B4E8719B15567E9E62 /* XCRemoteSwiftPackageReference "FuzzyMatch" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/ordo-one/FuzzyMatch";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.3.2;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		1783CDCC7848CB005D3A519C /* FuzzyMatch */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A70DD7B4E8719B15567E9E62 /* XCRemoteSwiftPackageReference "FuzzyMatch" */;
+			productName = FuzzyMatch;
+		};
 		7B6C0F6F7A5305E09ECE2C65 /* Sentry */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 878A54334D2B91363EA6D039 /* XCRemoteSwiftPackageReference "sentry-cocoa" */;

@@ -13,6 +13,8 @@ final class CommandPaletteController {
     var onExecute: ((AppAction) -> Void)?
     var onOpenWith: ((_ stableID: String, _ workingDirectory: String) -> Void)?
     var onSetWorklaneColor: ((WorklaneColor?) -> Void)?
+    var onShowSettingsSection: ((SettingsSection) -> Void)?
+    var onNavigateToPane: ((WorklaneID, PaneID) -> Void)?
 
     var isShown: Bool { panel != nil }
 
@@ -24,6 +26,9 @@ final class CommandPaletteController {
         availabilityContext: CommandAvailabilityContext,
         focusedPanePath: String?,
         focusedBranchName: String?,
+        worklanes: [WorklaneState] = [],
+        currentPaneReference: WorklaneStore.PaneReference? = nil,
+        recentPaneReferences: [WorklaneStore.PaneReference] = [],
         openWithTargets: [OpenWithResolvedTarget] = [],
         rightPaneCommandPresentation: PaneRightCommandPresentation = .addsToWorklane
     ) {
@@ -47,7 +52,19 @@ final class CommandPaletteController {
             focusedPanePath: focusedPanePath
         )
         let worklaneColorItems = CommandPaletteItemBuilder.buildWorklaneColorItems()
-        let allItems = commandItems + openWithItems + worklaneColorItems
+        let settingsItems = CommandPaletteItemBuilder.buildSettingsItems()
+        let paneItems = CommandPaletteItemBuilder.buildPaneItems(
+            worklanes: worklanes,
+            currentPaneReference: currentPaneReference
+        )
+        let allItems = commandItems + paneItems + settingsItems + openWithItems + worklaneColorItems
+        let emptyActionIDs = Self.emptyActionIDs
+        let recentPaneIDs = recentPaneReferences.map {
+            CommandPaletteItemID.pane(worklaneID: $0.worklaneID, paneID: $0.paneID)
+        }
+        let currentPaneID = currentPaneReference.map {
+            CommandPaletteItemID.pane(worklaneID: $0.worklaneID, paneID: $0.paneID)
+        }
 
         let recentItems = recentCommands.recentItemIDs.compactMap { itemID in
             allItems.first { $0.id == itemID }
@@ -55,7 +72,10 @@ final class CommandPaletteController {
         let initialResults = CommandPaletteResultsResolver.resolve(
             searchText: "",
             items: allItems,
-            recentItems: recentItems
+            recentItems: recentItems,
+            recentPaneIDs: recentPaneIDs,
+            currentPaneID: currentPaneID,
+            emptyActionIDs: emptyActionIDs
         )
         let initialPanelHeight = CommandPaletteLayoutMetrics.preferredPanelHeight(results: initialResults)
         let paletteTheme = CommandPaletteTheme(zenttyTheme: theme)
@@ -63,6 +83,9 @@ final class CommandPaletteController {
         let view = CommandPaletteView(
             items: allItems,
             recentItems: recentItems,
+            recentPaneIDs: recentPaneIDs,
+            currentPaneID: currentPaneID,
+            emptyActionIDs: emptyActionIDs,
             theme: paletteTheme,
             onExecute: { [weak self] itemID in
                 self?.executeItem(itemID)
@@ -168,7 +191,9 @@ final class CommandPaletteController {
     }
 
     private func executeItem(_ itemID: CommandPaletteItemID) {
-        recentCommands.record(itemID)
+        if itemID.shouldRecordAsRecentCommand {
+            recentCommands.record(itemID)
+        }
         close()
 
         switch itemID {
@@ -180,8 +205,19 @@ final class CommandPaletteController {
             onOpenWith?(stableID, path)
         case .worklaneColor(let color):
             onSetWorklaneColor?(color)
+        case .settings(let section):
+            onShowSettingsSection?(section)
+        case .pane(let worklaneID, let paneID):
+            onNavigateToPane?(worklaneID, paneID)
         }
     }
+
+    private static let emptyActionIDs: [CommandPaletteItemID] = [
+        .command(.newWorklane),
+        .command(.splitHorizontally),
+        .command(.splitVertically),
+        .command(.openSettings),
+    ]
 
     private func installDismissMonitor() {
         clickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
@@ -210,6 +246,17 @@ final class CommandPaletteController {
             context.duration = 0.12
             context.timingFunction = CAMediaTimingFunction(name: .easeOut)
             panel.animator().setFrame(newFrame, display: true)
+        }
+    }
+}
+
+private extension CommandPaletteItemID {
+    var shouldRecordAsRecentCommand: Bool {
+        switch self {
+        case .pane:
+            false
+        case .command, .openWith, .worklaneColor, .settings:
+            true
         }
     }
 }

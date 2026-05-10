@@ -1,6 +1,6 @@
 import AppKit
 
-enum SettingsSection: String, CaseIterable, Equatable, Sendable {
+enum SettingsSection: String, CaseIterable, Hashable, Sendable {
     case general
     case appearance
     case shortcuts

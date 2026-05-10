@@ -175,6 +175,7 @@ final class RootViewController: NSViewController {
     var onOpenWithPrimaryRequested: (() -> Void)?
     var onOpenWithMenuRequested: (() -> Void)?
     var onShowSettingsRequested: (() -> Void)?
+    var onShowSettingsSectionRequested: ((SettingsSection) -> Void)?
     var onCheckForUpdatesRequested: (() -> Void)?
     var onCloseWindowRequested: (() -> Void)?
     var onNavigateToNotificationRequested: ((WindowID, WorklaneID, PaneID) -> Void)?
@@ -967,6 +968,12 @@ final class RootViewController: NSViewController {
                 guard let self else { return }
                 self.worklaneStore.setColor(color, on: self.worklaneStore.activeWorklaneID)
             }
+            commandPaletteController.onShowSettingsSection = { [weak self] section in
+                self?.onShowSettingsSectionRequested?(section)
+            }
+            commandPaletteController.onNavigateToPane = { [weak self] worklaneID, paneID in
+                self?.navigateToPaneFromCommandPalette(worklaneID: worklaneID, paneID: paneID)
+            }
         }
         syncSidebarWidthToAvailableWidth(persist: false, forceLayout: false)
         renderCoordinator.updateSurfaceActivities()
@@ -1467,9 +1474,24 @@ final class RootViewController: NSViewController {
             availabilityContext: availabilityContext,
             focusedPanePath: focusedPanePath,
             focusedBranchName: focusedBranchName,
+            worklanes: worklaneStore.worklanes,
+            currentPaneReference: worklaneStore.currentPaneReferenceForCommandPalette,
+            recentPaneReferences: worklaneStore.recentPaneReferencesForCommandPalette,
             openWithTargets: openWithTargets,
             rightPaneCommandPresentation: currentPaneLayoutContext.rightPaneCommandPresentation
         )
+    }
+
+    private func navigateToPaneFromCommandPalette(worklaneID: WorklaneID, paneID: PaneID) {
+        navigateToPane(worklaneID: worklaneID, paneID: paneID)
+        view.layoutSubtreeIfNeeded()
+        runtimeRegistry.runtime(for: paneID)?.forceViewportSync()
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.view.layoutSubtreeIfNeeded()
+            self.runtimeRegistry.runtime(for: paneID)?.forceViewportSync()
+            self.runtimeRegistry.runtime(for: paneID)?.hostView.focusTerminalIfReady()
+        }
     }
 
     private func openWithFromPalette(stableID: String, workingDirectory: String) {

@@ -4,11 +4,30 @@ enum CommandPaletteItemID: Hashable {
     case command(AppCommandID)
     case openWith(stableID: String)
     case worklaneColor(WorklaneColor?)
+    case settings(SettingsSection)
+    case pane(worklaneID: WorklaneID, paneID: PaneID)
 }
 
 enum CommandPaletteItemFamily: Hashable {
     case openWith
     case worklaneColor
+}
+
+enum CommandPaletteItemGroup: Int, Hashable {
+    case pane
+    case settings
+    case action
+
+    var title: String {
+        switch self {
+        case .pane:
+            "Panes"
+        case .settings:
+            "Settings"
+        case .action:
+            "Actions"
+        }
+    }
 }
 
 struct CommandPaletteItem: Identifiable, Equatable {
@@ -18,9 +37,50 @@ struct CommandPaletteItem: Identifiable, Equatable {
     let shortcutDisplay: String?
     let category: String
     let searchText: String
+    let primarySearchText: String
+    let secondarySearchText: String
+    let primaryAliasSearchText: String
+    let secondaryAliasSearchText: String
+    let group: CommandPaletteItemGroup
+    let iconSystemName: String
+    let rankingBoost: Double
     let family: CommandPaletteItemFamily?
     let familySearchText: String?
     let familyOrder: Int?
+
+    init(
+        id: CommandPaletteItemID,
+        title: String,
+        subtitle: String,
+        shortcutDisplay: String?,
+        category: String,
+        searchText: String,
+        primarySearchText: String? = nil,
+        secondarySearchText: String? = nil,
+        group: CommandPaletteItemGroup = .action,
+        iconSystemName: String = "command",
+        rankingBoost: Double = 0,
+        family: CommandPaletteItemFamily? = nil,
+        familySearchText: String? = nil,
+        familyOrder: Int? = nil
+    ) {
+        self.id = id
+        self.title = title
+        self.subtitle = subtitle
+        self.shortcutDisplay = shortcutDisplay
+        self.category = category
+        self.searchText = CommandPaletteSearchTextNormalizer.normalized(searchText)
+        self.primarySearchText = CommandPaletteSearchTextNormalizer.normalized(primarySearchText ?? title)
+        self.secondarySearchText = CommandPaletteSearchTextNormalizer.normalized(secondarySearchText ?? searchText)
+        self.primaryAliasSearchText = CommandPaletteSearchTextNormalizer.separatorInsensitive(primarySearchText ?? title)
+        self.secondaryAliasSearchText = CommandPaletteSearchTextNormalizer.separatorInsensitive(secondarySearchText ?? searchText)
+        self.group = group
+        self.iconSystemName = iconSystemName
+        self.rankingBoost = rankingBoost
+        self.family = family
+        self.familySearchText = familySearchText
+        self.familyOrder = familyOrder
+    }
 }
 
 enum CommandPaletteItemBuilder {
@@ -55,10 +115,110 @@ enum CommandPaletteItemBuilder {
                 shortcutDisplay: shortcut?.displayString,
                 category: definition.category.title,
                 searchText: searchText(for: definition, title: title, subtitle: subtitle),
+                iconSystemName: iconSystemName(for: definition.id),
                 family: nil,
                 familySearchText: nil,
                 familyOrder: nil
             )
+        }
+    }
+
+    static func buildSettingsItems() -> [CommandPaletteItem] {
+        SettingsSection.allCases.map { section in
+            let title = "\(section.title) Settings"
+            return CommandPaletteItem(
+                id: .settings(section),
+                title: title,
+                subtitle: "Jump to the \(section.title) settings pane.",
+                shortcutDisplay: nil,
+                category: "Settings",
+                searchText: [
+                    title,
+                    section.title,
+                    section.rawValue,
+                    "settings preferences configuration",
+                ].joined(separator: " ").lowercased(),
+                group: .settings,
+                iconSystemName: section.symbolName,
+                rankingBoost: 0.05
+            )
+        }
+    }
+
+    static func buildPaneItems(
+        worklanes: [WorklaneState],
+        currentPaneReference: WorklaneStore.PaneReference?
+    ) -> [CommandPaletteItem] {
+        worklanes.flatMap { worklane in
+            worklane.paneStripState.panes.compactMap { pane -> CommandPaletteItem? in
+                let context = worklane.paneContext(for: pane.id)
+                let presentation = context?.presentation ?? PanePresentationState()
+                let title = paneTitle(pane: pane, presentation: presentation)
+                let worklaneTitle = WorklaneState.meaningfulTitle(from: worklane.title) ?? "Main"
+                let branch = WorklaneContextFormatter.trimmed(presentation.branchDisplayText ?? presentation.branch)
+                let location = paneLocation(presentation: presentation, auxiliaryState: context?.auxiliaryState)
+                let status = WorklaneContextFormatter.trimmed(presentation.statusText)
+                let subtitle = [worklaneTitle, branch, location, status]
+                    .compactMap { $0 }
+                    .joined(separator: " • ")
+                let isCurrent = currentPaneReference?.worklaneID == worklane.id
+                    && currentPaneReference?.paneID == pane.id
+                let searchText = [
+                    title,
+                    subtitle,
+                    worklane.title,
+                    worklaneTitle,
+                    pane.title,
+                    presentation.cwd,
+                    presentation.repoRoot,
+                    presentation.branch,
+                    presentation.branchDisplayText,
+                    presentation.identityText,
+                    presentation.contextText,
+                    presentation.rememberedTitle,
+                    presentation.statusText,
+                    context?.auxiliaryState?.shellContext?.path,
+                    context?.auxiliaryState?.metadata?.currentWorkingDirectory,
+                    context?.auxiliaryState?.metadata?.gitBranch,
+                    context?.auxiliaryState?.metadata?.processName,
+                ]
+                .compactMap { $0 }
+                .joined(separator: " ")
+                let secondarySearchText = [
+                    subtitle,
+                    worklane.title,
+                    worklaneTitle,
+                    pane.title,
+                    presentation.cwd,
+                    presentation.repoRoot,
+                    presentation.branch,
+                    presentation.branchDisplayText,
+                    presentation.identityText,
+                    presentation.contextText,
+                    presentation.rememberedTitle,
+                    presentation.statusText,
+                    context?.auxiliaryState?.shellContext?.path,
+                    context?.auxiliaryState?.metadata?.currentWorkingDirectory,
+                    context?.auxiliaryState?.metadata?.gitBranch,
+                    context?.auxiliaryState?.metadata?.processName,
+                ]
+                .compactMap { $0 }
+                .joined(separator: " ")
+
+                return CommandPaletteItem(
+                    id: .pane(worklaneID: worklane.id, paneID: pane.id),
+                    title: title,
+                    subtitle: subtitle,
+                    shortcutDisplay: nil,
+                    category: isCurrent ? "Current Pane" : "Pane",
+                    searchText: searchText,
+                    primarySearchText: title,
+                    secondarySearchText: secondarySearchText,
+                    group: .pane,
+                    iconSystemName: "arrow.right.square",
+                    rankingBoost: isCurrent ? 0.02 : 0.08
+                )
+            }
         }
     }
 
@@ -74,6 +234,7 @@ enum CommandPaletteItemBuilder {
                     shortcutDisplay: nil,
                     category: "Worklane color",
                     searchText: "worklane color \(name)".lowercased(),
+                    iconSystemName: "paintpalette",
                     family: .worklaneColor,
                     familySearchText: name.lowercased(),
                     familyOrder: index
@@ -89,6 +250,7 @@ enum CommandPaletteItemBuilder {
                 shortcutDisplay: nil,
                 category: "Worklane color",
                 searchText: "worklane color reset default clear".lowercased(),
+                iconSystemName: "paintpalette",
                 family: .worklaneColor,
                 familySearchText: "reset default clear",
                 familyOrder: WorklaneColor.allCases.count
@@ -120,6 +282,7 @@ enum CommandPaletteItemBuilder {
                 shortcutDisplay: nil,
                 category: "Open With",
                 searchText: "open with open \(familySearchText)".lowercased(),
+                iconSystemName: target.iconSystemName,
                 family: .openWith,
                 familySearchText: familySearchText,
                 familyOrder: index
@@ -175,6 +338,48 @@ enum CommandPaletteItemBuilder {
 
         return definition.searchText
     }
+
+    private static func paneTitle(pane: PaneState, presentation: PanePresentationState) -> String {
+        WorklaneContextFormatter.trimmed(presentation.rememberedTitle)
+            ?? WorklaneContextFormatter.trimmed(presentation.visibleIdentityText)
+            ?? WorklaneContextFormatter.trimmed(presentation.contextText)
+            ?? WorklaneContextFormatter.trimmed(pane.title)
+            ?? "Pane"
+    }
+
+    private static func paneLocation(
+        presentation: PanePresentationState,
+        auxiliaryState: PaneAuxiliaryState?
+    ) -> String? {
+        WorklaneContextFormatter.trimmed(presentation.remoteLocationLabel)
+            ?? WorklaneContextFormatter.formattedWorkingDirectory(presentation.cwd)
+            ?? auxiliaryState?.shellContext?.borderContextDisplayText
+            ?? WorklaneContextFormatter.formattedWorkingDirectory(
+                auxiliaryState?.metadata?.currentWorkingDirectory,
+                branch: auxiliaryState?.metadata?.gitBranch
+            )
+    }
+
+    private static func iconSystemName(for commandID: AppCommandID) -> String {
+        switch commandID {
+        case .newWorklane:
+            "plus.square.on.square"
+        case .splitHorizontally:
+            "rectangle.split.2x1"
+        case .splitVertically:
+            "rectangle.split.1x2"
+        case .openSettings:
+            "gearshape"
+        case .toggleSidebar:
+            "sidebar.left"
+        case .copyFocusedPanePath:
+            "doc.on.doc"
+        case .openBranchOnRemote:
+            "arrow.up.forward.app"
+        default:
+            "command"
+        }
+    }
 }
 
 private extension OpenWithTargetKind {
@@ -188,6 +393,17 @@ private extension OpenWithTargetKind {
 }
 
 private extension OpenWithResolvedTarget {
+    var iconSystemName: String {
+        switch kind {
+        case .editor:
+            "pencil.and.outline"
+        case .fileManager:
+            "folder"
+        case .terminal:
+            "terminal"
+        }
+    }
+
     var searchAliases: String {
         let aliases: [String] = switch builtInID {
         case .vscode?:
