@@ -1037,6 +1037,10 @@ extension AgentEventBridge {
             return []
         }
 
+        if codexNotifyIsAutoApprovalSuccessMessage(normalizedMessage) {
+            return []
+        }
+
         return [AgentStatusPayload(
             windowID: target.windowID,
             worklaneID: target.worklaneID,
@@ -1053,6 +1057,25 @@ extension AgentEventBridge {
             artifactLabel: nil,
             artifactURL: nil
         )]
+    }
+
+    private static func codexNotifyIsAutoApprovalSuccessMessage(_ message: String) -> Bool {
+        let normalized = message.lowercased()
+        let compact = normalized.filter { $0.isLetter || $0.isNumber }
+
+        let mentionsAutoApprovalSuccess = [
+            "automaticapprovalreviewapproved",
+            "autoreviewerapproved",
+            "autoreviewreturned",
+        ].contains(where: compact.contains)
+
+        guard mentionsAutoApprovalSuccess else {
+            return false
+        }
+
+        return compact.contains("approved")
+            || compact.contains("allowdecision")
+            || compact.contains("allowed")
     }
 
     private static func codexNotifyInteractionKind(
