@@ -110,6 +110,8 @@ final class PaneStripView: NSView {
     private var isTerminalRedrawScheduled = false
     private var currentTheme = ZenttyTheme.fallback(for: nil)
     private var resolvedLeadingVisibleInset: CGFloat = 0
+    private var viewportDiagnosticsWorklaneID: WorklaneID?
+    private var viewportDiagnosticsLaneRole: TerminalViewportLaneRole = .activeCanvas
     private var hoveredDivider: PaneDivider?
     private var activeDivider: PaneDivider?
     private var dividerDragSession: DividerDragSession?
@@ -945,7 +947,10 @@ final class PaneStripView: NSView {
                     isFocused: panePresentation.isFocused,
                     runtime: runtime,
                     theme: currentTheme,
-                    initialViewportSyncSuspended: startsWithViewportSyncSuspended
+                    initialViewportSyncSuspended: startsWithViewportSyncSuspended,
+                    viewportDiagnosticsWorklaneID: viewportDiagnosticsWorklaneID,
+                    viewportDiagnosticsLaneRole: viewportDiagnosticsLaneRole,
+                    viewportDiagnosticsIsZoomedOut: isZoomedOut
                 )
                 paneView.setZoomedOutBackdropVisible(isZoomedOut, animated: false)
                 paneView.onSelected = { [weak self] in
@@ -985,6 +990,19 @@ final class PaneStripView: NSView {
                 }
                 paneViews[panePresentation.paneID] = paneView
                 viewportView.addSubview(paneView)
+                if startsWithViewportSyncSuspended {
+                    paneView.prepareSuspendedTerminalLayoutForPreviewMount()
+                }
+                TerminalViewportDiagnostics.shared.record(
+                    .paneMounted,
+                    context: TerminalViewportDiagnostics.Context(
+                        paneID: pane.id,
+                        worklaneID: viewportDiagnosticsWorklaneID,
+                        laneRole: viewportDiagnosticsLaneRole,
+                        isZoomedOut: isZoomedOut,
+                        containerBounds: paneView.bounds
+                    )
+                )
                 paneView.activateSessionIfNeeded()
 
             let dragZone = PaneDragZoneView(paneID: pane.id)
@@ -1151,6 +1169,21 @@ final class PaneStripView: NSView {
         dividerViews.values.forEach { $0.layer?.removeAllAnimations() }
         layer?.removeAllAnimations()
         settlePresentationNow()
+    }
+
+    func configureViewportDiagnostics(
+        worklaneID: WorklaneID?,
+        laneRole: TerminalViewportLaneRole
+    ) {
+        viewportDiagnosticsWorklaneID = worklaneID
+        viewportDiagnosticsLaneRole = laneRole
+        for paneView in paneViews.values {
+            paneView.configureViewportDiagnostics(
+                worklaneID: worklaneID,
+                laneRole: laneRole,
+                isZoomedOut: isZoomedOut
+            )
+        }
     }
 
     private func cleanupTransientStateForWindowDetachment() {
@@ -1633,6 +1666,15 @@ final class PaneStripView: NSView {
         guard !isDragActive, !isZoomedOut else { return }
         isZoomedOut = true
         zoomOutScaleOverride = scale
+        TerminalViewportDiagnostics.shared.record(
+            .peekNeighborPrepareZoomOut,
+            context: TerminalViewportDiagnostics.Context(
+                worklaneID: viewportDiagnosticsWorklaneID,
+                laneRole: viewportDiagnosticsLaneRole,
+                isZoomedOut: isZoomedOut,
+                note: "scale=\(scale)"
+            )
+        )
     }
 
     /// Variant of `beginPeekZoomOut` for **neighbor preview lanes**:
@@ -1647,6 +1689,11 @@ final class PaneStripView: NSView {
         zoomOutScaleOverride = scale
         setZoomedOutPaneBackdropsVisible(true, animated: false)
         for (_, paneView) in paneViews {
+            paneView.configureViewportDiagnostics(
+                worklaneID: viewportDiagnosticsWorklaneID,
+                laneRole: viewportDiagnosticsLaneRole,
+                isZoomedOut: isZoomedOut
+            )
             paneView.setTerminalViewportSyncSuspended(true)
         }
         applyZoom(animated: false, centerOnPaneID: centerOnPaneID)
@@ -1657,6 +1704,14 @@ final class PaneStripView: NSView {
     /// unsuspend path from the animated active-strip zoom-in.
     func endPeekNeighborZoomOut() {
         guard isZoomedOut else { return }
+        TerminalViewportDiagnostics.shared.record(
+            .peekNeighborEndZoomOut,
+            context: TerminalViewportDiagnostics.Context(
+                worklaneID: viewportDiagnosticsWorklaneID,
+                laneRole: viewportDiagnosticsLaneRole,
+                isZoomedOut: isZoomedOut
+            )
+        )
         isZoomedOut = false
         zoomOutScaleOverride = nil
         dragScrollOffsetX = 0
@@ -1664,7 +1719,40 @@ final class PaneStripView: NSView {
         onZoomTransformChanged?()
         setZoomedOutPaneBackdropsVisible(false, animated: false)
         for (_, paneView) in paneViews {
+            paneView.configureViewportDiagnostics(
+                worklaneID: viewportDiagnosticsWorklaneID,
+                laneRole: viewportDiagnosticsLaneRole,
+                isZoomedOut: isZoomedOut
+            )
             paneView.setTerminalViewportSyncSuspended(false)
+        }
+    }
+
+    /// Tear down a neighbor preview carrier without publishing its temporary
+    /// geometry back to the terminal engine.
+    func abandonPeekNeighborZoomOutForTeardown() {
+        guard isZoomedOut else { return }
+        TerminalViewportDiagnostics.shared.record(
+            .peekNeighborAbandonZoomOut,
+            context: TerminalViewportDiagnostics.Context(
+                worklaneID: viewportDiagnosticsWorklaneID,
+                laneRole: viewportDiagnosticsLaneRole,
+                isZoomedOut: isZoomedOut
+            )
+        )
+        zoomSpring.stop()
+        isZoomedOut = false
+        zoomOutScaleOverride = nil
+        dragScrollOffsetX = 0
+        applyZoomScale(1)
+        onZoomTransformChanged?()
+        setZoomedOutPaneBackdropsVisible(false, animated: false)
+        for (_, paneView) in paneViews {
+            paneView.configureViewportDiagnostics(
+                worklaneID: viewportDiagnosticsWorklaneID,
+                laneRole: viewportDiagnosticsLaneRole,
+                isZoomedOut: isZoomedOut
+            )
         }
     }
 
@@ -1673,6 +1761,15 @@ final class PaneStripView: NSView {
     /// not currently zoomed.
     func centerPeekOnPane(_ paneID: PaneID, animated: Bool = true) {
         guard isZoomedOut else { return }
+        TerminalViewportDiagnostics.shared.record(
+            .peekNeighborCenterOnPane,
+            context: TerminalViewportDiagnostics.Context(
+                paneID: paneID,
+                worklaneID: viewportDiagnosticsWorklaneID,
+                laneRole: viewportDiagnosticsLaneRole,
+                isZoomedOut: isZoomedOut
+            )
+        )
         applyZoom(animated: animated, centerOnPaneID: paneID)
     }
 
@@ -1682,6 +1779,14 @@ final class PaneStripView: NSView {
     /// split panes against the carrier mask.
     func resetPeekHorizontalCentering() {
         guard isZoomedOut else { return }
+        TerminalViewportDiagnostics.shared.record(
+            .peekNeighborResetFullCanvas,
+            context: TerminalViewportDiagnostics.Context(
+                worklaneID: viewportDiagnosticsWorklaneID,
+                laneRole: viewportDiagnosticsLaneRole,
+                isZoomedOut: isZoomedOut
+            )
+        )
         zoomSpring.stop()
         zoomAnchor = CGPoint(x: viewportView.frame.width / 2, y: viewportView.frame.height / 2)
         dragScrollOffsetX = 0
@@ -1705,6 +1810,15 @@ final class PaneStripView: NSView {
     /// `dragScrollOffsetX = 0` would land).
     func endPeekZoomIn(animated: Bool = true, centerOnPaneID: PaneID? = nil) {
         guard isZoomedOut else { return }
+        TerminalViewportDiagnostics.shared.record(
+            .activeZoomIn,
+            context: TerminalViewportDiagnostics.Context(
+                paneID: centerOnPaneID,
+                worklaneID: viewportDiagnosticsWorklaneID,
+                laneRole: viewportDiagnosticsLaneRole,
+                isZoomedOut: isZoomedOut
+            )
+        )
         isZoomedOut = false
         applyZoom(animated: animated, centerOnPaneID: centerOnPaneID)
         // Reset so the next drag-zoom (or another peek session)
@@ -1716,6 +1830,20 @@ final class PaneStripView: NSView {
         if !animated {
             setZoomedOutPaneBackdropsVisible(false, animated: false)
             for (_, paneView) in paneViews {
+                paneView.configureViewportDiagnostics(
+                    worklaneID: viewportDiagnosticsWorklaneID,
+                    laneRole: viewportDiagnosticsLaneRole,
+                    isZoomedOut: isZoomedOut
+                )
+                TerminalViewportDiagnostics.shared.record(
+                    .activeZoomInUnsuspend,
+                    context: TerminalViewportDiagnostics.Context(
+                        paneID: paneView.paneID,
+                        worklaneID: viewportDiagnosticsWorklaneID,
+                        laneRole: viewportDiagnosticsLaneRole,
+                        isZoomedOut: isZoomedOut
+                    )
+                )
                 paneView.setTerminalViewportSyncSuspended(false)
             }
             return
@@ -1727,6 +1855,20 @@ final class PaneStripView: NSView {
             else { return }
             self.setZoomedOutPaneBackdropsVisible(false, animated: animated)
             for (_, paneView) in self.paneViews {
+                paneView.configureViewportDiagnostics(
+                    worklaneID: self.viewportDiagnosticsWorklaneID,
+                    laneRole: self.viewportDiagnosticsLaneRole,
+                    isZoomedOut: self.isZoomedOut
+                )
+                TerminalViewportDiagnostics.shared.record(
+                    .activeZoomInUnsuspend,
+                    context: TerminalViewportDiagnostics.Context(
+                        paneID: paneView.paneID,
+                        worklaneID: self.viewportDiagnosticsWorklaneID,
+                        laneRole: self.viewportDiagnosticsLaneRole,
+                        isZoomedOut: self.isZoomedOut
+                    )
+                )
                 paneView.setTerminalViewportSyncSuspended(false)
             }
         }

@@ -3183,6 +3183,18 @@ extension RootViewController: WorklanePeekControllerDelegate {
         // through the zoom-in instead of sliding horizontally back to the
         // natural unscrolled origin (which would yank the pane sideways).
         let committedPaneID = worklaneStore.activeWorklane?.paneStripState.focusedPaneID
+        TerminalViewportDiagnostics.shared.record(
+            .rootPeekDidClose,
+            context: TerminalViewportDiagnostics.Context(
+                paneID: committedPaneID,
+                worklaneID: worklaneStore.activeWorklaneID,
+                laneRole: .activeCanvas
+            )
+        )
+        appCanvasView.paneStripView.configureViewportDiagnostics(
+            worklaneID: worklaneStore.activeWorklaneID,
+            laneRole: .activeCanvas
+        )
         appCanvasView.paneStripView.endPeekZoomIn(
             animated: true,
             centerOnPaneID: committedPaneID

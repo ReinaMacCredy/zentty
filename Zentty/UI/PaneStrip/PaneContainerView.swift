@@ -323,6 +323,9 @@ final class PaneContainerView: NSView {
     private var statusState: StatusState = .hidden
     private var runtimeObserverID: UUID?
     private(set) var isTerminalAnimationFrozen = false
+    private var viewportDiagnosticsWorklaneID: WorklaneID?
+    private var viewportDiagnosticsLaneRole: TerminalViewportLaneRole = .unknown
+    private var viewportDiagnosticsIsZoomedOut = false
     private var isInsetBorderAnimationManaged = false
     private var currentTheme: ZenttyTheme
     private var currentEmphasis: CGFloat
@@ -367,6 +370,9 @@ final class PaneContainerView: NSView {
         runtime: PaneRuntime,
         theme: ZenttyTheme,
         initialViewportSyncSuspended: Bool = false,
+        viewportDiagnosticsWorklaneID: WorklaneID? = nil,
+        viewportDiagnosticsLaneRole: TerminalViewportLaneRole = .unknown,
+        viewportDiagnosticsIsZoomedOut: Bool = false,
         backingScaleFactorProvider: @escaping () -> CGFloat = {
             NSScreen.main?.backingScaleFactor ?? 1
         }
@@ -379,9 +385,14 @@ final class PaneContainerView: NSView {
         self.currentTheme = theme
         self.currentEmphasis = emphasis
         self.currentIsFocused = isFocused
+        self.viewportDiagnosticsWorklaneID = viewportDiagnosticsWorklaneID
+        self.viewportDiagnosticsLaneRole = viewportDiagnosticsLaneRole
+        self.viewportDiagnosticsIsZoomedOut = viewportDiagnosticsIsZoomedOut
         super.init(frame: NSRect(x: 0, y: 0, width: width, height: height))
         translatesAutoresizingMaskIntoConstraints = true
+        updateTerminalViewportDiagnosticsContext()
         if initialViewportSyncSuspended {
+            TerminalViewportDiagnostics.shared.record(.initialSuspension, context: viewportDiagnosticsContext())
             terminalHostView.setViewportSyncSuspended(true)
         }
         setup()
@@ -406,6 +417,9 @@ final class PaneContainerView: NSView {
             runtime: runtime,
             theme: theme,
             initialViewportSyncSuspended: false,
+            viewportDiagnosticsWorklaneID: nil,
+            viewportDiagnosticsLaneRole: .unknown,
+            viewportDiagnosticsIsZoomedOut: false,
             backingScaleFactorProvider: { NSScreen.main?.backingScaleFactor ?? 1 }
         )
     }
@@ -429,6 +443,9 @@ final class PaneContainerView: NSView {
             runtime: runtime,
             theme: theme,
             initialViewportSyncSuspended: false,
+            viewportDiagnosticsWorklaneID: nil,
+            viewportDiagnosticsLaneRole: .unknown,
+            viewportDiagnosticsIsZoomedOut: false,
             backingScaleFactorProvider: backingScaleFactorProvider
         )
     }
@@ -476,6 +493,8 @@ final class PaneContainerView: NSView {
         contentClipView.addSubview(terminalAnchorView)
         terminalAnchorView.addSubview(terminalHostView)
         contentClipView.addSubview(statusOverlayView)
+        updateTerminalViewportDiagnosticsContext()
+        TerminalViewportDiagnostics.shared.record(.paneContainerReparent, context: viewportDiagnosticsContext())
 
         terminalHostView.onFocusDidChange = { [weak self] isFocused in
             guard let self else { return }
@@ -699,21 +718,42 @@ final class PaneContainerView: NSView {
 
     func activateSessionIfNeeded() {
         ZenttyPerformanceSignposts.interval("PaneContainerActivateSession") {
+            TerminalViewportDiagnostics.shared.record(.paneContainerSessionActivate, context: viewportDiagnosticsContext())
             runtime.ensureStarted()
         }
+    }
+
+    func configureViewportDiagnostics(
+        worklaneID: WorklaneID?,
+        laneRole: TerminalViewportLaneRole,
+        isZoomedOut: Bool
+    ) {
+        viewportDiagnosticsWorklaneID = worklaneID
+        viewportDiagnosticsLaneRole = laneRole
+        viewportDiagnosticsIsZoomedOut = isZoomedOut
+        updateTerminalViewportDiagnosticsContext()
     }
 
     func setTerminalViewportSyncSuspended(_ suspended: Bool) {
         needsLayout = true
         if suspended {
             guard ownsTerminalHostView else { return }
+            updateTerminalViewportDiagnosticsContext(isViewportSyncSuspended: true)
             terminalHostView.setViewportSyncSuspended(true)
             syncFramesForCurrentBounds()
         } else {
             syncFramesForCurrentBounds()
             guard ownsTerminalHostView else { return }
+            updateTerminalViewportDiagnosticsContext(isViewportSyncSuspended: false)
             terminalHostView.setViewportSyncSuspended(false)
         }
+    }
+
+    func prepareSuspendedTerminalLayoutForPreviewMount() {
+        guard ownsTerminalHostView else { return }
+        setTerminalViewportSyncSuspended(true)
+        terminalHostView.needsLayout = true
+        terminalHostView.layoutSubtreeIfNeeded()
     }
 
     func forceTerminalViewportSync() {
@@ -1305,6 +1345,29 @@ final class PaneContainerView: NSView {
         if !isTerminalAnimationFrozen {
             terminalHostView.frame = terminalAnchorView.bounds
         }
+        updateTerminalViewportDiagnosticsContext()
+        TerminalViewportDiagnostics.shared.record(.paneContainerFrameSync, context: viewportDiagnosticsContext())
+    }
+
+    private func updateTerminalViewportDiagnosticsContext(isViewportSyncSuspended: Bool? = nil) {
+        terminalHostView.updateViewportDiagnosticsContext(
+            viewportDiagnosticsContext(isViewportSyncSuspended: isViewportSyncSuspended)
+        )
+    }
+
+    private func viewportDiagnosticsContext(
+        isViewportSyncSuspended: Bool? = nil
+    ) -> TerminalViewportDiagnostics.Context {
+        TerminalViewportDiagnostics.Context(
+            paneID: paneID,
+            worklaneID: viewportDiagnosticsWorklaneID,
+            laneRole: viewportDiagnosticsLaneRole,
+            isZoomedOut: viewportDiagnosticsIsZoomedOut,
+            isViewportSyncSuspended: isViewportSyncSuspended,
+            windowAttached: window != nil,
+            containerBounds: bounds,
+            terminalHostBounds: terminalHostView.bounds
+        )
     }
 
     private func setupStatusOverlay() {

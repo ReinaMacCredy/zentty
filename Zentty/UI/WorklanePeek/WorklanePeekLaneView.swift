@@ -77,12 +77,23 @@ final class WorklanePeekLaneView: NSView {
         zoomScale: CGFloat
     ) {
         worklaneID = worklane.id
+        strip.configureViewportDiagnostics(worklaneID: worklane.id, laneRole: .peekNeighbor)
         singlePanePreviewPaneID = worklane.paneStripState.panes.count == 1
             ? worklane.paneStripState.focusedPaneID
             : nil
         self.canvasSize = canvasSize
         self.laneZoomScale = zoomScale
         relayoutStrip()
+        TerminalViewportDiagnostics.shared.record(
+            .peekNeighborBind,
+            context: TerminalViewportDiagnostics.Context(
+                paneID: worklane.paneStripState.focusedPaneID,
+                worklaneID: worklane.id,
+                laneRole: .peekNeighbor,
+                viewportSize: canvasSize,
+                note: bindDiagnosticsNote(focusedPaneID: worklane.paneStripState.focusedPaneID, zoomScale: zoomScale)
+            )
+        )
 
         if !hasInitialZoomOut {
             strip.preparePeekNeighborZoomOut(scale: zoomScale)
@@ -201,10 +212,37 @@ final class WorklanePeekLaneView: NSView {
     /// switch (e.g., committing into the just-previewed neighbor) doesn't
     /// race with the neighbor strip still owning the host views.
     func detach() {
-        strip.endPeekNeighborZoomOut()
+        TerminalViewportDiagnostics.shared.record(
+            .peekNeighborDetach,
+            context: TerminalViewportDiagnostics.Context(
+                worklaneID: worklaneID,
+                laneRole: .peekNeighbor
+            )
+        )
+        strip.abandonPeekNeighborZoomOutForTeardown()
         strip.removeFromSuperview()
         worklaneID = nil
         singlePanePreviewPaneID = nil
         onGeometryChanged = nil
+    }
+
+    private func bindDiagnosticsNote(focusedPaneID: PaneID?, zoomScale: CGFloat) -> String {
+        [
+            "zoomScale=\(zoomScale)",
+            "canvas=\(format(canvasSize))",
+            "carrier=\(format(bounds))",
+            "strip=\(format(strip.frame))",
+            "visibleCenterX=\(visibleBandCenterX.map(String.init(describing:)) ?? "nil")",
+            "focusedPaneID=\(focusedPaneID?.rawValue ?? "nil")",
+            "singlePanePreviewPaneID=\(singlePanePreviewPaneID?.rawValue ?? "nil")",
+        ].joined(separator: " ")
+    }
+
+    private func format(_ size: CGSize) -> String {
+        "\(size.width)x\(size.height)"
+    }
+
+    private func format(_ rect: CGRect) -> String {
+        "\(rect.origin.x),\(rect.origin.y),\(rect.width)x\(rect.height)"
     }
 }

@@ -134,6 +134,7 @@ final class WorklanePeekView: NSView {
     var onGeometryChanged: (() -> Void)?
 
     func detach() {
+        TerminalViewportDiagnostics.shared.record(.peekViewDetach)
         cameraSpring.stop()
         // Reset the anchor strip's camera transform before letting go so the
         // strip lands without a residual translate during the zoom-in.

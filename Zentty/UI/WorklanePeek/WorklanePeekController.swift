@@ -191,6 +191,14 @@ final class WorklanePeekController {
         let traversal = WorklanePeekTraversal.from(worklanes: worklaneAccess.worklanes)
         let selection = WorklanePeekSelectionState.opening(at: origin)
         phase = .peeking(selection, traversal: traversal)
+        TerminalViewportDiagnostics.shared.record(
+            .peekOpened,
+            context: TerminalViewportDiagnostics.Context(
+                paneID: origin.paneID,
+                worklaneID: origin.worklaneID,
+                laneRole: .activeCanvas
+            )
+        )
         delegate?.peekDidOpen(self)
     }
 
@@ -208,6 +216,14 @@ final class WorklanePeekController {
     private func commit(focusing reference: WorklaneStore.PaneReference) {
         cancelPendingHoldTimer()
         phase = .idle
+        TerminalViewportDiagnostics.shared.record(
+            .peekCommit,
+            context: TerminalViewportDiagnostics.Context(
+                paneID: reference.paneID,
+                worklaneID: reference.worklaneID,
+                laneRole: .activeCanvas
+            )
+        )
         worklaneAccess.selectWorklaneAndFocusPane(
             worklaneID: reference.worklaneID,
             paneID: reference.paneID

@@ -3,7 +3,7 @@ import Foundation
 import os
 
 @MainActor
-final class TerminalPaneHostView: NSView {
+final class TerminalPaneHostView: NSView, TerminalViewportDiagnosticsContextConfiguring {
     private static let logger = Logger(subsystem: "be.zenjoy.zentty", category: "TerminalPaneHostView")
 
     private let adapter: any TerminalAdapter
@@ -11,6 +11,7 @@ final class TerminalPaneHostView: NSView {
     private let searchHUDView = PaneSearchHUDView()
     private var hasStartedSession = false
     private var lastRenderedSearchState = PaneSearchState()
+    private var viewportDiagnosticsContext = TerminalViewportDiagnostics.Context()
 
     private var searchHUDContainerView: NSView {
         (terminalView as? any TerminalOverlayHosting)?.terminalOverlayHostView ?? self
@@ -99,12 +100,15 @@ final class TerminalPaneHostView: NSView {
     }
 
     func setViewportSyncSuspended(_ suspended: Bool) {
+        recordViewportDiagnostics(suspended ? .syncSuspended : .syncUnsuspended, suspended: suspended)
         if suspended {
             (terminalView as? any TerminalViewportSyncControlling)?
                 .setViewportSyncSuspended(true)
             syncTerminalViewFrameIfNeeded()
+            layoutTerminalSubtreeIfNeeded()
         } else {
             syncTerminalViewFrameIfNeeded()
+            layoutTerminalSubtreeIfNeeded()
             (terminalView as? any TerminalViewportSyncControlling)?
                 .setViewportSyncSuspended(false)
         }
@@ -118,7 +122,28 @@ final class TerminalPaneHostView: NSView {
     func forceViewportSync() {
         syncTerminalViewFrameIfNeeded()
         needsLayout = true
+        recordViewportDiagnostics(.forceViewportSync)
         (terminalView as? any TerminalViewportSyncControlling)?.forceViewportSync()
+    }
+
+    func updateViewportDiagnosticsContext(_ context: TerminalViewportDiagnostics.Context) {
+        viewportDiagnosticsContext = context
+        viewportDiagnosticsContext.terminalHostBounds = bounds
+        (terminalView as? any TerminalViewportDiagnosticsContextConfiguring)?
+            .updateViewportDiagnosticsContext(viewportDiagnosticsContext)
+    }
+
+    private func recordViewportDiagnostics(
+        _ source: TerminalViewportEventSource,
+        suspended: Bool? = nil
+    ) {
+        var context = viewportDiagnosticsContext
+        context.terminalHostBounds = bounds
+        context.windowAttached = window != nil
+        if let suspended {
+            context.isViewportSyncSuspended = suspended
+        }
+        TerminalViewportDiagnostics.shared.record(source, context: context)
     }
 
     var isTerminalFocused: Bool {
@@ -211,6 +236,11 @@ final class TerminalPaneHostView: NSView {
             return
         }
         terminalView.frame = bounds
+    }
+
+    private func layoutTerminalSubtreeIfNeeded() {
+        terminalView.needsLayout = true
+        terminalView.layoutSubtreeIfNeeded()
     }
 
     var terminalViewForTesting: NSView {

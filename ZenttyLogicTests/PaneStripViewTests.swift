@@ -3598,10 +3598,23 @@ final class PaneStripViewTests: AppKitTestCase {
         let betaAdapter = try XCTUnwrap(adapterFactory.adapter(for: PaneID("beta")))
         XCTAssertEqual(betaAdapter.terminalView.viewportSyncSuspensionUpdates.last, true)
         XCTAssertEqual(betaAdapter.terminalView.forceViewportSyncCallCount, 0)
+        let startSessionBounds = try XCTUnwrap(betaAdapter.startSessionTerminalViewBounds)
+        XCTAssertGreaterThan(startSessionBounds.width, 0)
+        XCTAssertGreaterThan(startSessionBounds.height, 0)
+        XCTAssertEqual(startSessionBounds.width, betaAdapter.terminalView.bounds.width, accuracy: 0.5)
+        XCTAssertEqual(startSessionBounds.height, betaAdapter.terminalView.bounds.height, accuracy: 0.5)
 
+        let layoutPassCountBeforeResume = betaAdapter.terminalView.layoutPassCount
         paneStripView.endPeekZoomIn(animated: false)
 
         XCTAssertEqual(betaAdapter.terminalView.viewportSyncSuspensionUpdates.suffix(2), [true, false])
+        let resumeIndex = try XCTUnwrap(
+            betaAdapter.terminalView.viewportSyncSuspensionUpdates.lastIndex(of: false)
+        )
+        XCTAssertGreaterThan(
+            betaAdapter.terminalView.layoutPassCountsAtViewportSyncSuspensionUpdates[resumeIndex],
+            layoutPassCountBeforeResume
+        )
     }
 
     @MainActor
@@ -3720,6 +3733,7 @@ private final class PaneStripTerminalAdapterSpy: TerminalAdapter {
     var metadataDidChange: ((TerminalMetadata) -> Void)?
     var eventDidOccur: ((TerminalEvent) -> Void)?
     private(set) var startSessionCallCount = 0
+    private(set) var startSessionTerminalViewBounds: CGSize?
     private(set) var lastSurfaceActivity = TerminalSurfaceActivity()
 
     init(paneID: PaneID) {
@@ -3732,6 +3746,7 @@ private final class PaneStripTerminalAdapterSpy: TerminalAdapter {
 
     func startSession(using request: TerminalSessionRequest) throws {
         startSessionCallCount += 1
+        startSessionTerminalViewBounds = terminalView.bounds.size
     }
 
     func close() {}
@@ -3746,8 +3761,10 @@ private final class PaneStripTerminalViewSpy: NSView, TerminalViewportSyncContro
     var onFocusDidChange: ((Bool) -> Void)?
     private(set) var viewportSyncSuspensionUpdates: [Bool] = []
     private(set) var viewportSyncSuspensionBounds: [CGSize] = []
+    private(set) var layoutPassCountsAtViewportSyncSuspensionUpdates: [Int] = []
     private(set) var forceViewportSyncCallCount = 0
     private(set) var displayIfNeededCallCount = 0
+    private(set) var layoutPassCount = 0
     let detachedFocusTarget = NSView()
     var usesDetachedFocusTarget = false
 
@@ -3760,9 +3777,15 @@ private final class PaneStripTerminalViewSpy: NSView, TerminalViewportSyncContro
         super.displayIfNeeded()
     }
 
+    override func layout() {
+        layoutPassCount += 1
+        super.layout()
+    }
+
     func setViewportSyncSuspended(_ suspended: Bool) {
         viewportSyncSuspensionUpdates.append(suspended)
         viewportSyncSuspensionBounds.append(bounds.size)
+        layoutPassCountsAtViewportSyncSuspensionUpdates.append(layoutPassCount)
     }
 
     func forceViewportSync() {
