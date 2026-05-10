@@ -21,6 +21,7 @@ final class SidebarPaneRowRenderer {
         var worklaneMoveAvailability: SidebarWorklaneMoveAvailability = .none
         var onMoveWorklaneRequested: ((SidebarWorklaneMoveDirection) -> Void)?
         var rightPaneCommandPresentationProvider: (() -> PaneRightCommandPresentation)?
+        var moveToWorklaneCatalogProvider: ((PaneID) -> WorklaneDestinationCatalog?)?
     }
 
     private(set) var panePrimaryRows: [SidebarPanePrimaryRowView] = []
@@ -123,6 +124,7 @@ final class SidebarPaneRowRenderer {
             button.worklaneMoveAvailability = callbacks.worklaneMoveAvailability
             button.onMoveWorklane = callbacks.onMoveWorklaneRequested
             button.rightPaneCommandPresentationProvider = callbacks.rightPaneCommandPresentationProvider
+            button.moveToWorklaneCatalogProvider = callbacks.moveToWorklaneCatalogProvider
         }
     }
 

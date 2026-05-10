@@ -332,6 +332,7 @@ final class PaneContainerView: NSView {
     private var currentWorklaneColor: WorklaneColor?
     private var lastRenderedSearchState = PaneSearchState()
     var rightPaneCommandPresentationProvider: (() -> PaneRightCommandPresentation)?
+    var moveToWorklaneCatalogProvider: ((PaneID) -> WorklaneDestinationCatalog?)?
     private var suppressSelectionOnNextProgrammaticFocus = false
     var onSelected: (() -> Void)?
     var onCloseRequested: (() -> Void)?
@@ -1190,6 +1191,18 @@ final class PaneContainerView: NSView {
         )
         moveToWindowItem.representedObject = paneID
         customMenu.addItem(moveToWindowItem)
+        if let catalog = moveToWorklaneCatalogProvider?(paneID), catalog.hasAnyDestination {
+            let parentItem = NSMenuItem(
+                title: "Move Pane to Worklane",
+                action: nil,
+                keyEquivalent: ""
+            )
+            parentItem.image = NSImage(systemSymbolName: "rectangle.stack",
+                                       accessibilityDescription: "Move Pane to Worklane")?
+                .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 13, weight: .regular))
+            parentItem.submenu = buildMoveToWorklaneSubmenu(catalog: catalog, paneID: paneID)
+            customMenu.addItem(parentItem)
+        }
         customMenu.addItem(.separator())
         customMenu.addItem(makeContextMenuItem(
             title: "Close Pane",
@@ -1225,6 +1238,13 @@ final class PaneContainerView: NSView {
             symbolName: symbolName,
             fallbackSymbolName: fallbackSymbolName
         )
+    }
+
+    private func buildMoveToWorklaneSubmenu(
+        catalog: WorklaneDestinationCatalog,
+        paneID: PaneID
+    ) -> NSMenu {
+        MoveToWorklaneMenuBuilder.makeSubmenu(catalog: catalog, paneID: paneID)
     }
 
     private static func shouldIncludeSystemContextMenuItem(_ item: NSMenuItem) -> Bool {

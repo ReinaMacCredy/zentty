@@ -82,6 +82,7 @@ final class SidebarWorklaneRowButton: NSButton {
     var onBookmarkAction: ((WorklaneID, SidebarBookmarkRowAction) -> Void)?
     var bookmarkNameLookup: ((UUID) -> String?)?
     var rightPaneCommandPresentationProvider: (() -> PaneRightCommandPresentation)?
+    var moveToWorklaneCatalogProvider: ((PaneID) -> WorklaneDestinationCatalog?)?
     var isOnlyWorklane = false {
         didSet {
             paneRowRenderer.setOnlyWorklane(isOnlyWorklane)
@@ -729,7 +730,8 @@ final class SidebarWorklaneRowButton: NSButton {
                     guard let self, let worklaneID = self.worklaneID else { return }
                     self.onWorklaneMoveRequested?(worklaneID, direction)
                 },
-                rightPaneCommandPresentationProvider: rightPaneCommandPresentationProvider
+                rightPaneCommandPresentationProvider: rightPaneCommandPresentationProvider,
+                moveToWorklaneCatalogProvider: moveToWorklaneCatalogProvider
             )
         )
     }

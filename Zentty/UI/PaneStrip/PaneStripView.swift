@@ -65,6 +65,7 @@ final class PaneStripView: NSView {
     var sidebarBoundsProvider: (() -> CGRect)?
     var worklaneCountProvider: (() -> Int)?
     var rightPaneCommandPresentationProvider: (() -> PaneRightCommandPresentation)?
+    var moveToWorklaneCatalogProvider: ((PaneID) -> WorklaneDestinationCatalog?)?
     var sidebarWidthProvider: (() -> CGFloat)?
     weak var dragOverlayView: NSView? {
         didSet { dragCoordinator.dragHostView = dragOverlayView }
@@ -959,6 +960,9 @@ final class PaneStripView: NSView {
                 }
                 paneView.rightPaneCommandPresentationProvider = { [weak self] in
                     self?.rightPaneCommandPresentationProvider?() ?? .addsToWorklane
+                }
+                paneView.moveToWorklaneCatalogProvider = { [weak self] paneID in
+                    self?.moveToWorklaneCatalogProvider?(paneID)
                 }
                 paneView.setTerminalViewportSyncSuspended(suspendedPaneIDs.contains(pane.id))
                 if let insertionTransition, insertionTransition.paneID == pane.id {

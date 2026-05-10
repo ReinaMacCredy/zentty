@@ -65,6 +65,7 @@ final class SidebarView: NSView {
     var onBookmarkAction: ((WorklaneID, SidebarBookmarkRowAction) -> Void)?
     var bookmarkNameLookup: ((UUID) -> String?)?
     var rightPaneCommandPresentationProvider: (() -> PaneRightCommandPresentation)?
+    var moveToWorklaneCatalogProvider: ((PaneID) -> WorklaneDestinationCatalog?)?
     var onCheckForUpdatesRequested: (() -> Void)?
     var onResized: ((CGFloat) -> Void)?
     var onPointerEntered: (() -> Void)?
@@ -457,6 +458,9 @@ final class SidebarView: NSView {
         }
         button.rightPaneCommandPresentationProvider = { [weak self] in
             self?.rightPaneCommandPresentationProvider?() ?? .addsToWorklane
+        }
+        button.moveToWorklaneCatalogProvider = { [weak self] paneID in
+            self?.moveToWorklaneCatalogProvider?(paneID)
         }
         button.onMovePaneToNewWindowRequested = { [weak self] paneID in
             self?.onMovePaneToNewWindowRequested?(worklaneID, paneID)

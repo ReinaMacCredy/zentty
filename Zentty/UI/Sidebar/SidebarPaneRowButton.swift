@@ -66,6 +66,8 @@ struct SidebarWorklaneContextMenuContext {
     var bookmarkName: String?
     var isOnlyWorklane: Bool
     var rightPaneCommandPresentation: PaneRightCommandPresentation = .addsToWorklane
+    var moveToWorklaneCatalog: WorklaneDestinationCatalog?
+    var paneID: PaneID?
 }
 
 struct SidebarWorklaneContextMenuActions {
@@ -262,6 +264,24 @@ enum SidebarWorklaneContextMenu {
                 )
                 moveToWindowItem.isEnabled = !(context.isOnlyWorklane && isLastPaneInWorklane)
                 menu.addItem(moveToWindowItem)
+
+                if let catalog = context.moveToWorklaneCatalog,
+                   catalog.hasAnyDestination,
+                   let paneID = context.paneID {
+                    let parentItem = NSMenuItem(
+                        title: "Move Pane to Worklane",
+                        action: nil,
+                        keyEquivalent: ""
+                    )
+                    parentItem.image = NSImage(systemSymbolName: "rectangle.stack",
+                                               accessibilityDescription: "Move Pane to Worklane")?
+                        .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 13, weight: .regular))
+                    parentItem.submenu = MoveToWorklaneMenuBuilder.makeSubmenu(
+                        catalog: catalog,
+                        paneID: paneID
+                    )
+                    menu.addItem(parentItem)
+                }
             }
         }
 
@@ -477,6 +497,7 @@ final class SidebarPaneRowButton: NSButton {
     var onMoveWorklane: ((SidebarWorklaneMoveDirection) -> Void)?
     var worklaneMoveAvailability: SidebarWorklaneMoveAvailability = .none
     var rightPaneCommandPresentationProvider: (() -> PaneRightCommandPresentation)?
+    var moveToWorklaneCatalogProvider: ((PaneID) -> WorklaneDestinationCatalog?)?
 
     private var activeContextPicker: WorklaneColorMenuItemView?
 
@@ -658,7 +679,9 @@ final class SidebarPaneRowButton: NSButton {
                 bookmarkOriginID: originID,
                 bookmarkName: originID.flatMap { bookmarkNameLookup?($0) },
                 isOnlyWorklane: isLastPaneInOnlyWorklane && isLastPaneInWorklane,
-                rightPaneCommandPresentation: rightPaneCommandPresentationProvider?() ?? .addsToWorklane
+                rightPaneCommandPresentation: rightPaneCommandPresentationProvider?() ?? .addsToWorklane,
+                moveToWorklaneCatalog: moveToWorklaneCatalogProvider?(paneID),
+                paneID: paneID
             ),
             actions: SidebarWorklaneContextMenuActions(
                 target: self,

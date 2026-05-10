@@ -179,6 +179,7 @@ final class RootViewController: NSViewController {
     var onCloseWindowRequested: (() -> Void)?
     var onNavigateToNotificationRequested: ((WindowID, WorklaneID, PaneID) -> Void)?
     var onMovePaneToNewWindowRequested: ((PaneID?) -> Void)?
+    var moveToWorklaneCatalogProvider: ((PaneID) -> WorklaneDestinationCatalog?)?
     var onWorkspaceStateDidChange: (() -> Void)?
 
     init(
@@ -742,6 +743,9 @@ final class RootViewController: NSViewController {
         appCanvasView.paneStripView.rightPaneCommandPresentationProvider = { [weak self] in
             self?.currentPaneLayoutContext.rightPaneCommandPresentation ?? .addsToWorklane
         }
+        appCanvasView.paneStripView.moveToWorklaneCatalogProvider = { [weak self] paneID in
+            self?.moveToWorklaneCatalogProvider?(paneID)
+        }
         appCanvasView.paneStripView.sidebarWidthProvider = { [weak self] in
             self?.sidebarMotionCoordinator.currentSidebarWidth ?? 0
         }
@@ -796,6 +800,9 @@ final class RootViewController: NSViewController {
         }
         sidebarView.rightPaneCommandPresentationProvider = { [weak self] in
             self?.currentPaneLayoutContext.rightPaneCommandPresentation ?? .addsToWorklane
+        }
+        sidebarView.moveToWorklaneCatalogProvider = { [weak self] paneID in
+            self?.moveToWorklaneCatalogProvider?(paneID)
         }
         sidebarView.onMovePaneToNewWindowRequested = { [weak self] worklaneID, paneID in
             self?.worklaneStore.selectWorklaneAndFocusPane(worklaneID: worklaneID, paneID: paneID)

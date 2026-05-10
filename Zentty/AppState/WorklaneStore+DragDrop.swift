@@ -459,6 +459,127 @@ extension WorklaneStore {
         pane.sessionRequest = request
     }
 
+    // MARK: - Cross-Window Move (into existing worklane)
+
+    struct ExtractedPanePayload {
+        var pane: PaneState
+        let auxiliary: PaneAuxiliaryState?
+        let sourceWorklaneRemoved: Bool
+        let sourceWindowShouldClose: Bool
+    }
+
+    /// Removes a pane from its current worklane in preparation for cross-window
+    /// transfer into a different `WorklaneStore`. Mirrors the removal half of
+    /// `transferPaneToWorklane(...)` plus the source-worklane-empty bookkeeping
+    /// from `splitOutPaneToNewWindow(...)`.
+    func extractPaneForCrossWindowTransfer(
+        paneID: PaneID,
+        singleColumnWidth: CGFloat
+    ) -> ExtractedPanePayload? {
+        guard let sourceIndex = worklanes.firstIndex(where: { worklane in
+            worklane.paneStripState.panes.contains { $0.id == paneID }
+        }) else {
+            return nil
+        }
+
+        var sourceWorklane = worklanes[sourceIndex]
+        let previousSourceColumnCount = sourceWorklane.paneStripState.columns.count
+
+        guard let removal = sourceWorklane.paneStripState.removePane(
+            id: paneID,
+            singleColumnWidth: singleColumnWidth
+        ) else {
+            return nil
+        }
+
+        applyColumnWidthNormalization(
+            &sourceWorklane,
+            previousColumnCount: previousSourceColumnCount,
+            singleColumnWidth: singleColumnWidth
+        )
+
+        let auxiliaryState = sourceWorklane.auxiliaryStateByPaneID.removeValue(forKey: paneID)
+        worklanes[sourceIndex] = sourceWorklane
+
+        let sourceWorklaneID = sourceWorklane.id
+        let sourceIsEmpty = sourceWorklane.paneStripState.columns.isEmpty
+        var sourceWorklaneRemoved = false
+
+        if sourceIsEmpty, worklanes.count > 1 {
+            worklanes.remove(at: sourceIndex)
+            sourceWorklaneRemoved = true
+            if activeWorklaneID == sourceWorklaneID, let first = worklanes.first {
+                activeWorklaneID = first.id
+            }
+        }
+
+        let sourceWindowShouldClose = worklanes.allSatisfy { $0.paneStripState.panes.isEmpty }
+
+        refreshLastFocusedLocalWorkingDirectory()
+
+        if sourceWorklaneRemoved {
+            notify(.worklaneListChanged)
+        } else {
+            notify(.paneStructure(sourceWorklaneID))
+        }
+
+        return ExtractedPanePayload(
+            pane: removal.pane,
+            auxiliary: auxiliaryState,
+            sourceWorklaneRemoved: sourceWorklaneRemoved,
+            sourceWindowShouldClose: sourceWindowShouldClose
+        )
+    }
+
+    /// Inserts a pane previously produced by `extractPaneForCrossWindowTransfer`
+    /// into the named target worklane (assumed to live in this store's window).
+    /// Appends as a new rightmost column sized to this store's `singleColumnWidth`,
+    /// since the source's column width is relative to a different layout context.
+    /// Returns `true` on success; `false` if the target worklane no longer exists.
+    @discardableResult
+    func insertExtractedPane(
+        _ payload: ExtractedPanePayload,
+        intoWorklane targetWorklaneID: WorklaneID,
+        singleColumnWidth: CGFloat
+    ) -> Bool {
+        guard let targetIndex = worklanes.firstIndex(where: { $0.id == targetWorklaneID }) else {
+            return false
+        }
+
+        var targetWorklane = worklanes[targetIndex]
+        let targetColumnCount = targetWorklane.paneStripState.columns.count
+        var pane = payload.pane
+        let insertWidth = max(1, singleColumnWidth)
+
+        retargetPaneForSplitOut(
+            &pane,
+            destinationWindowID: windowID,
+            destinationWorklaneID: targetWorklaneID
+        )
+
+        if targetColumnCount == 1, let firstPaneWidth = layoutContext.firstPaneWidthAfterSingleSplit {
+            targetWorklane.paneStripState.resizeFirstColumn(to: firstPaneWidth)
+        }
+
+        targetWorklane.paneStripState.insertPaneAsColumn(
+            pane,
+            atColumnIndex: targetWorklane.paneStripState.columns.count,
+            width: insertWidth
+        )
+
+        if let auxiliaryState = payload.auxiliary {
+            targetWorklane.auxiliaryStateByPaneID[pane.id] = auxiliaryState
+        }
+
+        worklanes[targetIndex] = targetWorklane
+        activeWorklaneID = targetWorklaneID
+        refreshLastFocusedLocalWorkingDirectory()
+
+        notify(.paneStructure(targetWorklaneID))
+        notify(.activeWorklaneChanged)
+        return true
+    }
+
     // MARK: - Duplicate Pane
 
     func duplicatePaneToWorklane(
