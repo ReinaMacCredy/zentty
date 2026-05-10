@@ -99,9 +99,15 @@ final class TerminalPaneHostView: NSView {
     }
 
     func setViewportSyncSuspended(_ suspended: Bool) {
-        syncTerminalViewFrameIfNeeded()
-        (terminalView as? any TerminalViewportSyncControlling)?
-            .setViewportSyncSuspended(suspended)
+        if suspended {
+            (terminalView as? any TerminalViewportSyncControlling)?
+                .setViewportSyncSuspended(true)
+            syncTerminalViewFrameIfNeeded()
+        } else {
+            syncTerminalViewFrameIfNeeded()
+            (terminalView as? any TerminalViewportSyncControlling)?
+                .setViewportSyncSuspended(false)
+        }
     }
 
     func setMouseInteractionSuppressionRects(_ rects: [CGRect]) {

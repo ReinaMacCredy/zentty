@@ -660,7 +660,9 @@ final class PaneStripView: NSView {
             if !isZoomedOut {
                 applyViewportSyncSuspension(to: [])
             }
-            forceTerminalViewportSync(for: newlyAttachedPaneIDs)
+            if !isZoomedOut {
+                forceTerminalViewportSync(for: newlyAttachedPaneIDs)
+            }
             if needsTerminalRedrawAfterRender {
                 refreshTerminalDisplaysIfNeeded()
             }
@@ -828,8 +830,10 @@ final class PaneStripView: NSView {
         }
         if needsTerminalRedrawAfterRender {
             refreshTerminalDisplaysIfNeeded()
-            forceTerminalViewportSync(for: Set(paneViews.keys))
-        } else {
+            if !isZoomedOut {
+                forceTerminalViewportSync(for: Set(paneViews.keys))
+            }
+        } else if !isZoomedOut {
             forceTerminalViewportSync(for: newlyAttachedPaneIDs)
         }
     }
@@ -932,6 +936,7 @@ final class PaneStripView: NSView {
 
                 let pane = state.panes[index]
                 let runtime = runtimeRegistry.runtime(for: pane)
+                let startsWithViewportSyncSuspended = isZoomedOut || suspendedPaneIDs.contains(pane.id)
                 let paneView = PaneContainerView(
                     pane: pane,
                     width: panePresentation.frame.width,
@@ -939,7 +944,8 @@ final class PaneStripView: NSView {
                     emphasis: panePresentation.emphasis,
                     isFocused: panePresentation.isFocused,
                     runtime: runtime,
-                    theme: currentTheme
+                    theme: currentTheme,
+                    initialViewportSyncSuspended: startsWithViewportSyncSuspended
                 )
                 paneView.setZoomedOutBackdropVisible(isZoomedOut, animated: false)
                 paneView.onSelected = { [weak self] in
@@ -961,7 +967,9 @@ final class PaneStripView: NSView {
                 paneView.rightPaneCommandPresentationProvider = { [weak self] in
                     self?.rightPaneCommandPresentationProvider?() ?? .addsToWorklane
                 }
-                paneView.setTerminalViewportSyncSuspended(suspendedPaneIDs.contains(pane.id))
+                if !startsWithViewportSyncSuspended {
+                    paneView.setTerminalViewportSyncSuspended(false)
+                }
                 if let insertionTransition, insertionTransition.paneID == pane.id {
                     paneView.frame = insertionTransition.initialFrame
                     paneView.alphaValue = insertionTransition.initialAlpha
@@ -1618,17 +1626,24 @@ final class PaneStripView: NSView {
         applyZoom(animated: animated, centerOnPaneID: centerOnPaneID)
     }
 
-    /// Variant of `beginPeekZoomOut` for **neighbor preview lanes**:
-    /// puts the strip into the same internal zoom-out state but does *not*
-    /// suspend the per-pane terminal viewport sync, so the neighbor's
-    /// terminals keep streaming live while the user peeks.
-    ///
-    /// The carrier wraps the strip in a layer-scaled, masked container, so
-    /// viewport sync staying on doesn't reflow the terminal grid — Ghostty
-    /// sees the strip's natural canvas-sized bounds, which don't change.
-    func enterPeekNeighborZoomOut(scale: CGFloat, centerOnPaneID: PaneID? = nil) {
+    /// Prepares an empty neighbor preview strip before its first render so
+    /// newly mounted runtime host views inherit viewport-sync suspension while
+    /// they are being reparented into the preview carrier.
+    func preparePeekNeighborZoomOut(scale: CGFloat) {
         guard !isDragActive, !isZoomedOut else { return }
         isZoomedOut = true
+        zoomOutScaleOverride = scale
+    }
+
+    /// Variant of `beginPeekZoomOut` for **neighbor preview lanes**:
+    /// puts the strip into the same internal zoom-out state synchronously.
+    /// Neighbor panes still suspend physical viewport sync so Ghostty keeps
+    /// the active-worklane grid while the preview carrier repositions them.
+    func enterPeekNeighborZoomOut(scale: CGFloat, centerOnPaneID: PaneID? = nil) {
+        guard !isDragActive else { return }
+        if !isZoomedOut {
+            isZoomedOut = true
+        }
         zoomOutScaleOverride = scale
         setZoomedOutPaneBackdropsVisible(true, animated: false)
         for (_, paneView) in paneViews {

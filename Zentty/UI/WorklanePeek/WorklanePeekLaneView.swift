@@ -22,6 +22,7 @@ final class WorklanePeekLaneView: NSView {
     private(set) var worklaneID: WorklaneID?
     private var canvasSize: CGSize = .zero
     private var visibleBandCenterX: CGFloat?
+    private var singlePanePreviewPaneID: PaneID?
     /// The internal zoom scale used by both the active strip and this
     /// neighbor preview — must match so all visible lanes share the same
     /// visual size.
@@ -76,10 +77,16 @@ final class WorklanePeekLaneView: NSView {
         zoomScale: CGFloat
     ) {
         worklaneID = worklane.id
+        singlePanePreviewPaneID = worklane.paneStripState.panes.count == 1
+            ? worklane.paneStripState.focusedPaneID
+            : nil
         self.canvasSize = canvasSize
         self.laneZoomScale = zoomScale
         relayoutStrip()
 
+        if !hasInitialZoomOut {
+            strip.preparePeekNeighborZoomOut(scale: zoomScale)
+        }
         strip.apply(theme: theme, animated: false)
         strip.render(worklane.paneStripState, animated: false)
 
@@ -89,12 +96,12 @@ final class WorklanePeekLaneView: NSView {
         strip.layoutSubtreeIfNeeded()
 
         if !hasInitialZoomOut {
-            // Use the streaming-friendly variant so terminals keep updating
-            // live while this carrier is on screen. The carrier's masked
-            // layer-scale handles the visual shrink without disturbing
-            // Ghostty's natural canvas-sized bounds.
-            strip.enterPeekNeighborZoomOut(scale: zoomScale)
-            strip.resetPeekHorizontalCentering()
+            // Complete the prepared zoom once pane frames exist, without
+            // letting the preview carrier resize Ghostty's physical viewport.
+            strip.enterPeekNeighborZoomOut(scale: zoomScale, centerOnPaneID: singlePanePreviewPaneID)
+            if singlePanePreviewPaneID == nil {
+                strip.resetPeekHorizontalCentering()
+            }
             hasInitialZoomOut = true
         }
     }
@@ -161,7 +168,11 @@ final class WorklanePeekLaneView: NSView {
     /// previews that are visible but no longer hold the active peek
     /// selection.
     func showFullCanvas() {
-        strip.resetPeekHorizontalCentering()
+        if let singlePanePreviewPaneID {
+            strip.centerPeekOnPane(singlePanePreviewPaneID, animated: false)
+        } else {
+            strip.resetPeekHorizontalCentering()
+        }
     }
 
     /// Animate the carrier from invisible to its resting alpha.
@@ -180,6 +191,11 @@ final class WorklanePeekLaneView: NSView {
         }
     }
 
+    func showImmediately() {
+        layer?.removeAnimation(forKey: "opacity")
+        alphaValue = Self.appearedAlpha
+    }
+
     /// Detach the strip so the runtime registry can re-mount these panes
     /// elsewhere. Called on peek exit so a follow-up active-worklane
     /// switch (e.g., committing into the just-previewed neighbor) doesn't
@@ -188,6 +204,7 @@ final class WorklanePeekLaneView: NSView {
         strip.endPeekNeighborZoomOut()
         strip.removeFromSuperview()
         worklaneID = nil
+        singlePanePreviewPaneID = nil
         onGeometryChanged = nil
     }
 }

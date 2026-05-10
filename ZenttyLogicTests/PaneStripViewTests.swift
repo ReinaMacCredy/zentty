@@ -3568,6 +3568,43 @@ final class PaneStripViewTests: AppKitTestCase {
     }
 
     @MainActor
+    func test_newly_attached_pane_while_peek_zoomed_out_inherits_viewport_sync_suspension() throws {
+        let adapterFactory = TerminalAdapterFactorySpy()
+        let runtimeRegistry = PaneRuntimeRegistry(adapterFactory: adapterFactory.makeAdapter(for:))
+        let paneStripView = PaneStripView(
+            frame: NSRect(x: 0, y: 0, width: 1200, height: 720),
+            runtimeRegistry: runtimeRegistry
+        )
+        let window = hostInVisibleWindow(paneStripView)
+        defer { window.contentView = NSView() }
+
+        paneStripView.render(
+            PaneStripState(
+                panes: [makePane("alpha")],
+                focusedPaneID: PaneID("alpha")
+            )
+        )
+        paneStripView.layoutSubtreeIfNeeded()
+        paneStripView.beginPeekZoomOut(animated: false)
+
+        paneStripView.render(
+            PaneStripState(
+                panes: [makePane("beta")],
+                focusedPaneID: PaneID("beta")
+            )
+        )
+        paneStripView.layoutSubtreeIfNeeded()
+
+        let betaAdapter = try XCTUnwrap(adapterFactory.adapter(for: PaneID("beta")))
+        XCTAssertEqual(betaAdapter.terminalView.viewportSyncSuspensionUpdates.last, true)
+        XCTAssertEqual(betaAdapter.terminalView.forceViewportSyncCallCount, 0)
+
+        paneStripView.endPeekZoomIn(animated: false)
+
+        XCTAssertEqual(betaAdapter.terminalView.viewportSyncSuspensionUpdates.suffix(2), [true, false])
+    }
+
+    @MainActor
     func test_neighbor_peek_zoom_out_reset_resumes_viewport_sync_synchronously() throws {
         let adapterFactory = TerminalAdapterFactorySpy()
         let runtimeRegistry = PaneRuntimeRegistry(adapterFactory: adapterFactory.makeAdapter(for:))

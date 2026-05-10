@@ -81,6 +81,76 @@ final class WorklanePeekLaneViewTests: AppKitTestCase {
         XCTAssertEqual(rightFrame.maxX, carrier.bounds.maxX, accuracy: 3.0)
     }
 
+    func test_bind_centers_single_pane_preview_even_when_pane_is_narrower_than_canvas() throws {
+        var adapters: [PaneID: WorklanePeekLaneTerminalAdapterSpy] = [:]
+        let registry = PaneRuntimeRegistry { paneID in
+            let adapter = WorklanePeekLaneTerminalAdapterSpy(paneID: paneID)
+            adapters[paneID] = adapter
+            return adapter
+        }
+        let carrier = WorklanePeekLaneView(runtimeRegistry: registry)
+        carrier.frame = CGRect(x: 0, y: 0, width: 480, height: 288)
+        carrier.layoutSubtreeIfNeeded()
+        addTeardownBlock {
+            MainActor.assumeIsolated {
+                carrier.detach()
+            }
+        }
+        let worklane = makeWorklane(
+            panes: [
+                PaneState(id: PaneID("shell"), title: "shell", width: 640),
+            ],
+            focusedPaneID: PaneID("shell")
+        )
+
+        carrier.bind(
+            worklane: worklane,
+            theme: ZenttyTheme.fallback(for: nil),
+            canvasSize: CGSize(width: 1200, height: 720),
+            zoomScale: PaneStripView.zoomScale
+        )
+
+        let shellFrame = try XCTUnwrap(carrier.paneFrameInCarrier(PaneID("shell")))
+        let terminalView = try XCTUnwrap(adapters[PaneID("shell")]?.terminalView)
+        XCTAssertEqual(shellFrame.midX, carrier.bounds.midX, accuracy: 0.5)
+        XCTAssertEqual(terminalView.viewportSyncSuspensionUpdates.first, true)
+        XCTAssertEqual(terminalView.forceViewportSyncCallCount, 0)
+    }
+
+    func test_configure_neighbor_lanes_prewarms_offscreen_lookahead() throws {
+        let peekView = WorklanePeekView(frame: CGRect(x: 0, y: 0, width: 1200, height: 720))
+        peekView.placeHUDStably(targetZoomScale: PaneStripView.zoomScale)
+        let registry = PaneRuntimeRegistry { paneID in
+            WorklanePeekLaneTerminalAdapterSpy(paneID: paneID)
+        }
+        let worklanes = (0..<5).map { index in
+            makeWorklane(
+                id: WorklaneID("lane-\(index)"),
+                panes: [PaneState(id: PaneID("pane-\(index)"), title: "pane-\(index)", width: 1200)],
+                focusedPaneID: PaneID("pane-\(index)")
+            )
+        }
+        addTeardownBlock {
+            MainActor.assumeIsolated {
+                peekView.detach()
+            }
+        }
+
+        peekView.configureNeighborLanes(
+            worklanes: worklanes,
+            activeIndex: 2,
+            canvasSize: CGSize(width: 1200, height: 720),
+            zoomScale: PaneStripView.zoomScale,
+            runtimeRegistry: registry,
+            theme: ZenttyTheme.fallback(for: nil)
+        )
+
+        XCTAssertEqual(
+            peekView.peekVisibleWorklaneIDs,
+            Set((0..<5).map { WorklaneID("lane-\($0)") })
+        )
+    }
+
     func test_panning_to_next_worklane_resets_previous_adjacent_preview_to_full_canvas() throws {
         let peekView = WorklanePeekView(frame: CGRect(x: 0, y: 0, width: 1200, height: 720))
         peekView.placeHUDStably(targetZoomScale: PaneStripView.zoomScale)
@@ -274,12 +344,22 @@ private final class WorklanePeekLaneTerminalAdapterSpy: TerminalAdapter {
     func setSurfaceActivity(_ activity: TerminalSurfaceActivity) {}
 }
 
-private final class WorklanePeekLaneTerminalViewSpy: NSView, TerminalFocusReporting, TerminalFocusTargetProviding, TerminalScrollRouting, TerminalContextMenuConfiguring {
+private final class WorklanePeekLaneTerminalViewSpy: NSView, TerminalFocusReporting, TerminalFocusTargetProviding, TerminalScrollRouting, TerminalContextMenuConfiguring, TerminalViewportSyncControlling {
     var onFocusDidChange: ((Bool) -> Void)?
     var onScrollWheel: ((NSEvent) -> Bool)?
     var contextMenuBuilder: ((NSEvent, NSMenu?) -> NSMenu?)?
+    private(set) var viewportSyncSuspensionUpdates: [Bool] = []
+    private(set) var forceViewportSyncCallCount = 0
 
     var terminalFocusTargetView: NSView {
         self
+    }
+
+    func setViewportSyncSuspended(_ suspended: Bool) {
+        viewportSyncSuspensionUpdates.append(suspended)
+    }
+
+    func forceViewportSync() {
+        forceViewportSyncCallCount += 1
     }
 }

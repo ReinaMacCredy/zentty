@@ -56,6 +56,7 @@ struct ZenttyTheme: Equatable {
     let tertiaryText: NSColor
     let paneBorderFocused: NSColor
     let paneBorderUnfocused: NSColor
+    let paneZoomBorderUnfocused: NSColor
     let paneFillFocused: NSColor
     let paneFillUnfocused: NSColor
     let paneZoomFillFocused: NSColor
@@ -125,7 +126,8 @@ struct ZenttyTheme: Equatable {
             lhs.topChromeBackground, lhs.topChromeBorder, lhs.canvasBackground, lhs.canvasBorder,
             lhs.canvasShadow, lhs.contextStripBackground, lhs.contextStripBorder, lhs.worklaneChipBackground, lhs.worklaneChipText,
             lhs.primaryText, lhs.secondaryText, lhs.tertiaryText, lhs.paneBorderFocused,
-            lhs.paneBorderUnfocused, lhs.paneFillFocused, lhs.paneFillUnfocused, lhs.paneShadow,
+            lhs.paneBorderUnfocused, lhs.paneZoomBorderUnfocused,
+            lhs.paneFillFocused, lhs.paneFillUnfocused, lhs.paneShadow,
             lhs.paneZoomFillFocused, lhs.paneZoomFillUnfocused,
             lhs.startupSurface, lhs.failureOverlayBackground, lhs.failurePrimaryText,
             lhs.failureSecondaryText, lhs.sidebarButtonActiveBackground, lhs.sidebarButtonHoverBackground,
@@ -153,7 +155,8 @@ struct ZenttyTheme: Equatable {
             rhs.topChromeBackground, rhs.topChromeBorder, rhs.canvasBackground, rhs.canvasBorder,
             rhs.canvasShadow, rhs.contextStripBackground, rhs.contextStripBorder, rhs.worklaneChipBackground, rhs.worklaneChipText,
             rhs.primaryText, rhs.secondaryText, rhs.tertiaryText, rhs.paneBorderFocused,
-            rhs.paneBorderUnfocused, rhs.paneFillFocused, rhs.paneFillUnfocused, rhs.paneShadow,
+            rhs.paneBorderUnfocused, rhs.paneZoomBorderUnfocused,
+            rhs.paneFillFocused, rhs.paneFillUnfocused, rhs.paneShadow,
             rhs.paneZoomFillFocused, rhs.paneZoomFillUnfocused,
             rhs.startupSurface, rhs.failureOverlayBackground, rhs.failurePrimaryText,
             rhs.failureSecondaryText, rhs.sidebarButtonActiveBackground, rhs.sidebarButtonHoverBackground,
@@ -259,6 +262,7 @@ struct ZenttyTheme: Equatable {
         tertiaryText = readableForeground.withAlphaComponent(0.54)
         paneBorderFocused = accent.withAlphaComponent(background.isDarkThemeColor ? 0.42 : 0.34)
         paneBorderUnfocused = foreground.withAlphaComponent(background.isDarkThemeColor ? 0.13 : 0.10)
+        paneZoomBorderUnfocused = foreground.withAlphaComponent(background.isDarkThemeColor ? 0.32 : 0.26)
         paneFillFocused = isTranslucent
             ? .clear
             : background.mixed(towards: accent, amount: 0.08).withAlphaComponent(0.98)

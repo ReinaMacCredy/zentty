@@ -108,6 +108,7 @@ final class RootViewController: NSViewController {
     private let peekView = WorklanePeekView()
     private let peekKeyMonitor = WorklanePeekKeyMonitor()
     private let peekController: WorklanePeekController
+    private var peekSidebarFocusOverride: WorklaneSidebarFocusOverride?
     private let dragOverlayView: HitTransparentView = {
         let view = HitTransparentView()
         view.translatesAutoresizingMaskIntoConstraints = false
@@ -277,6 +278,9 @@ final class RootViewController: NSViewController {
         // creation during pan, close).
         renderCoordinator.peekVisibleWorklaneIDsProvider = { [weak self] in
             self?.peekView.peekVisibleWorklaneIDs ?? []
+        }
+        renderCoordinator.sidebarFocusOverrideProvider = { [weak self] in
+            self?.peekSidebarFocusOverride
         }
         peekView.onPeekVisibleWorklanesChanged = { [weak self] in
             self?.renderCoordinator.updateSurfaceActivities()
@@ -3083,12 +3087,14 @@ extension RootViewController: WorklanePeekControllerDelegate {
     }
 
     func peekDidOpen(_ controller: WorklanePeekController) {
-        let initialHighlight: PaneID? = {
+        let initialSelection: WorklaneStore.PaneReference? = {
             if case let .peeking(selection, _) = controller.phase {
-                return selection.current.paneID
+                return selection.current
             }
             return nil
         }()
+        let initialHighlight = initialSelection?.paneID
+        updatePeekSidebarFocusOverride(initialSelection)
 
         // The active worklane stays at its canonical zoom scale even when
         // neighbors are present — partial clipping of ±1 carriers above /
@@ -3134,9 +3140,11 @@ extension RootViewController: WorklanePeekControllerDelegate {
         transition: WorklanePeekSelectionTransition
     ) {
         guard case let .peeking(selection, _) = controller.phase else {
+            updatePeekSidebarFocusOverride(nil)
             refreshPeekOverlay()
             return
         }
+        updatePeekSidebarFocusOverride(selection.current)
 
         let animated = transition == .animated
         let originalActiveID = worklaneStore.activeWorklaneID
@@ -3170,6 +3178,7 @@ extension RootViewController: WorklanePeekControllerDelegate {
     }
 
     func peekDidClose(_ controller: WorklanePeekController) {
+        updatePeekSidebarFocusOverride(nil)
         // Pass the just-committed pane so the camera stays centered on it
         // through the zoom-in instead of sliding horizontally back to the
         // natural unscrolled origin (which would yank the pane sideways).
@@ -3181,6 +3190,18 @@ extension RootViewController: WorklanePeekControllerDelegate {
         peekView.isHidden = true
         peekView.detach()
         peekKeyMonitor.uninstall()
+    }
+
+    private func updatePeekSidebarFocusOverride(_ reference: WorklaneStore.PaneReference?) {
+        let nextOverride = reference.map {
+            WorklaneSidebarFocusOverride(worklaneID: $0.worklaneID, paneID: $0.paneID)
+        }
+        guard peekSidebarFocusOverride != nextOverride else {
+            return
+        }
+
+        peekSidebarFocusOverride = nextOverride
+        renderCoordinator.renderSidebar()
     }
 
     private func refreshPeekOverlay() {

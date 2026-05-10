@@ -10,6 +10,7 @@ final class WorklanePeekView: NSView {
     private let dimLayer = CAShapeLayer()
     private let highlightLayer = CAShapeLayer()
     private let hud = WorklanePeekHUDView()
+    private let cameraSpring = SpringAnimator()
     private weak var anchorPaneStripView: PaneStripView?
 
     /// Lane carriers, keyed by **absolute** worklane index (matching
@@ -58,9 +59,14 @@ final class WorklanePeekView: NSView {
     /// into view as the user Ctrl-Tabs further.
     private static let bandGap: CGFloat = 48
 
-    /// Camera pan animation duration. Matches the existing zoom spring's
-    /// 0.35s ballpark so pans and zoom transitions feel of-a-piece.
-    private static let panAnimationDuration: TimeInterval = 0.28
+    /// Prebuild one extra off-screen lane beyond the visible neighbor on
+    /// each side. That keeps single-pane worklanes feeling like a continuous
+    /// stack instead of letting the next carrier fade in during a tab pan.
+    private static let carrierPreloadRadius = 2
+
+    /// Camera pan animation duration. Matches `SpringAnimator`'s zoom timing
+    /// so vertical worklane pans and pane-strip zooms feel related.
+    private static let panAnimationDuration: TimeInterval = SpringAnimator.defaultDuration
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -128,6 +134,7 @@ final class WorklanePeekView: NSView {
     var onGeometryChanged: (() -> Void)?
 
     func detach() {
+        cameraSpring.stop()
         // Reset the anchor strip's camera transform before letting go so the
         // strip lands without a residual translate during the zoom-in.
         anchorPaneStripView?.layer?.transform = CATransform3DIdentity
@@ -170,10 +177,11 @@ final class WorklanePeekView: NSView {
         centeredIndex = activeIndex
         cameraOffset = 0
 
-        // Build carriers for the immediate ±1 neighbors so they fade in
-        // alongside the active strip's zoom-out.
-        ensureCarrier(at: activeIndex - 1, fadeInDelay: 0.10)
-        ensureCarrier(at: activeIndex + 1, fadeInDelay: 0.10)
+        // Build visible neighbors plus one off-screen lookahead on both
+        // sides so the lane stack is already populated when the camera pans.
+        for index in (activeIndex - Self.carrierPreloadRadius)...(activeIndex + Self.carrierPreloadRadius) {
+            ensureCarrier(at: index, fadeInDelay: 0.10)
+        }
 
         // Position everything (no carriers if single-worklane session).
         layoutNeighborCarriers()
@@ -196,8 +204,8 @@ final class WorklanePeekView: NSView {
         // carriers — otherwise the user pans into an empty void after the
         // first cross.
         let countBefore = laneCarriers.count
-        for index in (targetIndex - 1)...(targetIndex + 1) {
-            ensureCarrier(at: index, fadeInDelay: 0)
+        for index in (targetIndex - Self.carrierPreloadRadius)...(targetIndex + Self.carrierPreloadRadius) {
+            ensureCarrier(at: index, fadeInDelay: nil)
         }
         if laneCarriers.count != countBefore {
             onPeekVisibleWorklanesChanged?()
@@ -230,7 +238,7 @@ final class WorklanePeekView: NSView {
         }
     }
 
-    private func ensureCarrier(at index: Int, fadeInDelay: TimeInterval) {
+    private func ensureCarrier(at index: Int, fadeInDelay: TimeInterval?) {
         guard let session,
               session.worklanes.indices.contains(index),
               index != session.originalActiveIndex,
@@ -256,7 +264,11 @@ final class WorklanePeekView: NSView {
             canvasSize: session.canvasSize,
             zoomScale: session.zoomScale
         )
-        carrier.appear(after: fadeInDelay)
+        if let fadeInDelay {
+            carrier.appear(after: fadeInDelay)
+        } else {
+            carrier.showImmediately()
+        }
         // The new carrier inherits the current camera offset.
         applyCameraOffset(toCarrier: carrier, animated: false)
     }
@@ -395,38 +407,44 @@ final class WorklanePeekView: NSView {
         let stackOffset = centeredIndex - session.originalActiveIndex
         // Visual "up" is +Y; moving the camera toward a higher-index lane
         // means shifting all content *up* by that many lanes.
-        cameraOffset = CGFloat(stackOffset) * (bandHeight + Self.bandGap)
-
-        let transform = CATransform3DMakeTranslation(0, cameraOffset, 0)
-        let apply: () -> Void = { [weak self] in
-            guard let self else { return }
-            self.anchorPaneStripView?.layer?.transform = transform
-            for carrier in self.laneCarriers.values {
-                carrier.layer?.transform = transform
-            }
-            self.layoutDimAndHighlight()
-        }
+        let targetOffset = CGFloat(stackOffset) * (bandHeight + Self.bandGap)
 
         if animated {
-            CATransaction.begin()
-            CATransaction.setAnimationDuration(Self.panAnimationDuration)
-            CATransaction.setAnimationTimingFunction(
-                CAMediaTimingFunction(name: .easeInEaseOut)
-            )
-            apply()
-            CATransaction.commit()
+            let fromOffset = cameraOffset
+            cameraSpring.start(duration: Self.panAnimationDuration) { [weak self] eased in
+                guard let self else { return }
+                let offset = fromOffset + (targetOffset - fromOffset) * eased
+                self.setCameraOffset(offset)
+                self.onGeometryChanged?()
+            } complete: { [weak self] in
+                guard let self else { return }
+                self.setCameraOffset(targetOffset)
+                self.onGeometryChanged?()
+            }
         } else {
-            // Instant: skip any in-flight implicit animation.
-            CATransaction.begin()
-            CATransaction.setDisableActions(true)
-            apply()
-            CATransaction.commit()
+            cameraSpring.stop()
+            setCameraOffset(targetOffset)
+            onGeometryChanged?()
         }
     }
 
+    private func setCameraOffset(_ offset: CGFloat) {
+        cameraOffset = offset
+        let transform = CATransform3DMakeTranslation(0, offset, 0)
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        anchorPaneStripView?.layer?.transform = transform
+        for carrier in laneCarriers.values {
+            carrier.layer?.transform = transform
+        }
+        CATransaction.commit()
+        layoutDimAndHighlight()
+    }
+
     /// Apply the *current* cameraOffset to one carrier (used right after
-    /// lazily building it). No animation — the carrier is fading in via
-    /// alpha; we don't want it sliding too.
+    /// lazily building it). No animation — the carrier joins the ongoing
+    /// spring on the next camera tick.
     private func applyCameraOffset(toCarrier carrier: WorklanePeekLaneView, animated: Bool) {
         let transform = CATransform3DMakeTranslation(0, cameraOffset, 0)
         CATransaction.begin()

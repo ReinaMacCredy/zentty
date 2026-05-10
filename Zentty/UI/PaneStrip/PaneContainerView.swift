@@ -366,6 +366,7 @@ final class PaneContainerView: NSView {
         isFocused: Bool,
         runtime: PaneRuntime,
         theme: ZenttyTheme,
+        initialViewportSyncSuspended: Bool = false,
         backingScaleFactorProvider: @escaping () -> CGFloat = {
             NSScreen.main?.backingScaleFactor ?? 1
         }
@@ -380,6 +381,9 @@ final class PaneContainerView: NSView {
         self.currentIsFocused = isFocused
         super.init(frame: NSRect(x: 0, y: 0, width: width, height: height))
         translatesAutoresizingMaskIntoConstraints = true
+        if initialViewportSyncSuspended {
+            terminalHostView.setViewportSyncSuspended(true)
+        }
         setup()
         render(pane: pane, emphasis: emphasis, isFocused: isFocused)
     }
@@ -401,7 +405,31 @@ final class PaneContainerView: NSView {
             isFocused: isFocused,
             runtime: runtime,
             theme: theme,
+            initialViewportSyncSuspended: false,
             backingScaleFactorProvider: { NSScreen.main?.backingScaleFactor ?? 1 }
+        )
+    }
+
+    convenience init(
+        pane: PaneState,
+        width: CGFloat,
+        height: CGFloat,
+        emphasis: CGFloat,
+        isFocused: Bool,
+        runtime: PaneRuntime,
+        theme: ZenttyTheme,
+        backingScaleFactorProvider: @escaping () -> CGFloat
+    ) {
+        self.init(
+            pane: pane,
+            width: width,
+            height: height,
+            emphasis: emphasis,
+            isFocused: isFocused,
+            runtime: runtime,
+            theme: theme,
+            initialViewportSyncSuspended: false,
+            backingScaleFactorProvider: backingScaleFactorProvider
         )
     }
 
@@ -677,13 +705,21 @@ final class PaneContainerView: NSView {
 
     func setTerminalViewportSyncSuspended(_ suspended: Bool) {
         needsLayout = true
-        syncFramesForCurrentBounds()
-        terminalHostView.setViewportSyncSuspended(suspended)
+        if suspended {
+            guard ownsTerminalHostView else { return }
+            terminalHostView.setViewportSyncSuspended(true)
+            syncFramesForCurrentBounds()
+        } else {
+            syncFramesForCurrentBounds()
+            guard ownsTerminalHostView else { return }
+            terminalHostView.setViewportSyncSuspended(false)
+        }
     }
 
     func forceTerminalViewportSync() {
         needsLayout = true
         syncFramesForCurrentBounds()
+        guard ownsTerminalHostView else { return }
         terminalHostView.forceViewportSync()
     }
 
@@ -1257,9 +1293,15 @@ final class PaneContainerView: NSView {
 
         return max(1, backingScaleFactorProvider())
     }
+
+    private var ownsTerminalHostView: Bool {
+        terminalHostView.superview === terminalAnchorView
+    }
+
     private func syncFramesForCurrentBounds() {
         contentClipView.frame = bounds
         terminalAnchorView.frame = contentClipView.bounds
+        guard ownsTerminalHostView else { return }
         if !isTerminalAnimationFrozen {
             terminalHostView.frame = terminalAnchorView.bounds
         }
@@ -1440,11 +1482,13 @@ final class PaneContainerView: NSView {
         }
 
         performThemeAnimation(animated: animated) {
-            let borderColor =
-                (isFocused
-                ? focusedStroke
-                : theme.paneBorderUnfocused).cgColor
+            let borderColor = self.zoomAwareBorderColor(
+                theme: theme,
+                focusedStroke: focusedStroke,
+                isFocused: isFocused
+            )
             self.insetBorderLayer.strokeColorValue = borderColor
+            self.insetBorderLayer.strokeWidth = self.zoomAwareBorderWidth(isFocused: isFocused)
             self.focusGlowLayer.glowColorValue = glowColor
             self.layer?.shadowColor = theme.paneShadow.cgColor
             self.layer?.shadowOpacity = shadowOpacity
@@ -1465,6 +1509,30 @@ final class PaneContainerView: NSView {
         }
 
         return isFocused ? theme.paneFillFocused : theme.paneFillUnfocused
+    }
+
+    private func zoomAwareBorderColor(
+        theme: ZenttyTheme,
+        focusedStroke: NSColor,
+        isFocused: Bool
+    ) -> CGColor {
+        if isFocused {
+            return focusedStroke.cgColor
+        }
+
+        if isZoomedOutBackdropVisible {
+            return theme.paneZoomBorderUnfocused.cgColor
+        }
+
+        return theme.paneBorderUnfocused.cgColor
+    }
+
+    private func zoomAwareBorderWidth(isFocused: Bool) -> CGFloat {
+        if !isFocused, isZoomedOutBackdropVisible {
+            return Layout.borderWidth * 1.5
+        }
+
+        return Layout.borderWidth
     }
 
     private func zoomAwareTerminalBackingColor(theme: ZenttyTheme, isFocused: Bool) -> NSColor {
