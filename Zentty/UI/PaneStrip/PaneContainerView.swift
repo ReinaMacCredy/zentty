@@ -329,6 +329,7 @@ final class PaneContainerView: NSView {
     private var currentBorderGapWidth: CGFloat = 0
     private var currentBorderContext: PaneBorderContextDisplayModel?
     private var currentIsFocused: Bool
+    private var isZoomedOutBackdropVisible = false
     private var currentWorklaneColor: WorklaneColor?
     private var lastRenderedSearchState = PaneSearchState()
     var rightPaneCommandPresentationProvider: (() -> PaneRightCommandPresentation)?
@@ -684,6 +685,15 @@ final class PaneContainerView: NSView {
         needsLayout = true
         syncFramesForCurrentBounds()
         terminalHostView.forceViewportSync()
+    }
+
+    func setZoomedOutBackdropVisible(_ visible: Bool, animated: Bool) {
+        guard isZoomedOutBackdropVisible != visible else {
+            return
+        }
+
+        isZoomedOutBackdropVisible = visible
+        applyVisualState(animated: animated)
     }
 
     static let dragZoneHeight: CGFloat = 15
@@ -1407,7 +1417,11 @@ final class PaneContainerView: NSView {
         let paneFillColor =
             useNeutralBackground
             ? theme.startupSurface
-            : (isFocused ? theme.paneFillFocused : theme.paneFillUnfocused)
+            : zoomAwarePaneFillColor(theme: theme, isFocused: isFocused)
+        let terminalBackingColor =
+            useNeutralBackground
+            ? theme.startupSurface
+            : zoomAwareTerminalBackingColor(theme: theme, isFocused: isFocused)
         let shadowOpacity = Float(max(0, emphasis - 0.88) * 2.2)
         let shadowRadius = 6 + max(0, emphasis - 0.92) * 24
 
@@ -1439,14 +1453,38 @@ final class PaneContainerView: NSView {
         performThemeAnimation(animated: animated && !useNeutralBackground) {
             self.layer?.backgroundColor = paneFillColor.cgColor
         }
+        performThemeAnimation(animated: animated) {
+            self.contentClipView.layer?.backgroundColor = terminalBackingColor.cgColor
+            self.terminalHostView.layer?.backgroundColor = terminalBackingColor.cgColor
+        }
+    }
+
+    private func zoomAwarePaneFillColor(theme: ZenttyTheme, isFocused: Bool) -> NSColor {
+        if isZoomedOutBackdropVisible {
+            return theme.paneZoomFillUnfocused
+        }
+
+        return isFocused ? theme.paneFillFocused : theme.paneFillUnfocused
+    }
+
+    private func zoomAwareTerminalBackingColor(theme: ZenttyTheme, isFocused: Bool) -> NSColor {
+        if isZoomedOutBackdropVisible {
+            return zoomAwarePaneFillColor(theme: theme, isFocused: isFocused)
+        }
+
+        return theme.startupSurface
     }
 
     private func applyThemeColors(_ theme: ZenttyTheme, animated: Bool = false) {
         statusTitleLabel.textColor = theme.failurePrimaryText
         statusMessageLabel.textColor = theme.failureSecondaryText
         performThemeAnimation(animated: animated) {
-            self.contentClipView.layer?.backgroundColor = theme.startupSurface.cgColor
-            self.terminalHostView.layer?.backgroundColor = theme.startupSurface.cgColor
+            let terminalBackingColor = self.zoomAwareTerminalBackingColor(
+                theme: theme,
+                isFocused: self.currentIsFocused
+            )
+            self.contentClipView.layer?.backgroundColor = terminalBackingColor.cgColor
+            self.terminalHostView.layer?.backgroundColor = terminalBackingColor.cgColor
             self.statusOverlayView.layer?.backgroundColor = theme.failureOverlayBackground.cgColor
         }
     }

@@ -496,7 +496,7 @@ final class PaneStripViewTests: AppKitTestCase {
     }
 
     @MainActor
-    func test_pane_drag_preview_uses_opaque_window_background_while_dragging() throws {
+    func test_pane_drag_preview_uses_zoom_backdrop_while_dragging() throws {
         let theme = ZenttyTheme.fallback(for: nil)
         let paneStripView = makePaneStripView(width: 980)
         let state = PaneStripState(
@@ -514,6 +514,9 @@ final class PaneStripViewTests: AppKitTestCase {
         let paneView = try XCTUnwrap(
             paneStripView.descendantPaneViews().first(where: { $0.titleText == "shell" })
         )
+        let editorPane = try XCTUnwrap(
+            paneStripView.descendantPaneViews().first(where: { $0.titleText == "editor" })
+        )
         let dragPoint = CGPoint(
             x: paneView.frame.midX,
             y: paneView.frame.maxY - (PaneContainerView.dragZoneHeight / 2)
@@ -529,10 +532,11 @@ final class PaneStripViewTests: AppKitTestCase {
         XCTAssertLessThan(theme.windowBackground.srgbClamped.alphaComponent, 1.0)
         XCTAssertEqual(
             backgroundColor.themeToken,
-            theme.windowBackground.srgbClamped.withAlphaComponent(1).themeToken
+            theme.paneZoomFillFocused.themeToken
         )
-        XCTAssertEqual(backgroundColor.srgbClamped.alphaComponent, 1.0, accuracy: 0.001)
-        XCTAssertEqual(paneView.backgroundColorTokenForTesting, theme.paneFillFocused.themeToken)
+        XCTAssertLessThan(backgroundColor.srgbClamped.alphaComponent, 1.0)
+        XCTAssertEqual(paneView.backgroundColorTokenForTesting, theme.paneZoomFillFocused.themeToken)
+        XCTAssertEqual(editorPane.backgroundColorTokenForTesting, theme.paneZoomFillUnfocused.themeToken)
     }
 
     @MainActor
@@ -570,14 +574,79 @@ final class PaneStripViewTests: AppKitTestCase {
             cursorInStrip: dragPoint
         )
 
-        // Drag activation now reuses the pane snapshot and only samples the strip
+        let editorPane = try XCTUnwrap(
+            paneStripView.descendantPaneViews().first(where: { $0.titleText == "editor" })
+        )
+
+        // Drag activation reuses the pane snapshot and may sample the strip
         // when that snapshot exposes partial transparency. Exact backdrop RGB is
         // therefore an implementation detail; the stable contract is that drag
-        // preview activation resolves a concrete opaque background without
-        // disturbing the original pane theming.
+        // preview activation resolves a concrete mostly opaque background and
+        // visible sibling panes use the zoom backdrop.
         let backgroundColor = try XCTUnwrap(paneStripView.dragPreviewBackgroundColorForTesting)
-        XCTAssertEqual(backgroundColor.srgbClamped.alphaComponent, 1.0, accuracy: 0.001)
-        XCTAssertEqual(paneView.backgroundColorTokenForTesting, theme.paneFillFocused.themeToken)
+        XCTAssertGreaterThan(backgroundColor.srgbClamped.alphaComponent, 0.89)
+        XCTAssertEqual(editorPane.backgroundColorTokenForTesting, theme.paneZoomFillUnfocused.themeToken)
+    }
+
+    @MainActor
+    func test_peek_zoom_out_applies_zoom_backdrop_until_zoom_in_finishes() throws {
+        let theme = ZenttyTheme.fallback(for: nil)
+        let paneStripView = makePaneStripView(width: 980)
+        let state = PaneStripState(
+            panes: [
+                PaneState(id: PaneID("shell"), title: "shell", width: 420),
+                PaneState(id: PaneID("editor"), title: "editor", width: 420),
+            ],
+            focusedPaneID: PaneID("shell")
+        )
+        paneStripView.apply(theme: theme, animated: false)
+        paneStripView.render(state)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        let shellPane = try XCTUnwrap(
+            paneStripView.descendantPaneViews().first(where: { $0.titleText == "shell" })
+        )
+        let editorPane = try XCTUnwrap(
+            paneStripView.descendantPaneViews().first(where: { $0.titleText == "editor" })
+        )
+
+        paneStripView.beginPeekZoomOut(animated: false)
+
+        XCTAssertEqual(shellPane.backgroundColorTokenForTesting, theme.paneZoomFillFocused.themeToken)
+        XCTAssertEqual(editorPane.backgroundColorTokenForTesting, theme.paneZoomFillUnfocused.themeToken)
+
+        paneStripView.endPeekZoomIn(animated: false)
+
+        XCTAssertEqual(shellPane.backgroundColorTokenForTesting, theme.paneFillFocused.themeToken)
+        XCTAssertEqual(editorPane.backgroundColorTokenForTesting, theme.paneFillUnfocused.themeToken)
+    }
+
+    @MainActor
+    func test_neighbor_peek_zoom_out_applies_zoom_backdrop() throws {
+        let theme = ZenttyTheme.fallback(for: nil)
+        let paneStripView = makePaneStripView(width: 980)
+        let state = PaneStripState(
+            panes: [
+                PaneState(id: PaneID("shell"), title: "shell", width: 420),
+                PaneState(id: PaneID("editor"), title: "editor", width: 420),
+            ],
+            focusedPaneID: PaneID("shell")
+        )
+        paneStripView.apply(theme: theme, animated: false)
+        paneStripView.render(state)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        let shellPane = try XCTUnwrap(
+            paneStripView.descendantPaneViews().first(where: { $0.titleText == "shell" })
+        )
+        let editorPane = try XCTUnwrap(
+            paneStripView.descendantPaneViews().first(where: { $0.titleText == "editor" })
+        )
+
+        paneStripView.enterPeekNeighborZoomOut(scale: PaneStripView.zoomScale)
+
+        XCTAssertEqual(shellPane.backgroundColorTokenForTesting, theme.paneZoomFillFocused.themeToken)
+        XCTAssertEqual(editorPane.backgroundColorTokenForTesting, theme.paneZoomFillUnfocused.themeToken)
     }
 
     @MainActor

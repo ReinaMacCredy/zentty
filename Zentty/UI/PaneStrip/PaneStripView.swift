@@ -941,6 +941,7 @@ final class PaneStripView: NSView {
                     runtime: runtime,
                     theme: currentTheme
                 )
+                paneView.setZoomedOutBackdropVisible(isZoomedOut, animated: false)
                 paneView.onSelected = { [weak self] in
                     if let pendingPaneID = self?.pendingProgrammaticFocusPaneID,
                        pendingPaneID != pane.id {
@@ -1518,6 +1519,7 @@ final class PaneStripView: NSView {
         // Trigger zoom-out if not already zoomed
         if !isZoomedOut {
             isZoomedOut = true
+            setZoomedOutPaneBackdropsVisible(true, animated: true)
             // Freeze all non-dragged panes for zoom (dragged pane frozen by coordinator)
             for (id, paneView) in paneViews where id != paneID {
                 paneView.setTerminalViewportSyncSuspended(true)
@@ -1534,7 +1536,7 @@ final class PaneStripView: NSView {
             state: state,
             presentation: presentation,
             motionController: motionController,
-            previewBackgroundColor: currentTheme.windowBackground.srgbClamped.withAlphaComponent(1),
+            previewBackgroundColor: currentTheme.paneZoomFillFocused.srgbClamped,
             backingScaleFactor: currentBackingScaleFactor,
             leadingVisibleInset: resolvedLeadingVisibleInset
         )
@@ -1609,6 +1611,7 @@ final class PaneStripView: NSView {
         guard !isDragActive, !isZoomedOut else { return }
         isZoomedOut = true
         zoomOutScaleOverride = scaleOverride
+        setZoomedOutPaneBackdropsVisible(true, animated: animated)
         for (_, paneView) in paneViews {
             paneView.setTerminalViewportSyncSuspended(true)
         }
@@ -1627,6 +1630,7 @@ final class PaneStripView: NSView {
         guard !isDragActive, !isZoomedOut else { return }
         isZoomedOut = true
         zoomOutScaleOverride = scale
+        setZoomedOutPaneBackdropsVisible(true, animated: false)
         for (_, paneView) in paneViews {
             paneView.setTerminalViewportSyncSuspended(true)
         }
@@ -1643,6 +1647,7 @@ final class PaneStripView: NSView {
         dragScrollOffsetX = 0
         applyZoomScale(1)
         onZoomTransformChanged?()
+        setZoomedOutPaneBackdropsVisible(false, animated: false)
         for (_, paneView) in paneViews {
             paneView.setTerminalViewportSyncSuspended(false)
         }
@@ -1669,6 +1674,12 @@ final class PaneStripView: NSView {
         onZoomTransformChanged?()
     }
 
+    private func setZoomedOutPaneBackdropsVisible(_ visible: Bool, animated: Bool) {
+        for (_, paneView) in paneViews {
+            paneView.setZoomedOutBackdropVisible(visible, animated: animated)
+        }
+    }
+
     /// Reverse `beginPeekZoomOut`. Pairs the zoom-in animation with a
     /// deferred un-suspend so the terminal re-syncs its viewport to the new
     /// (full) pixel size only after the animation settles.
@@ -1687,11 +1698,19 @@ final class PaneStripView: NSView {
 
         let unfreezeDelay: TimeInterval = animated ? Self.zoomAnimationDuration : 0
         let deferredWorkGeneration = self.deferredWorkGeneration
+        if !animated {
+            setZoomedOutPaneBackdropsVisible(false, animated: false)
+            for (_, paneView) in paneViews {
+                paneView.setTerminalViewportSyncSuspended(false)
+            }
+            return
+        }
         DispatchQueue.main.asyncAfter(deadline: .now() + unfreezeDelay) { [weak self] in
             guard let self,
                   deferredWorkGeneration == self.deferredWorkGeneration,
                   !self.isZoomedOut
             else { return }
+            self.setZoomedOutPaneBackdropsVisible(false, animated: animated)
             for (_, paneView) in self.paneViews {
                 paneView.setTerminalViewportSyncSuspended(false)
             }
@@ -1736,6 +1755,8 @@ final class PaneStripView: NSView {
 
             // Restore viewport autoresizing (was disabled by the drag coordinator)
             self.viewportView.autoresizingMask = [.width, .height]
+
+            self.setZoomedOutPaneBackdropsVisible(false, animated: false)
 
             // Unfreeze and unsuspend all terminals
             for (_, paneView) in self.paneViews {

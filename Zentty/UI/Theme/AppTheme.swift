@@ -58,6 +58,8 @@ struct ZenttyTheme: Equatable {
     let paneBorderUnfocused: NSColor
     let paneFillFocused: NSColor
     let paneFillUnfocused: NSColor
+    let paneZoomFillFocused: NSColor
+    let paneZoomFillUnfocused: NSColor
     let paneShadow: NSColor
     let startupSurface: NSColor
     let failureOverlayBackground: NSColor
@@ -124,6 +126,7 @@ struct ZenttyTheme: Equatable {
             lhs.canvasShadow, lhs.contextStripBackground, lhs.contextStripBorder, lhs.worklaneChipBackground, lhs.worklaneChipText,
             lhs.primaryText, lhs.secondaryText, lhs.tertiaryText, lhs.paneBorderFocused,
             lhs.paneBorderUnfocused, lhs.paneFillFocused, lhs.paneFillUnfocused, lhs.paneShadow,
+            lhs.paneZoomFillFocused, lhs.paneZoomFillUnfocused,
             lhs.startupSurface, lhs.failureOverlayBackground, lhs.failurePrimaryText,
             lhs.failureSecondaryText, lhs.sidebarButtonActiveBackground, lhs.sidebarButtonHoverBackground,
             lhs.sidebarButtonInactiveBackground, lhs.sidebarButtonActiveBorder, lhs.sidebarButtonInactiveBorder,
@@ -151,6 +154,7 @@ struct ZenttyTheme: Equatable {
             rhs.canvasShadow, rhs.contextStripBackground, rhs.contextStripBorder, rhs.worklaneChipBackground, rhs.worklaneChipText,
             rhs.primaryText, rhs.secondaryText, rhs.tertiaryText, rhs.paneBorderFocused,
             rhs.paneBorderUnfocused, rhs.paneFillFocused, rhs.paneFillUnfocused, rhs.paneShadow,
+            rhs.paneZoomFillFocused, rhs.paneZoomFillUnfocused,
             rhs.startupSurface, rhs.failureOverlayBackground, rhs.failurePrimaryText,
             rhs.failureSecondaryText, rhs.sidebarButtonActiveBackground, rhs.sidebarButtonHoverBackground,
             rhs.sidebarButtonInactiveBackground, rhs.sidebarButtonActiveBorder, rhs.sidebarButtonInactiveBorder,
@@ -261,6 +265,12 @@ struct ZenttyTheme: Equatable {
         paneFillUnfocused = isTranslucent
             ? .clear
             : background.withAlphaComponent(0.96)
+        let zoomPaneAlpha: CGFloat = reduceTransparency ? 1.0 : (background.isDarkThemeColor ? 0.92 : 0.95)
+        let zoomPaneBase = background.isDarkThemeColor
+            ? background.mixed(towards: .black, amount: 0.12)
+            : background.mixed(towards: .white, amount: 0.10)
+        paneZoomFillUnfocused = zoomPaneBase.withAlphaComponent(zoomPaneAlpha)
+        paneZoomFillFocused = paneZoomFillUnfocused
         paneShadow = NSColor.black.withAlphaComponent(background.isDarkThemeColor ? 0.12 : 0.06)
         failureOverlayBackground = background.mixed(towards: foreground, amount: 0.08).withAlphaComponent(0.92)
         failurePrimaryText = readableForeground.withAlphaComponent(0.96)
