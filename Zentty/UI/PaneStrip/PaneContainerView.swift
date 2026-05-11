@@ -1013,6 +1013,10 @@ final class PaneContainerView: NSView {
         isTerminalAnimationFrozen
     }
 
+    func updateShortcutTooltips(_ shortcutManager: ShortcutManager) {
+        borderContextView.updateShortcutTooltip(shortcutManager)
+    }
+
     var borderLabelGapWidthForTesting: CGFloat {
         currentBorderGapWidth
     }

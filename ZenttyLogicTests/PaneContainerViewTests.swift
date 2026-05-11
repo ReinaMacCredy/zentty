@@ -328,11 +328,68 @@ final class PaneContainerViewTests: AppKitTestCase {
         let pointInPane = CGPoint(x: frame.midX, y: frame.midY)
         let clickTarget = try XCTUnwrap(paneView.hitTest(pointInPane) as? PaneBorderContextInsetView)
 
-        XCTAssertEqual(clickTarget.toolTip, "Copy path")
+        XCTAssertEqual(clickTarget.toolTip, "Copy Path (⌘⇧C)")
         XCTAssertNil(
             clickTarget.layer?.sublayers?.first { $0.name == "copyIconLayer" },
             "Pane path label should stay clickable without showing a copy icon"
         )
+    }
+
+    func test_pane_container_border_context_copy_tooltip_uses_configured_shortcut() throws {
+        let adapter = PaneContainerTerminalAdapterSpy()
+        let pane = PaneState(id: PaneID("shell"), title: "shell")
+        let runtime = PaneRuntime(
+            pane: pane,
+            adapter: adapter,
+            metadataSink: { _, _ in },
+            eventSink: { _, _ in }
+        )
+        let paneView = PaneContainerView(
+            pane: pane,
+            width: 420,
+            height: 520,
+            emphasis: 1,
+            isFocused: true,
+            runtime: runtime,
+            theme: ZenttyTheme.fallback(for: nil),
+            backingScaleFactorProvider: { 2 }
+        )
+        let shortcutManager = ShortcutManager(
+            shortcuts: AppConfig.Shortcuts(
+                bindings: [
+                    ShortcutBindingOverride(
+                        commandID: .copyFocusedPanePath,
+                        shortcut: .init(key: .character("p"), modifiers: [.command, .option])
+                    ),
+                ]
+            )
+        )
+        paneView.onBorderContextClicked = { _ in }
+
+        paneView.updateShortcutTooltips(shortcutManager)
+        paneView.render(
+            pane: pane,
+            emphasis: 1,
+            isFocused: true,
+            borderContext: PaneBorderContextDisplayModel(text: "~/src/zentty")
+        )
+        paneView.layoutSubtreeIfNeeded()
+
+        let frame = try XCTUnwrap(paneView.paneBorderContextFrameForTesting)
+        let pointInPane = CGPoint(x: frame.midX, y: frame.midY)
+        let clickTarget = try XCTUnwrap(paneView.hitTest(pointInPane) as? PaneBorderContextInsetView)
+
+        XCTAssertEqual(clickTarget.toolTip, "Copy Path (⌘⌥P)")
+
+        paneView.updateShortcutTooltips(ShortcutManager(
+            shortcuts: AppConfig.Shortcuts(
+                bindings: [
+                    ShortcutBindingOverride(commandID: .copyFocusedPanePath, shortcut: nil),
+                ]
+            )
+        ))
+
+        XCTAssertEqual(clickTarget.toolTip, "Copy Path")
     }
 
     func test_pane_container_clamps_border_context_width_to_available_pane_width() throws {

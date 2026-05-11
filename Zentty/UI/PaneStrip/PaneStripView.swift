@@ -90,6 +90,7 @@ final class PaneStripView: NSView {
     private var currentInactivePaneOpacity = AppConfig.Panes.default.inactiveOpacity
     private var currentWorklaneColor: WorklaneColor?
     private var currentPresentation: StripPresentation?
+    private var shortcutManager = ShortcutManager(shortcuts: .default)
     private var paneViews: [PaneID: PaneContainerView] = [:]
     private var dragZoneViews: [PaneID: PaneDragZoneView] = [:]
     private var dividerViews: [PaneDivider: PaneDividerHandleView] = [:]
@@ -369,6 +370,11 @@ final class PaneStripView: NSView {
             animationDuration: duration,
             animationTimingFunction: timingFunction
         )
+    }
+
+    func updateShortcutTooltips(_ shortcutManager: ShortcutManager) {
+        self.shortcutManager = shortcutManager
+        paneViews.values.forEach { $0.updateShortcutTooltips(shortcutManager) }
     }
 
     func transition(
@@ -953,6 +959,7 @@ final class PaneStripView: NSView {
                     viewportDiagnosticsLaneRole: viewportDiagnosticsLaneRole,
                     viewportDiagnosticsIsZoomedOut: isZoomedOut
                 )
+                paneView.updateShortcutTooltips(shortcutManager)
                 paneView.setZoomedOutBackdropVisible(isZoomedOut, animated: false)
                 paneView.onSelected = { [weak self] in
                     if let pendingPaneID = self?.pendingProgrammaticFocusPaneID,

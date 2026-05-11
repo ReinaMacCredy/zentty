@@ -2624,6 +2624,7 @@ final class RootViewController: NSViewController {
         windowChromeView.updateShortcutTooltips(shortcutManager)
         globalSearchHUDView.updateShortcutTooltips(shortcutManager)
         runtimeRegistry.updateShortcutTooltips(shortcutManager)
+        appCanvasView.updateShortcutTooltips(shortcutManager)
     }
 
     private func applyPersistedConfig(_ config: AppConfig) {
