@@ -442,7 +442,7 @@ final class OpenWithSettingsSectionViewController: SettingsScrollableSectionView
     private let primaryTargetPopupButton = NSPopUpButton()
     private let availableTargetsStackView = NSStackView()
     private let addCustomAppButton = NSButton()
-    private var targetRowsByID: [String: OpenWithTargetRowView] = [:]
+    private var targetRowsByID: [String: SettingsCheckmarkTargetRow] = [:]
     private var isApplyingPreferences = false
     private var currentPreferences: AppConfig.OpenWith = .default
     private var currentVisibleTargets: [VisibleTarget] = []
@@ -685,7 +685,7 @@ final class OpenWithSettingsSectionViewController: SettingsScrollableSectionView
         }
 
         for target in currentVisibleTargets {
-            let row = OpenWithTargetRowView(
+            let row = SettingsCheckmarkTargetRow(
                 title: target.title,
                 stableID: target.stableID,
                 target: self,
@@ -962,7 +962,7 @@ final class SettingsCardView: NSView {
 }
 
 @MainActor
-private final class OpenWithTargetRowView: NSStackView {
+final class SettingsCheckmarkTargetRow: NSStackView {
     let checkbox: NSButton
     let removeButton: NSButton?
 

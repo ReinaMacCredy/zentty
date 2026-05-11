@@ -29,6 +29,18 @@ enum FocusedTerminalInterruptBridge {
 
 @MainActor
 final class RootViewController: NSViewController {
+    private struct PassiveServerDetectionContext: Sendable {
+        let worklaneID: WorklaneID
+        let scanner: ServerScanContext
+        let docker: DockerDiscoveryContext
+    }
+
+    private struct PassiveServerDetectionResult: Sendable {
+        let worklaneID: WorklaneID
+        let scannerServers: [DetectedServer]
+        let dockerServers: [DetectedServer]
+    }
+
     private final class LocalEventMonitor {
         private let token: Any
 
@@ -83,6 +95,9 @@ final class RootViewController: NSViewController {
     private let configStore: AppConfigStore
     private let appUpdateStateStore: AppUpdateStateStore
     private let openWithService: OpenWithServing
+    private let serverOpenService: ServerOpening
+    private let serverListenerScanner: ServerListenerScanner
+    private let dockerServerDiscovery: DockerServerDiscovery
     private let sidebarView = SidebarView()
     private let sidebarHoverRailView = SidebarHoverRailView()
     private let sidebarToggleButton = SidebarToggleButton()
@@ -95,6 +110,7 @@ final class RootViewController: NSViewController {
     private let notificationCoordinator: NotificationChromeCoordinator
     private let renderCoordinator: WorklaneRenderCoordinator
     private var staleAgentSweepTimer: Timer?
+    private var passiveServerDetectionTask: Task<Void, Never>?
     private var bookmarksPopover: NSPopover?
     private var bookmarksPopoverObserverToken: NSObjectProtocol?
     private lazy var bookmarkStore: BookmarkStore = {
@@ -174,6 +190,8 @@ final class RootViewController: NSViewController {
     var onWindowChromeNeedsUpdate: (() -> Void)?
     var onOpenWithPrimaryRequested: (() -> Void)?
     var onOpenWithMenuRequested: (() -> Void)?
+    var onServerPrimaryRequested: (() -> Void)?
+    var onServerMenuRequested: (() -> Void)?
     var onShowSettingsRequested: (() -> Void)?
     var onCheckForUpdatesRequested: (() -> Void)?
     var onCloseWindowRequested: (() -> Void)?
@@ -186,6 +204,9 @@ final class RootViewController: NSViewController {
         configStore: AppConfigStore,
         appUpdateStateStore: AppUpdateStateStore = AppUpdateStateStore(),
         openWithService: OpenWithServing = OpenWithService(),
+        serverOpenService: ServerOpening = ServerOpenService(),
+        serverListenerScanner: ServerListenerScanner = ServerListenerScanner(),
+        dockerServerDiscovery: DockerServerDiscovery = DockerServerDiscovery(),
         runtimeRegistry: PaneRuntimeRegistry = PaneRuntimeRegistry(),
         notificationStore: NotificationStore = NotificationStore(),
         reviewStateResolver: WorklaneReviewStateResolver = WorklaneReviewStateResolver(),
@@ -198,6 +219,9 @@ final class RootViewController: NSViewController {
         self.configStore = configStore
         self.appUpdateStateStore = appUpdateStateStore
         self.openWithService = openWithService
+        self.serverOpenService = serverOpenService
+        self.serverListenerScanner = serverListenerScanner
+        self.dockerServerDiscovery = dockerServerDiscovery
         self.paneLayoutPreferences = configStore.current.paneLayout
         self.shortcutManager = ShortcutManager(shortcuts: configStore.current.shortcuts)
         self.lastAppliedAppearanceSettings = configStore.current.appearance
@@ -253,6 +277,9 @@ final class RootViewController: NSViewController {
         configStore: AppConfigStore? = nil,
         appUpdateStateStore: AppUpdateStateStore = AppUpdateStateStore(),
         openWithService: OpenWithServing = OpenWithService(),
+        serverOpenService: ServerOpening = ServerOpenService(),
+        serverListenerScanner: ServerListenerScanner = ServerListenerScanner(),
+        dockerServerDiscovery: DockerServerDiscovery = DockerServerDiscovery(),
         runtimeRegistry: PaneRuntimeRegistry = PaneRuntimeRegistry(),
         notificationStore: NotificationStore = NotificationStore(),
         reviewStateResolver: WorklaneReviewStateResolver = WorklaneReviewStateResolver(),
@@ -274,6 +301,9 @@ final class RootViewController: NSViewController {
                 ),
             appUpdateStateStore: appUpdateStateStore,
             openWithService: openWithService,
+            serverOpenService: serverOpenService,
+            serverListenerScanner: serverListenerScanner,
+            dockerServerDiscovery: dockerServerDiscovery,
             runtimeRegistry: runtimeRegistry,
             notificationStore: notificationStore,
             reviewStateResolver: reviewStateResolver,
@@ -291,6 +321,7 @@ final class RootViewController: NSViewController {
     deinit {
         MainActor.assumeIsolated {
             invalidateStaleAgentSweepTimer()
+            passiveServerDetectionTask?.cancel()
             agentCaffeinationController.removeSource(id: windowID)
             if let appUpdateObserverID {
                 appUpdateStateStore.removeObserver(appUpdateObserverID)
@@ -471,15 +502,28 @@ final class RootViewController: NSViewController {
                         with: self.worklaneStore.worklanes)
                 }
                 self.updateOpenWithChromeState()
+                self.updateServerChromeState()
                 self.updatePaneNavigationButtonState()
+                self.schedulePassiveServerDetectionRefresh()
             case .focusChanged, .activeWorklaneChanged:
                 self.globalSearchCoordinator.reconcileTargets(with: self.worklaneStore.worklanes)
                 self.updateOpenWithChromeState()
+                self.updateServerChromeState()
                 self.updatePaneNavigationButtonState()
+                self.schedulePassiveServerDetectionRefresh()
             case .historyChanged:
                 self.updatePaneNavigationButtonState()
-            case .auxiliaryStateUpdated(_, _, let impacts) where impacts.contains(.openWith):
-                self.updateOpenWithChromeState()
+            case .auxiliaryStateUpdated(_, _, let impacts):
+                if impacts.contains(.openWith) {
+                    self.updateOpenWithChromeState()
+                    self.schedulePassiveServerDetectionRefresh()
+                }
+                if impacts.contains(.serverDetection) {
+                    self.updateServerChromeState()
+                }
+                if !impacts.contains(.openWith), !impacts.contains(.serverDetection) {
+                    self.schedulePassiveServerDetectionRefresh()
+                }
             default:
                 break
             }
@@ -888,7 +932,15 @@ final class RootViewController: NSViewController {
         windowChromeView.onOpenWithMenuAction = { [weak self] in
             self?.onOpenWithMenuRequested?()
         }
+        windowChromeView.onServerPrimaryAction = { [weak self] in
+            self?.onServerPrimaryRequested?()
+        }
+        windowChromeView.onServerMenuAction = { [weak self] in
+            self?.onServerMenuRequested?()
+        }
         updateOpenWithChromeState()
+        updateServerChromeState()
+        schedulePassiveServerDetectionRefresh()
     }
 
     override func viewDidLayout() {
@@ -908,6 +960,9 @@ final class RootViewController: NSViewController {
             }
             commandPaletteController.onOpenWith = { [weak self] stableID, workingDirectory in
                 self?.openWithFromPalette(stableID: stableID, workingDirectory: workingDirectory)
+            }
+            commandPaletteController.onOpenServer = { [weak self] serverID in
+                self?.openServerFromPalette(serverID: serverID)
             }
             commandPaletteController.onSetWorklaneColor = { [weak self] color in
                 guard let self else { return }
@@ -1393,7 +1448,8 @@ final class RootViewController: NSViewController {
             availabilityContext: availabilityContext,
             focusedPanePath: focusedPanePath,
             focusedBranchName: focusedBranchName,
-            openWithTargets: openWithTargets
+            openWithTargets: openWithTargets,
+            servers: activeServerContext.servers
         )
     }
 
@@ -1402,6 +1458,14 @@ final class RootViewController: NSViewController {
             return
         }
         openWithService.open(target: target, workingDirectory: workingDirectory)
+    }
+
+    private func openServerFromPalette(serverID: String) {
+        guard let server = activeServerContext.servers.first(where: { $0.id == serverID }) else {
+            return
+        }
+
+        _ = openServer(server)
     }
 
     private func copyFocusedPanePath() {
@@ -2090,6 +2154,239 @@ final class RootViewController: NSViewController {
         worklaneStore.resizeFocusedPaneHeightToFraction(fraction)
     }
 
+    // MARK: - Server IPC
+
+    func handleServerIPCCommand(
+        _ command: ServerIPCCommand,
+        target: AgentIPCTarget
+    ) throws -> AgentIPCResponseResult {
+        switch command {
+        case .set(let rawURL, let pid, _):
+            try registerServer(
+                rawURL: rawURL,
+                pid: pid,
+                source: .manual,
+                target: target
+            )
+            return serverResponse(for: target.worklaneID)
+
+        case .watchSet(let rawURL, let pid, _):
+            try registerServer(
+                rawURL: rawURL,
+                pid: pid,
+                source: .watch,
+                target: target
+            )
+            return serverResponse(for: target.worklaneID)
+
+        case .clear:
+            worklaneStore.clearServers(worklaneID: target.worklaneID, paneID: target.paneID)
+            return serverResponse(for: target.worklaneID)
+
+        case .list:
+            return serverResponse(for: target.worklaneID)
+
+        case .open(let rawURL, let browserID, _):
+            let context = worklaneStore.serverContext(for: target.worklaneID)
+            let server = rawURL.flatMap { worklaneStore.serverRegistry.server(matching: $0, in: target.worklaneID) }
+                ?? context.primaryServer
+            if let server {
+                _ = serverOpenService.open(
+                    server: server,
+                    browserID: browserID,
+                    config: configStore.current.serverDetection
+                )
+            }
+            return serverResponse(for: target.worklaneID)
+
+        case .watch:
+            return serverResponse(for: target.worklaneID)
+        }
+    }
+
+    private func registerServer(
+        rawURL: String,
+        pid: Int?,
+        source: DetectedServerSource,
+        target: AgentIPCTarget
+    ) throws {
+        let candidate = try ServerURLNormalizer.normalize(rawURL)
+        let server = DetectedServer(
+            id: serverRecordID(
+                worklaneID: target.worklaneID,
+                paneID: target.paneID,
+                source: source,
+                origin: candidate.origin
+            ),
+            origin: candidate.origin,
+            url: candidate.url,
+            display: candidate.display,
+            worklaneID: target.worklaneID,
+            paneID: target.paneID,
+            source: source,
+            ports: [candidate.port],
+            confidence: pid == nil ? .explicit : .pid,
+            updatedAt: Date()
+        )
+        worklaneStore.register(server: server)
+    }
+
+    private func schedulePassiveServerDetectionRefresh() {
+        passiveServerDetectionTask?.cancel()
+
+        guard configStore.current.serverDetection.passiveDetectionEnabled else {
+            worklaneStore.worklanes.forEach { worklane in
+                worklaneStore.replacePassiveServers(worklaneID: worklane.id, source: .scanner, servers: [])
+                worklaneStore.replacePassiveServers(worklaneID: worklane.id, source: .docker, servers: [])
+            }
+            return
+        }
+
+        let contexts = passiveServerDetectionContexts()
+        guard !contexts.isEmpty else {
+            return
+        }
+
+        let scanner = serverListenerScanner
+        let dockerDiscovery = dockerServerDiscovery
+        passiveServerDetectionTask = Task { [weak self, contexts, scanner, dockerDiscovery] in
+            try? await Task.sleep(nanoseconds: 750_000_000)
+            guard !Task.isCancelled else {
+                return
+            }
+
+            let results = await Task.detached(priority: .utility) { [contexts, scanner, dockerDiscovery] in
+                contexts.map { context in
+                    PassiveServerDetectionResult(
+                        worklaneID: context.worklaneID,
+                        scannerServers: scanner.scan(context: context.scanner),
+                        dockerServers: dockerDiscovery.discover(context: context.docker)
+                    )
+                }
+            }.value
+
+            guard !Task.isCancelled, let self else {
+                return
+            }
+
+            results.forEach { result in
+                self.worklaneStore.replacePassiveServers(
+                    worklaneID: result.worklaneID,
+                    source: .scanner,
+                    servers: result.scannerServers
+                )
+                self.worklaneStore.replacePassiveServers(
+                    worklaneID: result.worklaneID,
+                    source: .docker,
+                    servers: result.dockerServers
+                )
+            }
+        }
+    }
+
+    private func passiveServerDetectionContexts() -> [PassiveServerDetectionContext] {
+        worklaneStore.worklanes.compactMap { worklane in
+            let panes = worklane.paneStripState.panes.compactMap { pane -> (PaneScanContext, DockerPaneContext)? in
+                guard let shellContext = worklane.auxiliaryStateByPaneID[pane.id]?.shellContext,
+                      shellContext.scope == .local,
+                      let workingDirectory = shellContext.path else {
+                    return nil
+                }
+
+                return (
+                    PaneScanContext(
+                        paneID: pane.id,
+                        workingDirectory: workingDirectory,
+                        shellPID: nil
+                    ),
+                    DockerPaneContext(
+                        paneID: pane.id,
+                        workingDirectory: workingDirectory,
+                        recentCommandLines: []
+                    )
+                )
+            }
+
+            guard !panes.isEmpty else {
+                return nil
+            }
+
+            return PassiveServerDetectionContext(
+                worklaneID: worklane.id,
+                scanner: ServerScanContext(
+                    worklaneID: worklane.id,
+                    panes: panes.map(\.0)
+                ),
+                docker: DockerDiscoveryContext(
+                    worklaneID: worklane.id,
+                    focusedPaneID: worklane.paneStripState.focusedPaneID,
+                    panes: panes.map(\.1)
+                )
+            )
+        }
+    }
+
+    @discardableResult
+    func openServer(_ server: DetectedServer, browserID: String? = nil) -> Bool {
+        serverOpenService.open(
+            server: server,
+            browserID: browserID,
+            config: configStore.current.serverDetection
+        )
+    }
+
+    func rememberServerBrowser(_ stableID: String) {
+        guard configStore.current.serverDetection.preferredBrowserID != stableID else {
+            return
+        }
+
+        try? configStore.update { config in
+            config.serverDetection.preferredBrowserID = stableID
+        }
+    }
+
+    private func serverResponse(for worklaneID: WorklaneID) -> AgentIPCResponseResult {
+        let context = worklaneStore.serverContext(for: worklaneID)
+        return AgentIPCResponseResult(serverState: ServerListResult(
+            version: 1,
+            primaryServerID: context.primaryServer?.id,
+            servers: context.servers.map(serverListEntry)
+        ))
+    }
+
+    private func serverListEntry(_ server: DetectedServer) -> ServerListEntry {
+        ServerListEntry(
+            id: server.id,
+            origin: server.origin,
+            url: server.url.absoluteString,
+            display: server.display,
+            worklaneID: server.worklaneID.rawValue,
+            paneID: server.paneID?.rawValue,
+            source: server.source.rawValue,
+            ports: server.ports,
+            confidence: server.confidence.rawValue,
+            updatedAt: Self.formatServerDate(server.updatedAt)
+        )
+    }
+
+    private static func formatServerDate(_ date: Date) -> String {
+        ISO8601DateFormatter().string(from: date)
+    }
+
+    private func serverRecordID(
+        worklaneID: WorklaneID,
+        paneID: PaneID?,
+        source: DetectedServerSource,
+        origin: String
+    ) -> String {
+        [
+            worklaneID.rawValue,
+            paneID?.rawValue ?? "worklane",
+            source.rawValue,
+            origin,
+        ].joined(separator: "|")
+    }
+
     func equalizeFocusedColumnPaneHeights() {
         worklaneStore.equalizeFocusedColumnPaneHeights()
     }
@@ -2200,6 +2497,18 @@ final class RootViewController: NSViewController {
 
     var primaryOpenWithTarget: OpenWithResolvedTarget? {
         openWithService.primaryTarget(preferences: configStore.current.openWith)
+    }
+
+    var activeServerContext: WorklaneServerContext {
+        worklaneStore.activeServerContext
+    }
+
+    var availableServerBrowsers: [ServerBrowserTarget] {
+        serverOpenService.availableBrowsers(config: configStore.current.serverDetection)
+    }
+
+    var preferredServerBrowser: ServerBrowserTarget {
+        serverOpenService.preferredBrowser(config: configStore.current.serverDetection)
     }
 
     private func updatePaneViewportHeight() {
@@ -2440,6 +2749,8 @@ final class RootViewController: NSViewController {
         updatePaneLayoutContextIfNeeded(force: true)
         renderCoordinator.render()
         updateOpenWithChromeState()
+        updateServerChromeState()
+        schedulePassiveServerDetectionRefresh()
         syncAgentCaffeinationState()
 
         if appearanceDidChange {
@@ -2473,6 +2784,22 @@ final class RootViewController: NSViewController {
                 icon: primaryTarget.flatMap { openWithService.icon(for: $0) },
                 isPrimaryEnabled: canOpenFocusedPane,
                 isMenuEnabled: true
+            ))
+    }
+
+    private func updateServerChromeState() {
+        guard let server = activeServerContext.primaryServer else {
+            windowChromeView.render(server: nil)
+            return
+        }
+
+        let preferredBrowser = preferredServerBrowser
+        windowChromeView.render(
+            server: WindowChromeServerState(
+                title: server.display,
+                icon: serverOpenService.icon(for: preferredBrowser),
+                isPrimaryEnabled: true,
+                isMenuEnabled: !activeServerContext.servers.isEmpty
             ))
     }
 

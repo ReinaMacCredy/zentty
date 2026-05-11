@@ -14,8 +14,10 @@ enum AppConfigTOML {
         case panes
         case appearance
         case openWith
+        case serverDetection
         case errorReporting
         case customApp(Int)
+        case serverCustomBrowser(Int)
         case shortcuts
         case shortcutBinding(Int)
         case notifications
@@ -79,6 +81,30 @@ enum AppConfigTOML {
             }
         }
 
+        lines.append("")
+        lines.append("[server_detection]")
+        lines.append("passive_detection_enabled = \(config.serverDetection.passiveDetectionEnabled)")
+        lines.append("preferred_browser_id = \(encode(string: config.serverDetection.preferredBrowserID))")
+        lines.append("enabled_browser_target_ids = \(encode(strings: config.serverDetection.enabledBrowserTargetIDs))")
+
+        if !config.serverDetection.customBrowsers.isEmpty {
+            lines.append("")
+            for browser in config.serverDetection.customBrowsers {
+                lines.append("[[server_detection.custom_browsers]]")
+                lines.append("id = \(encode(string: browser.id))")
+                lines.append("name = \(encode(string: browser.name))")
+                lines.append("path = \(encode(string: browser.appPath))")
+                if let bundleIdentifier = browser.bundleIdentifier, !bundleIdentifier.isEmpty {
+                    lines.append("bundle_identifier = \(encode(string: bundleIdentifier))")
+                }
+                lines.append("")
+            }
+
+            while lines.last?.isEmpty == true {
+                lines.removeLast()
+            }
+        }
+
         if !config.shortcuts.bindings.isEmpty {
             lines.append("")
             for binding in config.shortcuts.bindings {
@@ -134,6 +160,7 @@ enum AppConfigTOML {
         var config = AppConfig.default
         var section = Section.root
         var customApps: [OpenWithCustomApp] = []
+        var serverCustomBrowsers: [ServerBrowserCustomApp] = []
         var decodedShortcutBindings: [DecodedShortcutBinding] = []
 
         for rawLine in source.components(separatedBy: .newlines) {
@@ -162,6 +189,10 @@ enum AppConfigTOML {
                 section = .openWith
                 continue
             }
+            if line == "[server_detection]" {
+                section = .serverDetection
+                continue
+            }
             if line == "[error_reporting]" {
                 section = .errorReporting
                 continue
@@ -169,6 +200,13 @@ enum AppConfigTOML {
             if line == "[[open_with.custom_apps]]" {
                 customApps.append(OpenWithCustomApp(id: "", name: "", appPath: ""))
                 section = .customApp(customApps.count - 1)
+                continue
+            }
+            if line == "[[server_detection.custom_browsers]]" {
+                serverCustomBrowsers.append(
+                    ServerBrowserCustomApp(id: "", name: "", appPath: "", bundleIdentifier: nil)
+                )
+                section = .serverCustomBrowser(serverCustomBrowsers.count - 1)
                 continue
             }
             if line == "[shortcuts]" {
@@ -233,6 +271,10 @@ enum AppConfigTOML {
                 guard decodeOpenWithAssignment(assignment, into: &config) else {
                     return nil
                 }
+            case .serverDetection:
+                guard decodeServerDetectionAssignment(assignment, into: &config) else {
+                    return nil
+                }
             case .errorReporting:
                 guard decodeErrorReportingAssignment(assignment, into: &config) else {
                     return nil
@@ -242,6 +284,13 @@ enum AppConfigTOML {
                     return nil
                 }
                 guard decodeCustomAppAssignment(assignment, into: &customApps[index]) else {
+                    return nil
+                }
+            case .serverCustomBrowser(let index):
+                guard serverCustomBrowsers.indices.contains(index) else {
+                    return nil
+                }
+                guard decodeServerCustomBrowserAssignment(assignment, into: &serverCustomBrowsers[index]) else {
                     return nil
                 }
             case .shortcutBinding(let index):
@@ -289,6 +338,9 @@ enum AppConfigTOML {
         guard customApps.allSatisfy({ !$0.id.isEmpty && !$0.name.isEmpty && !$0.appPath.isEmpty }) else {
             return nil
         }
+        guard serverCustomBrowsers.allSatisfy({ !$0.id.isEmpty && !$0.name.isEmpty && !$0.appPath.isEmpty }) else {
+            return nil
+        }
         let shortcuts = decodedShortcutBindings.compactMap { binding -> ShortcutBindingOverride? in
             guard let commandID = binding.commandID, binding.hasShortcutValue else {
                 return nil
@@ -300,6 +352,7 @@ enum AppConfigTOML {
             return nil
         }
         config.openWith.customApps = customApps
+        config.serverDetection.customBrowsers = serverCustomBrowsers
         config.shortcuts.bindings = shortcuts
         return config
     }
@@ -372,6 +425,33 @@ enum AppConfigTOML {
         return true
     }
 
+    private static func decodeServerDetectionAssignment(
+        _ assignment: (key: String, value: String),
+        into config: inout AppConfig
+    ) -> Bool {
+        switch assignment.key {
+        case "passive_detection_enabled":
+            guard let value = decodeBool(assignment.value) else {
+                return false
+            }
+            config.serverDetection.passiveDetectionEnabled = value
+        case "preferred_browser_id":
+            guard let value = decodeString(assignment.value), !value.isEmpty else {
+                return false
+            }
+            config.serverDetection.preferredBrowserID = value
+        case "enabled_browser_target_ids":
+            guard let values = decodeStringArray(assignment.value) else {
+                return false
+            }
+            config.serverDetection.enabledBrowserTargetIDs = values
+        default:
+            return true
+        }
+
+        return true
+    }
+
     private static func decodeAppearanceAssignment(
         _ assignment: (key: String, value: String),
         into config: inout AppConfig
@@ -436,6 +516,30 @@ enum AppConfigTOML {
             app.name = decoded
         case "path":
             app.appPath = decoded
+        default:
+            return true
+        }
+
+        return true
+    }
+
+    private static func decodeServerCustomBrowserAssignment(
+        _ assignment: (key: String, value: String),
+        into browser: inout ServerBrowserCustomApp
+    ) -> Bool {
+        guard let decoded = decodeString(assignment.value) else {
+            return false
+        }
+
+        switch assignment.key {
+        case "id":
+            browser.id = decoded
+        case "name":
+            browser.name = decoded
+        case "path":
+            browser.appPath = decoded
+        case "bundle_identifier":
+            browser.bundleIdentifier = decoded.isEmpty ? nil : decoded
         default:
             return true
         }

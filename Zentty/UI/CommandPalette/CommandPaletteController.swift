@@ -12,6 +12,7 @@ final class CommandPaletteController {
     private var lastFocusedPanePath: String?
     var onExecute: ((AppAction) -> Void)?
     var onOpenWith: ((_ stableID: String, _ workingDirectory: String) -> Void)?
+    var onOpenServer: ((_ serverID: String) -> Void)?
     var onSetWorklaneColor: ((WorklaneColor?) -> Void)?
 
     var isShown: Bool { panel != nil }
@@ -24,7 +25,8 @@ final class CommandPaletteController {
         availabilityContext: CommandAvailabilityContext,
         focusedPanePath: String?,
         focusedBranchName: String?,
-        openWithTargets: [OpenWithResolvedTarget] = []
+        openWithTargets: [OpenWithResolvedTarget] = [],
+        servers: [DetectedServer] = []
     ) {
         if isShown {
             close()
@@ -44,8 +46,9 @@ final class CommandPaletteController {
             targets: openWithTargets,
             focusedPanePath: focusedPanePath
         )
+        let serverItems = CommandPaletteItemBuilder.buildServerItems(servers: servers)
         let worklaneColorItems = CommandPaletteItemBuilder.buildWorklaneColorItems()
-        let allItems = commandItems + openWithItems + worklaneColorItems
+        let allItems = commandItems + openWithItems + serverItems + worklaneColorItems
 
         let recentItems = recentCommands.recentItemIDs.compactMap { itemID in
             allItems.first { $0.id == itemID }
@@ -176,6 +179,8 @@ final class CommandPaletteController {
         case .openWith(let stableID):
             guard let path = lastFocusedPanePath else { return }
             onOpenWith?(stableID, path)
+        case .server(let serverID):
+            onOpenServer?(serverID)
         case .worklaneColor(let color):
             onSetWorklaneColor?(color)
         }

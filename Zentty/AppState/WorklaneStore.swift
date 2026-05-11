@@ -74,6 +74,13 @@ struct WorklaneOpenWithContext: Equatable, Sendable {
     let scope: PaneShellContextScope
 }
 
+struct WorklaneServerContext: Equatable, Sendable {
+    let worklaneID: WorklaneID
+    let focusedPaneID: PaneID?
+    let primaryServer: DetectedServer?
+    let servers: [DetectedServer]
+}
+
 struct PaneSplitOutResult: Equatable, Sendable {
     let destinationWorkspaceState: WindowWorkspaceState
     let movedPaneID: PaneID
@@ -101,6 +108,7 @@ struct WorklaneAuxiliaryInvalidation: OptionSet, Equatable, Sendable {
     static let openWith = WorklaneAuxiliaryInvalidation(rawValue: 1 << 4)
     static let reviewRefresh = WorklaneAuxiliaryInvalidation(rawValue: 1 << 5)
     static let surfaceActivities = WorklaneAuxiliaryInvalidation(rawValue: 1 << 6)
+    static let serverDetection = WorklaneAuxiliaryInvalidation(rawValue: 1 << 7)
 
     static let presentationChrome: WorklaneAuxiliaryInvalidation = [.sidebar, .header, .attention]
 }
@@ -303,6 +311,7 @@ final class WorklaneStore {
     private(set) var teamAnchorByWorklaneID: [WorklaneID: WorklaneAnchor] = [:]
     let windowID: WindowID
     let runtimeIdentity: WorklaneRuntimeIdentity
+    let serverRegistry: ServerRegistry
     let focusHistoryController = PaneFocusHistoryController()
     private var isNavigatingHistory = false
 
@@ -351,6 +360,7 @@ final class WorklaneStore {
         currentDateProvider: @escaping @MainActor () -> Date = Date.init,
         readyStatusScheduler: @escaping ReadyStatusScheduler = WorklaneStore.defaultReadyStatusScheduler,
         runtimeIdentity: WorklaneRuntimeIdentity = .live,
+        serverRegistry: ServerRegistry = ServerRegistry(),
         terminalDiagnostics: TerminalDiagnostics = .shared,
         agentTeamsEnabledProvider: @escaping @MainActor () -> Bool = { false }
     ) {
@@ -365,6 +375,7 @@ final class WorklaneStore {
         self.scheduleReadyStatusTask = readyStatusScheduler
         self.agentTeamsEnabledProvider = agentTeamsEnabledProvider
         self.runtimeIdentity = runtimeIdentity
+        self.serverRegistry = serverRegistry
         let initialWorklanes = worklanes.isEmpty
             ? WorklaneStore.defaultWorklanes(
                 windowID: windowID,
@@ -402,6 +413,51 @@ final class WorklaneStore {
 
             worklanes[index] = newValue
         }
+    }
+
+    var activeServerContext: WorklaneServerContext {
+        serverContext(for: activeWorklaneID)
+    }
+
+    func serverContext(for worklaneID: WorklaneID) -> WorklaneServerContext {
+        let worklane = worklanes.first { $0.id == worklaneID }
+        let focusedPaneID = worklane?.paneStripState.focusedPaneID
+        let servers = serverRegistry.servers(in: worklaneID)
+
+        return WorklaneServerContext(
+            worklaneID: worklaneID,
+            focusedPaneID: focusedPaneID,
+            primaryServer: serverRegistry.primaryServer(
+                activeWorklaneID: worklaneID,
+                focusedPaneID: focusedPaneID
+            ),
+            servers: servers
+        )
+    }
+
+    func register(server: DetectedServer) {
+        serverRegistry.upsert(server)
+        notifyServerDetectionChanged(worklaneID: server.worklaneID, paneID: server.paneID)
+    }
+
+    func clearServers(worklaneID: WorklaneID, paneID: PaneID) {
+        serverRegistry.clear(worklaneID: worklaneID, paneID: paneID)
+        notifyServerDetectionChanged(worklaneID: worklaneID, paneID: paneID)
+    }
+
+    func clearServers(worklaneID: WorklaneID) {
+        serverRegistry.clear(worklaneID: worklaneID)
+        notifyServerDetectionChanged(worklaneID: worklaneID, paneID: nil)
+    }
+
+    func replacePassiveServers(
+        worklaneID: WorklaneID,
+        source: DetectedServerSource,
+        servers: [DetectedServer]
+    ) {
+        serverRegistry.clearSource(source, worklaneID: worklaneID, paneID: nil)
+        servers.forEach(serverRegistry.upsert)
+        notifyServerDetectionChanged(worklaneID: worklaneID, paneID: nil)
     }
 
     enum PaneCloseReason {
@@ -452,6 +508,18 @@ final class WorklaneStore {
         }
 
         return nil
+    }
+
+    private func notifyServerDetectionChanged(worklaneID: WorklaneID, paneID: PaneID?) {
+        guard let notificationPaneID = paneID
+            ?? worklanes.first(where: { $0.id == worklaneID })?.paneStripState.focusedPaneID
+            ?? worklanes.first(where: { $0.id == worklaneID })?.paneStripState.panes.first?.id
+        else {
+            notify(.worklaneListChanged)
+            return
+        }
+
+        notify(.auxiliaryStateUpdated(worklaneID, notificationPaneID, .serverDetection))
     }
 
     // MARK: - Focus History Navigation
@@ -1445,11 +1513,13 @@ final class WorklaneStore {
             if worklanes.count == 1 {
                 worklane.auxiliaryStateByPaneID.removeValue(forKey: paneID)
                 worklanes[worklaneIndex] = worklane
+                serverRegistry.clear(worklaneID: worklane.id, paneID: paneID)
                 return .closeWindow
             }
 
             let removedID = worklane.id
             worklanes.remove(at: worklaneIndex)
+            serverRegistry.clear(worklaneID: removedID)
             if activeWorklaneID == removedID {
                 let replacementIndex = min(max(worklaneIndex - 1, 0), worklanes.count - 1)
                 activeWorklaneID = worklanes[replacementIndex].id
@@ -1462,6 +1532,7 @@ final class WorklaneStore {
         let previousColumnCount = worklane.paneStripState.columns.count
         if let removal = worklane.paneStripState.removePane(id: paneID, singleColumnWidth: layoutContext.singlePaneWidth) {
             clearPaneState(for: removal.pane.id, in: &worklane)
+            serverRegistry.clear(worklaneID: worklane.id, paneID: removal.pane.id)
             applyColumnWidthNormalization(
                 &worklane,
                 previousColumnCount: previousColumnCount,
@@ -1502,6 +1573,7 @@ final class WorklaneStore {
         if worklane.paneStripState.columns.count == 1,
            worklane.paneStripState.panes.count == 1 {
             if worklanes.count == 1 {
+                serverRegistry.clear(worklaneID: worklane.id, paneID: id)
                 return .closeWindow
             }
 
@@ -1518,6 +1590,7 @@ final class WorklaneStore {
         let previousColumnCount = worklane.paneStripState.columns.count
         if let removedPane = worklane.paneStripState.closeFocusedPane(singleColumnWidth: layoutContext.singlePaneWidth) {
             clearPaneState(for: removedPane.id, in: &worklane)
+            serverRegistry.clear(worklaneID: worklane.id, paneID: removedPane.id)
             applyColumnWidthNormalization(
                 &worklane,
                 previousColumnCount: previousColumnCount,
@@ -2303,7 +2376,9 @@ final class WorklaneStore {
             return false
         }
 
+        let removedWorklaneID = worklanes[activeIndex].id
         worklanes.remove(at: activeIndex)
+        serverRegistry.clear(worklaneID: removedWorklaneID)
         let replacementIndex = min(max(activeIndex - 1, 0), worklanes.count - 1)
         activeWorklaneID = worklanes[replacementIndex].id
         return true

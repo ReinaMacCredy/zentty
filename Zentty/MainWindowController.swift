@@ -132,6 +132,17 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         static let settingsTitle = "Choose Apps…"
     }
 
+    private enum ServerMenuContent {
+        static let emptyStateTitle = "No detected servers"
+        static let copyURLTitle = "Copy URL"
+        static let systemDefaultTitle = "Open in System Default Browser"
+        static let settingsTitle = "Dev Server Settings…"
+    }
+
+    private static func isPreferredServerBrowser(_ browser: ServerBrowserTarget, preferredBrowserID: String) -> Bool {
+        ServerBrowserCatalog.preferenceMatchesTarget(preferredBrowserID, target: browser)
+    }
+
     private static var isHostedTestMode: Bool {
         CommandLine.arguments.contains("-ApplePersistenceIgnoreState")
             || ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
@@ -144,6 +155,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     private let runtimeRegistry: PaneRuntimeRegistry
     private let configStore: AppConfigStore
     private let openWithService: OpenWithServing
+    private let serverOpenService: ServerOpening
     private var settingsWindowController: SettingsWindowController?
     private let windowedToolbar: NSToolbar
     private let closeTrafficLightOverlay = InactiveTrafficLightOverlayView(identifier: "trafficLightOverlay.close")
@@ -166,6 +178,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         appUpdateStateStore: AppUpdateStateStore = AppUpdateStateStore(),
         notificationStore: NotificationStore = NotificationStore(),
         openWithService: OpenWithServing = OpenWithService(),
+        serverOpenService: ServerOpening = ServerOpenService(),
         sidebarWidthDefaults: UserDefaults = .standard,
         sidebarVisibilityDefaults: UserDefaults = .standard,
         paneLayoutDefaults: UserDefaults = .standard,
@@ -189,6 +202,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
             configStore: resolvedConfigStore,
             appUpdateStateStore: appUpdateStateStore,
             openWithService: openWithService,
+            serverOpenService: serverOpenService,
             runtimeRegistry: runtimeRegistry,
             notificationStore: notificationStore,
             initialLayoutContext: initialLayoutContext,
@@ -235,6 +249,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         self.runtimeRegistry = runtimeRegistry
         self.configStore = resolvedConfigStore
         self.openWithService = openWithService
+        self.serverOpenService = serverOpenService
         self.window = window
         super.init()
         window.delegate = self
@@ -247,6 +262,12 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         }
         rootViewController.onOpenWithMenuRequested = { [weak self] in
             self?.showOpenWithMenu()
+        }
+        rootViewController.onServerPrimaryRequested = { [weak self] in
+            self?.performServerPrimaryAction()
+        }
+        rootViewController.onServerMenuRequested = { [weak self] in
+            self?.showServerMenu()
         }
         rootViewController.onShowSettingsRequested = { [weak self] in
             self?.showSettingsWindow(section: .general, sender: nil)
@@ -404,6 +425,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
             let settingsWindowController = SettingsWindowController(
                 configStore: configStore,
                 openWithService: openWithService,
+                serverOpening: serverOpenService,
                 runtimeErrorReportingEnabled: ErrorReportingRuntimeState.isEnabledForCurrentProcess,
                 appearance: terminalAppearance,
                 initialSection: section
@@ -872,6 +894,13 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         rootViewController.resizeFocusedPaneHeightToFraction(fraction)
     }
 
+    func handleServerIPCCommand(
+        _ command: ServerIPCCommand,
+        target: AgentIPCTarget
+    ) throws -> AgentIPCResponseResult {
+        try rootViewController.handleServerIPCCommand(command, target: target)
+    }
+
     func equalizeFocusedColumnPaneHeights() {
         rootViewController.equalizeFocusedColumnPaneHeights()
     }
@@ -945,6 +974,137 @@ final class MainWindowController: NSObject, NSWindowDelegate {
 
         rememberOpenWithPrimaryTarget(target.stableID)
         _ = openWithService.open(target: target, workingDirectory: context.workingDirectory)
+    }
+
+    private func performServerPrimaryAction() {
+        guard let server = rootViewController.activeServerContext.primaryServer else {
+            NSSound.beep()
+            return
+        }
+
+        _ = rootViewController.openServer(server)
+    }
+
+    private func showServerMenu() {
+        let menu = makeServerMenu()
+        let anchorRect = rootViewController.chromeView.serverMenuAnchorRect
+        let menuLocation = NSPoint(x: anchorRect.minX, y: anchorRect.minY)
+        menu.popUp(positioning: nil, at: menuLocation, in: rootViewController.chromeView)
+    }
+
+    private func makeServerMenu() -> NSMenu {
+        let menu = NSMenu(title: "")
+        menu.autoenablesItems = false
+
+        let context = rootViewController.activeServerContext
+        let primaryServerID = context.primaryServer?.id
+
+        if context.servers.isEmpty {
+            let item = NSMenuItem(title: ServerMenuContent.emptyStateTitle, action: nil, keyEquivalent: "")
+            item.isEnabled = false
+            menu.addItem(item)
+        } else {
+            context.servers.forEach { server in
+                let item = NSMenuItem(title: server.display, action: #selector(handleServerMenuItem(_:)), keyEquivalent: "")
+                item.target = self
+                item.representedObject = server
+                item.toolTip = server.url.absoluteString
+                item.state = server.id == primaryServerID ? .on : .off
+                menu.addItem(item)
+            }
+
+            menu.addItem(.separator())
+            let copyItem = NSMenuItem(title: ServerMenuContent.copyURLTitle, action: #selector(handleCopyServerURL(_:)), keyEquivalent: "")
+            copyItem.target = self
+            if let primaryServer = context.primaryServer {
+                copyItem.representedObject = primaryServer
+            }
+            copyItem.isEnabled = context.primaryServer != nil
+            menu.addItem(copyItem)
+        }
+
+        menu.addItem(.separator())
+        let systemItem = NSMenuItem(
+            title: ServerMenuContent.systemDefaultTitle,
+            action: #selector(handleServerSystemDefaultMenuItem(_:)),
+            keyEquivalent: ""
+        )
+        systemItem.target = self
+        if let primaryServer = context.primaryServer {
+            systemItem.representedObject = primaryServer
+        }
+        systemItem.isEnabled = context.primaryServer != nil
+        menu.addItem(systemItem)
+
+        let preferredBrowserID = configStore.current.serverDetection.preferredBrowserID
+        rootViewController.availableServerBrowsers.forEach { browser in
+            let item = NSMenuItem(title: browser.displayName, action: #selector(handleServerBrowserMenuItem(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = browser
+            item.image = serverOpenService.icon(for: browser)
+            item.isEnabled = browser.isAvailable && context.primaryServer != nil
+            item.state = Self.isPreferredServerBrowser(
+                browser,
+                preferredBrowserID: preferredBrowserID
+            ) ? .on : .off
+            menu.addItem(item)
+        }
+
+        menu.addItem(.separator())
+        let settingsItem = NSMenuItem(
+            title: ServerMenuContent.settingsTitle,
+            action: #selector(handleServerSettingsMenuItem(_:)),
+            keyEquivalent: ""
+        )
+        settingsItem.target = self
+        menu.addItem(settingsItem)
+        return menu
+    }
+
+    @objc
+    private func handleServerMenuItem(_ sender: NSMenuItem) {
+        guard let server = sender.representedObject as? DetectedServer else {
+            return
+        }
+
+        _ = rootViewController.openServer(server)
+    }
+
+    @objc
+    private func handleCopyServerURL(_ sender: NSMenuItem) {
+        guard let server = sender.representedObject as? DetectedServer else {
+            return
+        }
+
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(server.url.absoluteString, forType: .string)
+    }
+
+    @objc
+    private func handleServerSystemDefaultMenuItem(_ sender: NSMenuItem) {
+        guard let server = sender.representedObject as? DetectedServer else {
+            return
+        }
+
+        _ = rootViewController.openServer(server, browserID: ServerBrowserTarget.systemDefaultID)
+    }
+
+    @objc
+    private func handleServerBrowserMenuItem(_ sender: NSMenuItem) {
+        guard
+            let browser = sender.representedObject as? ServerBrowserTarget,
+            let server = rootViewController.activeServerContext.primaryServer
+        else {
+            return
+        }
+
+        rootViewController.rememberServerBrowser(browser.stableID)
+        _ = rootViewController.openServer(server, browserID: browser.stableID)
+    }
+
+    @objc
+    private func handleServerSettingsMenuItem(_ sender: Any?) {
+        showSettingsWindow(section: .devServers, sender: sender)
     }
 
     private func showOpenWithMenu() {
