@@ -8,7 +8,84 @@ enum PaneIPCSubcommand: String {
     case close
     case resize
     case layout
+    case notify
     case worklaneColor = "worklane-color"
+}
+
+enum PaneNotificationIPCError: LocalizedError {
+    case missingValue(String)
+    case missingTitle
+    case unexpectedArgument(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .missingValue(let option):
+            return "Missing value for \(option)."
+        case .missingTitle:
+            return "Missing notification title."
+        case .unexpectedArgument(let argument):
+            return "Unexpected notification argument: \(argument)."
+        }
+    }
+}
+
+private struct PaneNotificationIPCOptions {
+    let title: String
+    let subtitle: String?
+    let includeInbox: Bool
+    let isSilent: Bool
+
+    static func parse(arguments: [String]) throws -> PaneNotificationIPCOptions {
+        var title: String?
+        var subtitle: String?
+        var includeInbox = true
+        var isSilent = false
+        var index = 0
+
+        while index < arguments.count {
+            let argument = arguments[index]
+            switch argument {
+            case "--title":
+                let valueIndex = index + 1
+                guard arguments.indices.contains(valueIndex) else {
+                    throw PaneNotificationIPCError.missingValue(argument)
+                }
+                title = trimmed(arguments[valueIndex])
+                index += 2
+            case "--subtitle":
+                let valueIndex = index + 1
+                guard arguments.indices.contains(valueIndex) else {
+                    throw PaneNotificationIPCError.missingValue(argument)
+                }
+                subtitle = trimmed(arguments[valueIndex])
+                index += 2
+            case "--no-inbox":
+                includeInbox = false
+                index += 1
+            case "--silent":
+                isSilent = true
+                index += 1
+            default:
+                throw PaneNotificationIPCError.unexpectedArgument(argument)
+            }
+        }
+
+        guard let title else {
+            throw PaneNotificationIPCError.missingTitle
+        }
+
+        return PaneNotificationIPCOptions(
+            title: title,
+            subtitle: subtitle,
+            includeInbox: includeInbox,
+            isSilent: isSilent
+        )
+    }
+
+    private static func trimmed(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed?.isEmpty == false ? trimmed : nil
+    }
 }
 
 enum PaneIPCHandler {
@@ -21,11 +98,19 @@ enum PaneIPCHandler {
             throw AgentIPCError.unsupportedSubcommand(request.subcommand ?? "<nil>")
         }
 
+        if Thread.isMainThread {
+            return try MainActor.assumeIsolated {
+                try Self.dispatch(subcommand: subcommand, request: request, target: target)
+            }
+        }
+
         var result: Result<AgentIPCResponseResult, Error>!
         DispatchQueue.main.sync {
-            result = .success(MainActor.assumeIsolated {
-                Self.dispatch(subcommand: subcommand, request: request, target: target)
-            })
+            result = MainActor.assumeIsolated {
+                Result {
+                    try Self.dispatch(subcommand: subcommand, request: request, target: target)
+                }
+            }
         }
         return try result.get()
     }
@@ -35,15 +120,23 @@ enum PaneIPCHandler {
         subcommand: PaneIPCSubcommand,
         request: AgentIPCRequest,
         target: AgentIPCTarget
-    ) -> AgentIPCResponseResult {
+    ) throws -> AgentIPCResponseResult {
         guard let appDelegate = NSApp.delegate as? AppDelegate,
               let resolved = resolveTarget(target, appDelegate: appDelegate) else {
+            if subcommand == .notify {
+                throw PaneRoutingError.paneNotFound
+            }
             return AgentIPCResponseResult()
         }
         let windowController = resolved.windowController
         let target = resolved.target
 
-        if subcommand != .list && subcommand != .worklaneColor {
+        if subcommand == .notify,
+           !windowController.containsPane(worklaneID: target.worklaneID, paneID: target.paneID) {
+            throw PaneRoutingError.paneNotFound
+        }
+
+        if subcommand != .list && subcommand != .worklaneColor && subcommand != .notify {
             windowController.focusPane(id: target.paneID, in: target.worklaneID)
         }
 
@@ -60,9 +153,36 @@ enum PaneIPCHandler {
             return handleResize(arguments: request.arguments, windowController: windowController)
         case .layout:
             return handleLayout(arguments: request.arguments, windowController: windowController)
+        case .notify:
+            return try handleNotify(arguments: request.arguments, target: target, appDelegate: appDelegate)
         case .worklaneColor:
             return handleWorklaneColor(arguments: request.arguments, target: target, windowController: windowController)
         }
+    }
+
+    @MainActor
+    private static func handleNotify(
+        arguments: [String],
+        target: AgentIPCTarget,
+        appDelegate: AppDelegate
+    ) throws -> AgentIPCResponseResult {
+        let options = try PaneNotificationIPCOptions.parse(arguments: arguments)
+        guard let windowID = target.windowID else {
+            throw PaneRoutingError.paneNotFound
+        }
+
+        appDelegate.deliverPaneNotification(
+            PaneNotificationRequest(
+                title: options.title,
+                subtitle: options.subtitle,
+                includeInbox: options.includeInbox,
+                isSilent: options.isSilent,
+                windowID: windowID,
+                worklaneID: target.worklaneID,
+                paneID: target.paneID
+            )
+        )
+        return AgentIPCResponseResult()
     }
 
     @MainActor

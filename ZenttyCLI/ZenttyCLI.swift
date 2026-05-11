@@ -21,6 +21,7 @@ struct ZenttyCLI: ParsableCommand {
             VSplitCommand.self,
             PaneCommandGroup.self,
             LayoutCommand.self,
+            NotifyCommand.self,
             CodexNotifyCommand.self,
             GeminiHookCommand.self,
             IPCCommand.self,
@@ -418,6 +419,58 @@ struct LayoutCommand: ParsableCommand {
         }
         args += target.selectorArguments()
         _ = try PaneIPC.send(subcommand: "layout", arguments: args)
+    }
+}
+
+// MARK: - Notification Commands
+
+struct NotifyCommand: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "notify",
+        abstract: "Send a pane-local Zentty notification."
+    )
+
+    @Option(name: .long, help: "Notification title.")
+    var title: String
+
+    @Option(name: .long, help: "Optional notification subtitle.")
+    var subtitle: String?
+
+    @Flag(name: .long, help: "Do not add the notification to Zentty's inbox.")
+    var noInbox = false
+
+    @Flag(name: .long, help: "Suppress the notification sound.")
+    var silent = false
+
+    mutating func run() throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard trimmed(environment["ZENTTY_INSTANCE_SOCKET"]) != nil,
+              IPCCommand.hasRequiredRoutingEnvironment(environment) else {
+            throw ValidationError("Not running inside a Zentty pane.")
+        }
+
+        guard let title = trimmed(title) else {
+            throw ValidationError("Missing notification title.")
+        }
+        let subtitle = trimmed(subtitle)
+
+        var arguments = ["--title", title]
+        if let subtitle {
+            arguments.append(contentsOf: ["--subtitle", subtitle])
+        }
+        if noInbox {
+            arguments.append("--no-inbox")
+        }
+        if silent {
+            arguments.append("--silent")
+        }
+
+        _ = try PaneIPC.send(subcommand: "notify", arguments: arguments)
+    }
+
+    private func trimmed(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed?.isEmpty == false ? trimmed : nil
     }
 }
 

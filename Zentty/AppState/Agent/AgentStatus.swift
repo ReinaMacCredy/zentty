@@ -1,6 +1,7 @@
 import Foundation
 
 enum AgentTool: Equatable, Sendable {
+    case zentty
     case claudeCode
     case codex
     case copilot
@@ -14,6 +15,8 @@ enum AgentTool: Equatable, Sendable {
 
     var displayName: String {
         switch self {
+        case .zentty:
+            return "Zentty"
         case .claudeCode:
             return "Claude Code"
         case .codex:

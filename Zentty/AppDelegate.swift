@@ -20,6 +20,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let appUpdateController: AppUpdateControlling
     private let sessionRestoreStore: SessionRestoreStore
     private let notificationStore = NotificationStore()
+    private lazy var paneNotificationCoordinator = PaneNotificationCoordinator(
+        notificationStore: notificationStore,
+        configStore: configStore
+    )
     private var windowControllers: [ObjectIdentifier: MainWindowController] = [:]
     private var aboutWindowController: AboutWindowController?
     private var licensesWindowController: LicensesWindowController?
@@ -666,6 +670,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let target else { return }
         let resolvedWorklaneID = target.worklaneID(containing: paneID) ?? worklaneID
         target.navigateToPane(worklaneID: resolvedWorklaneID, paneID: paneID)
+    }
+
+    func deliverPaneNotification(_ request: PaneNotificationRequest) {
+        paneNotificationCoordinator.deliver(request)
     }
 
     func windowController(with windowID: WindowID) -> MainWindowController? {

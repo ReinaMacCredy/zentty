@@ -9,11 +9,12 @@ protocol WorklaneAttentionUserNotificationCenter: AnyObject {
     func add(
         identifier: String,
         title: String,
+        subtitle: String?,
         body: String,
         windowID: String,
         worklaneID: String,
         paneID: String,
-        soundName: String
+        soundName: String?
     )
 }
 
@@ -269,6 +270,7 @@ final class WorklaneAttentionNotificationCoordinator {
         center.add(
             identifier: request.identifier,
             title: request.title,
+            subtitle: nil,
             body: request.body,
             windowID: request.windowID,
             worklaneID: request.worklaneID,
@@ -659,11 +661,12 @@ private final class NoOpWorklaneAttentionUserNotificationCenter: WorklaneAttenti
     func add(
         identifier: String,
         title: String,
+        subtitle: String?,
         body: String,
         windowID: String,
         worklaneID: String,
         paneID: String,
-        soundName: String
+        soundName: String?
     ) {}
 }
 
@@ -712,7 +715,7 @@ final class WorklaneAttentionUNCenter: NSObject, WorklaneAttentionUserNotificati
 
         let jumpAction = UNNotificationAction(
             identifier: "JUMP",
-            title: "Jump to Worklane",
+            title: "Jump to Pane",
             options: [.foreground]
         )
         let dismissAction = UNNotificationAction(
@@ -731,19 +734,21 @@ final class WorklaneAttentionUNCenter: NSObject, WorklaneAttentionUserNotificati
     func add(
         identifier: String,
         title: String,
+        subtitle: String?,
         body: String,
         windowID: String,
         worklaneID: String,
         paneID: String,
-        soundName: String
+        soundName: String?
     ) {
         let content = UNMutableNotificationContent()
         content.title = title
+        content.subtitle = subtitle ?? ""
         content.body = body
         content.categoryIdentifier = "agent-attention"
         content.threadIdentifier = worklaneID
         content.userInfo = ["windowID": windowID, "worklaneID": worklaneID, "paneID": paneID]
-        content.sound = resolvedNotificationSound(for: soundName)
+        content.sound = soundName.map(resolvedNotificationSound)
         let request = UNNotificationRequest(
             identifier: identifier,
             content: content,

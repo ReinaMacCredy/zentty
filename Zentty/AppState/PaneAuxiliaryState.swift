@@ -812,6 +812,8 @@ enum PanePresentationNormalizer {
 
         let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         switch tool {
+        case .zentty:
+            return normalized == "zentty"
         case .claudeCode:
             return ["claude", "claude code"].contains(normalized)
         case .codex:

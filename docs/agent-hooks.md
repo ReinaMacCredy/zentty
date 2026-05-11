@@ -16,6 +16,24 @@ Zentty exports these environment variables into every pane:
 $ZENTTY_CLI_BIN ipc agent-event
 ```
 
+## Pane Notifications
+
+Any process running inside a Zentty pane can send an actionable local notification:
+
+```sh
+"$ZENTTY_CLI_BIN" notify --title "Build done" --subtitle "Tests passed"
+```
+
+The notification is routed through the pane's Zentty IPC context. The system notification stores the originating window, worklane, and pane IDs, so clicking the notification or choosing `Jump to Pane` brings focus back to the pane that sent it.
+
+By default, `notify` also adds the item to Zentty's notification inbox and uses the configured notification sound. Use `--no-inbox` to only show the macOS notification, and `--silent` to suppress sound:
+
+```sh
+"$ZENTTY_CLI_BIN" notify --title "Deploy finished" --no-inbox --silent
+```
+
+`notify` is intentionally pane-local. It fails when required pane routing variables such as `ZENTTY_PANE_TOKEN`, `ZENTTY_WORKLANE_ID`, or `ZENTTY_PANE_ID` are missing.
+
 ## Claude Code
 
 Register the same command for these Claude hook events:
