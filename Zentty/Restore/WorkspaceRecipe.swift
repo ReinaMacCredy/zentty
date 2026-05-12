@@ -412,9 +412,8 @@ enum WorkspaceRecipeImporter {
         agentTeamsEnabled: Bool
     ) -> PaneState {
         let paneID = PaneID(recipe.id)
-        let prefillText = restoreDraftWindow
-            .flatMap { $0.draft(forPaneID: paneID) }
-            .flatMap(AgentResumeCommandBuilder.command(for:))
+        let restoreDraft = restoreDraftWindow.flatMap { $0.draft(forPaneID: paneID) }
+        let resumeCommand = restoreDraft.flatMap(AgentResumeCommandBuilder.command(for:))
         let legacyLastActivityTitle = legacyLastActivityTitle(from: recipe)
         let titleSeed = legacyLastActivityTitle == nil ? recipe.titleSeed : nil
         let lastActivityTitle = recipe.lastActivityTitle ?? legacyLastActivityTitle
@@ -424,8 +423,8 @@ enum WorkspaceRecipeImporter {
             titleSeed: titleSeed,
             lastActivityTitle: lastActivityTitle,
             requestedWorkingDirectory: recipe.workingDirectory,
-            command: nil,
-            prefillText: prefillText,
+            command: resumeCommand,
+            prefillText: nil,
             environmentOverrides: [:],
             agentTeamsEnabled: agentTeamsEnabled,
             surfaceContext: PaneRestorationBuilder.inferredSurfaceContext(
@@ -444,7 +443,12 @@ enum WorkspaceRecipeImporter {
             worklaneID: worklaneID,
             processEnvironment: processEnvironment
         )
-        auxiliaryStateByPaneID[paneID] = result.auxiliary
+        var auxiliary = result.auxiliary
+        if let restoreDraft, resumeCommand != nil {
+            auxiliary.raw.restoredAgentRestoreDraft = restoreDraft
+            auxiliary.raw.restoredAgentAutoResumePending = true
+        }
+        auxiliaryStateByPaneID[paneID] = auxiliary
         return result.pane
     }
 

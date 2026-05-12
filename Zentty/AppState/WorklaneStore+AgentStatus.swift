@@ -519,6 +519,16 @@ extension WorklaneStore {
             if shellActivityState == .commandRunning {
                 auxiliaryState.hasCommandHistory = true
                 auxiliaryState.presentation.lastActivityTitle = nil
+                if auxiliaryState.raw.restoredAgentRestoreDraft != nil {
+                    if auxiliaryState.raw.restoredAgentAutoResumePending {
+                        auxiliaryState.raw.restoredAgentAutoResumePending = false
+                    } else {
+                        auxiliaryState.raw.restoredAgentRestoreDraft = nil
+                        auxiliaryState.raw.restoredAgentAutoResumePending = false
+                    }
+                } else {
+                    auxiliaryState.raw.restoredAgentAutoResumePending = false
+                }
             }
 
             if var existingStatus {

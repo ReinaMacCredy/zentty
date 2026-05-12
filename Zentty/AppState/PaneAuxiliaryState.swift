@@ -175,6 +175,8 @@ struct PaneRawState: Equatable, Sendable {
     var shellActivityState: PaneShellActivityState = .unknown
     var hasCommandHistory = false
     var terminalProgress: TerminalProgressReport?
+    var restoredAgentRestoreDraft: PaneRestoreDraft?
+    var restoredAgentAutoResumePending = false
     var reviewState: WorklaneReviewState?
     var gitContext: PaneGitContext?
     var wantsReadyStatus = false
@@ -195,6 +197,8 @@ struct PaneRawState: Equatable, Sendable {
         shellActivityState: PaneShellActivityState = .unknown,
         hasCommandHistory: Bool = false,
         terminalProgress: TerminalProgressReport? = nil,
+        restoredAgentRestoreDraft: PaneRestoreDraft? = nil,
+        restoredAgentAutoResumePending: Bool = false,
         reviewState: WorklaneReviewState? = nil,
         gitContext: PaneGitContext? = nil,
         wantsReadyStatus: Bool = false,
@@ -213,6 +217,8 @@ struct PaneRawState: Equatable, Sendable {
         self.shellActivityState = shellActivityState
         self.hasCommandHistory = hasCommandHistory
         self.terminalProgress = terminalProgress
+        self.restoredAgentRestoreDraft = restoredAgentRestoreDraft
+        self.restoredAgentAutoResumePending = restoredAgentAutoResumePending
         self.reviewState = reviewState
         self.gitContext = gitContext
         self.wantsReadyStatus = wantsReadyStatus

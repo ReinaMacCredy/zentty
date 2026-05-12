@@ -102,6 +102,76 @@ final class PaneStripStoreTests: XCTestCase {
         )
     }
 
+    func test_command_running_keeps_then_clears_restored_agent_restore_draft() throws {
+        let paneID = PaneID("pane-agent")
+        let worklaneID = WorklaneID("main")
+        let draft = PaneRestoreDraft(
+            paneID: "pane-agent",
+            kind: .agentResume,
+            toolName: "Claude Code",
+            sessionID: "237d8c32-2a27-4850-8da8-3a110f13682c",
+            workingDirectory: "/tmp/project",
+            trackedPID: 4242
+        )
+        let worklane = WorklaneState(
+            id: worklaneID,
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [
+                    PaneState(id: paneID, title: "Claude")
+                ],
+                focusedPaneID: paneID
+            ),
+            nextPaneNumber: 2,
+            auxiliaryStateByPaneID: [
+                paneID: PaneAuxiliaryState(
+                    raw: PaneRawState(
+                        shellContext: PaneShellContext(
+                            scope: .local,
+                            path: "/tmp/project",
+                            home: "/Users/peter",
+                            user: "peter",
+                            host: nil
+                        ),
+                        restoredAgentRestoreDraft: draft,
+                        restoredAgentAutoResumePending: true
+                    ),
+                    presentation: PanePresentationState(cwd: "/tmp/project")
+                )
+            ]
+        )
+        let store = WorklaneStore(
+            worklanes: [worklane],
+            activeWorklaneID: worklaneID,
+            readyStatusDebounceInterval: 0
+        )
+        let shellRunningPayload = AgentStatusPayload(
+            worklaneID: worklaneID,
+            paneID: paneID,
+            signalKind: .shellState,
+            state: nil,
+            shellActivityState: .commandRunning,
+            origin: .shell,
+            toolName: "Claude Code",
+            text: nil,
+            artifactKind: nil,
+            artifactLabel: nil,
+            artifactURL: nil
+        )
+
+        store.applyAgentStatusPayload(shellRunningPayload)
+
+        var auxiliary = try XCTUnwrap(store.worklanes[0].auxiliaryStateByPaneID[paneID])
+        XCTAssertEqual(auxiliary.raw.restoredAgentRestoreDraft, draft)
+        XCTAssertFalse(auxiliary.raw.restoredAgentAutoResumePending)
+
+        store.applyAgentStatusPayload(shellRunningPayload)
+
+        auxiliary = try XCTUnwrap(store.worklanes[0].auxiliaryStateByPaneID[paneID])
+        XCTAssertNil(auxiliary.raw.restoredAgentRestoreDraft)
+        XCTAssertFalse(auxiliary.raw.restoredAgentAutoResumePending)
+    }
+
     func test_has_running_agent_pane_is_true_for_recognized_running_agent() {
         let store = makeStoreWithAgentState(
             toolName: "Codex",

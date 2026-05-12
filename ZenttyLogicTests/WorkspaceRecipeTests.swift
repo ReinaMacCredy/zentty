@@ -540,7 +540,7 @@ final class WorkspaceRecipeTests: XCTestCase {
         XCTAssertNil(window.worklanes[0].columns[0].panes[0].titleSeed)
     }
 
-    func test_import_injects_restore_draft_prefill_for_supported_agent_pane() throws {
+    func test_import_auto_runs_restore_draft_command_for_supported_agent_pane() throws {
         let workingDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("ZenttyTests.WorkspaceRecipe.resume", isDirectory: true)
         try FileManager.default.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
@@ -599,10 +599,14 @@ final class WorkspaceRecipeTests: XCTestCase {
         )
 
         let pane = try XCTUnwrap(restored.worklanes[0].paneStripState.panes.first)
-        XCTAssertEqual(pane.sessionRequest.prefillText, "claude --resume 237d8c32-2a27-4850-8da8-3a110f13682c")
+        let auxiliary = try XCTUnwrap(restored.worklanes[0].auxiliaryStateByPaneID[pane.id])
+        XCTAssertEqual(pane.sessionRequest.command, "claude --resume 237d8c32-2a27-4850-8da8-3a110f13682c")
+        XCTAssertNil(pane.sessionRequest.prefillText)
+        XCTAssertEqual(auxiliary.raw.restoredAgentRestoreDraft, restoreDraftWindow.paneDrafts[0])
+        XCTAssertTrue(auxiliary.raw.restoredAgentAutoResumePending)
     }
 
-    func test_import_injects_restore_draft_prefill_for_supported_codex_pane() throws {
+    func test_import_auto_runs_restore_draft_command_for_supported_codex_pane() throws {
         let workingDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("ZenttyTests.WorkspaceRecipe.codex-resume", isDirectory: true)
         try FileManager.default.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
@@ -661,7 +665,11 @@ final class WorkspaceRecipeTests: XCTestCase {
         )
 
         let pane = try XCTUnwrap(restored.worklanes[0].paneStripState.panes.first)
-        XCTAssertEqual(pane.sessionRequest.prefillText, "codex resume add-faq-section-landing")
+        let auxiliary = try XCTUnwrap(restored.worklanes[0].auxiliaryStateByPaneID[pane.id])
+        XCTAssertEqual(pane.sessionRequest.command, "codex resume add-faq-section-landing")
+        XCTAssertNil(pane.sessionRequest.prefillText)
+        XCTAssertEqual(auxiliary.raw.restoredAgentRestoreDraft, restoreDraftWindow.paneDrafts[0])
+        XCTAssertTrue(auxiliary.raw.restoredAgentAutoResumePending)
     }
 
     func test_import_skips_restore_draft_prefill_for_invalid_claude_session_id() throws {
@@ -723,6 +731,7 @@ final class WorkspaceRecipeTests: XCTestCase {
         )
 
         let pane = try XCTUnwrap(restored.worklanes[0].paneStripState.panes.first)
+        XCTAssertNil(pane.sessionRequest.command)
         XCTAssertNil(pane.sessionRequest.prefillText)
     }
 
@@ -825,6 +834,136 @@ final class WorkspaceRecipeTests: XCTestCase {
                     kind: .agentResume,
                     toolName: "Claude Code",
                     sessionID: "session-123",
+                    workingDirectory: "/tmp/project",
+                    trackedPID: 4242
+                )
+            ]
+        )
+    }
+
+    func test_exporter_prefers_live_agent_status_over_restored_agent_restore_draft() {
+        let paneID = PaneID("pane-agent")
+        let restoredDraft = PaneRestoreDraft(
+            paneID: "pane-agent",
+            kind: .agentResume,
+            toolName: "Claude Code",
+            sessionID: "old-session",
+            workingDirectory: "/tmp/old-project",
+            trackedPID: 1111
+        )
+        let worklane = WorklaneState(
+            id: WorklaneID("main"),
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [
+                    PaneState(id: paneID, title: "Claude")
+                ],
+                focusedPaneID: paneID
+            ),
+            nextPaneNumber: 2,
+            auxiliaryStateByPaneID: [
+                paneID: PaneAuxiliaryState(
+                    raw: PaneRawState(
+                        shellContext: PaneShellContext(
+                            scope: .local,
+                            path: "/tmp/project",
+                            home: "/Users/peter",
+                            user: "peter",
+                            host: nil
+                        ),
+                        agentStatus: PaneAgentStatus(
+                            tool: .codex,
+                            state: .idle,
+                            text: nil,
+                            artifactLink: nil,
+                            updatedAt: Date(),
+                            trackedPID: 4242,
+                            workingDirectory: "/tmp/project",
+                            sessionID: "new-session"
+                        ),
+                        restoredAgentRestoreDraft: restoredDraft
+                    ),
+                    presentation: PanePresentationState(cwd: "/tmp/project")
+                )
+            ]
+        )
+
+        let drafts = SessionRestoreDraftExporter.makeWindowDrafts(
+            windowID: WindowID("window-main"),
+            worklanes: [worklane],
+            isProcessAlive: { $0 == 4242 }
+        )
+
+        XCTAssertEqual(
+            drafts?.paneDrafts,
+            [
+                PaneRestoreDraft(
+                    paneID: "pane-agent",
+                    kind: .agentResume,
+                    toolName: "Codex",
+                    sessionID: "new-session",
+                    workingDirectory: "/tmp/project",
+                    trackedPID: 4242
+                )
+            ]
+        )
+    }
+
+    func test_exporter_keeps_restored_agent_restore_draft_when_original_pid_is_dead() {
+        let paneID = PaneID("pane-agent")
+        let restoredDraft = PaneRestoreDraft(
+            paneID: "pane-agent",
+            kind: .agentResume,
+            toolName: "Claude Code",
+            sessionID: "237d8c32-2a27-4850-8da8-3a110f13682c",
+            workingDirectory: "/tmp/old-project",
+            trackedPID: 4242
+        )
+        let worklane = WorklaneState(
+            id: WorklaneID("main"),
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [
+                    PaneState(
+                        id: paneID,
+                        title: "Claude",
+                        sessionRequest: TerminalSessionRequest(workingDirectory: "/tmp/project")
+                    )
+                ],
+                focusedPaneID: paneID
+            ),
+            nextPaneNumber: 2,
+            auxiliaryStateByPaneID: [
+                paneID: PaneAuxiliaryState(
+                    raw: PaneRawState(
+                        shellContext: PaneShellContext(
+                            scope: .local,
+                            path: "/tmp/project",
+                            home: "/Users/peter",
+                            user: "peter",
+                            host: nil
+                        ),
+                        restoredAgentRestoreDraft: restoredDraft
+                    ),
+                    presentation: PanePresentationState(cwd: "/tmp/project")
+                )
+            ]
+        )
+
+        let drafts = SessionRestoreDraftExporter.makeWindowDrafts(
+            windowID: WindowID("window-main"),
+            worklanes: [worklane],
+            isProcessAlive: { _ in false }
+        )
+
+        XCTAssertEqual(
+            drafts?.paneDrafts,
+            [
+                PaneRestoreDraft(
+                    paneID: "pane-agent",
+                    kind: .agentResume,
+                    toolName: "Claude Code",
+                    sessionID: "237d8c32-2a27-4850-8da8-3a110f13682c",
                     workingDirectory: "/tmp/project",
                     trackedPID: 4242
                 )

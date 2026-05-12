@@ -291,6 +291,36 @@ enum SessionRestoreDraftExporter {
         guard auxiliary.shellContext?.scope != .remote else {
             return nil
         }
+        if let liveDraft = makeLivePaneDraft(
+            paneID: paneID,
+            pane: pane,
+            auxiliary: auxiliary,
+            isProcessAlive: isProcessAlive
+        ) {
+            return liveDraft
+        }
+
+        guard var restoredDraft = auxiliary.raw.restoredAgentRestoreDraft,
+              restoredDraft.paneID == paneID.rawValue,
+              AgentResumeCommandBuilder.command(for: restoredDraft) != nil else {
+            return nil
+        }
+
+        restoredDraft.workingDirectory = workingDirectory(
+            agentStatus: auxiliary.agentStatus,
+            auxiliary: auxiliary,
+            pane: pane,
+            restoredDraft: restoredDraft
+        )
+        return restoredDraft
+    }
+
+    private static func makeLivePaneDraft(
+        paneID: PaneID,
+        pane: PaneState,
+        auxiliary: PaneAuxiliaryState,
+        isProcessAlive: (Int32) -> Bool
+    ) -> PaneRestoreDraft? {
         guard let agentStatus = auxiliary.agentStatus else {
             return nil
         }
@@ -301,18 +331,31 @@ enum SessionRestoreDraftExporter {
             return nil
         }
 
-        let workingDirectory = trimmed(agentStatus.workingDirectory)
-            ?? trimmed(auxiliary.presentation.cwd)
-            ?? trimmed(pane.sessionRequest.workingDirectory)
-
         return PaneRestoreDraft(
             paneID: paneID.rawValue,
             kind: .agentResume,
             toolName: agentStatus.tool.displayName,
             sessionID: sessionID,
-            workingDirectory: workingDirectory,
+            workingDirectory: workingDirectory(
+                agentStatus: agentStatus,
+                auxiliary: auxiliary,
+                pane: pane,
+                restoredDraft: nil
+            ),
             trackedPID: trackedPID
         )
+    }
+
+    private static func workingDirectory(
+        agentStatus: PaneAgentStatus?,
+        auxiliary: PaneAuxiliaryState,
+        pane: PaneState,
+        restoredDraft: PaneRestoreDraft?
+    ) -> String? {
+        trimmed(agentStatus?.workingDirectory)
+            ?? trimmed(auxiliary.presentation.cwd)
+            ?? trimmed(pane.sessionRequest.workingDirectory)
+            ?? trimmed(restoredDraft?.workingDirectory)
     }
 
     private static func trimmed(_ value: String?) -> String? {
