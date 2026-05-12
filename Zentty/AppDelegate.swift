@@ -72,9 +72,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 guard let self else { return }
                 CleanCopyPipeline.isAutoCleanEnabled = config.clipboard.alwaysCleanCopies
                 AppMenuBuilder.installIfNeeded(on: NSApp, config: config)
-                self.aboutWindowController?.applyAppearance(self.resolvedAboutAppearance)
-                self.aboutWindowController?.applyTheme(self.resolvedAboutTheme)
-                self.licensesWindowController?.applyAppearance(self.resolvedAboutAppearance)
+                self.applyAuxiliaryWindowTheme()
                 if self.isSessionRestoreEnabled {
                     self.handleRestorePreferenceChange(config.restore)
                 }
@@ -146,6 +144,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc
     func showTaskManager(_ sender: Any?) {
+        let appearance = resolvedAboutAppearance
+        let theme = resolvedAboutTheme
         let controller = taskManagerWindowController ?? TaskManagerWindowController(
             paneSourcesProvider: { [weak self] in
                 self?.orderedWindowControllersForDiscovery().flatMap { $0.taskManagerPaneSources() } ?? []
@@ -155,9 +155,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             },
             closePaneHandler: { [weak self] windowID, paneID in
                 self?.windowController(with: windowID)?.closePane(id: paneID)
-            }
+            },
+            appearance: appearance,
+            theme: theme
         )
         taskManagerWindowController = controller
+        controller.applyAppearance(appearance)
+        controller.applyTheme(theme)
         controller.show(sender: sender)
     }
 
@@ -293,9 +297,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         controller.onWindowAppearanceDidChange = { [weak self] _, _ in
             guard let self else { return }
-            self.aboutWindowController?.applyAppearance(self.resolvedAboutAppearance)
-            self.aboutWindowController?.applyTheme(self.resolvedAboutTheme)
-            self.licensesWindowController?.applyAppearance(self.resolvedAboutAppearance)
+            self.applyAuxiliaryWindowTheme()
         }
         controller.onCheckForUpdatesRequested = { [weak self] in
             self?.checkForUpdates(nil)
@@ -437,9 +439,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if lastKeyWindowControllerID == controllerID {
             lastKeyWindowControllerID = nil
         }
-        aboutWindowController?.applyAppearance(resolvedAboutAppearance)
-        aboutWindowController?.applyTheme(resolvedAboutTheme)
-        licensesWindowController?.applyAppearance(resolvedAboutAppearance)
+        applyAuxiliaryWindowTheme()
         if windowControllers.isEmpty {
             NSApp.terminate(nil)
         } else {
@@ -471,6 +471,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var resolvedAboutTheme: ZenttyTheme {
         aboutThemeSourceController?.currentWindowTheme
             ?? ZenttyTheme.fallback(for: resolvedAboutAppearance)
+    }
+
+    private func applyAuxiliaryWindowTheme() {
+        let appearance = resolvedAboutAppearance
+        let theme = resolvedAboutTheme
+        aboutWindowController?.applyAppearance(appearance)
+        aboutWindowController?.applyTheme(theme)
+        licensesWindowController?.applyAppearance(appearance)
+        taskManagerWindowController?.applyAppearance(appearance)
+        taskManagerWindowController?.applyTheme(theme)
     }
 
     private func makeRestoreToggleButton() -> NSButton {
@@ -634,9 +644,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         lastKeyWindowControllerID = ObjectIdentifier(controller)
-        aboutWindowController?.applyAppearance(resolvedAboutAppearance)
-        aboutWindowController?.applyTheme(resolvedAboutTheme)
-        licensesWindowController?.applyAppearance(resolvedAboutAppearance)
+        applyAuxiliaryWindowTheme()
     }
 
     func windowController(containingWorklane worklaneID: WorklaneID) -> MainWindowController? {
