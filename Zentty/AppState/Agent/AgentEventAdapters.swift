@@ -129,6 +129,9 @@ extension AgentEventBridge {
             return [lifecyclePayload(target: target, toolName: toolName, state: .running, sessionID: sessionID, cwd: cwd, taskProgress: taskProgress)]
 
         case "PostToolUse":
+            if hookToolName == "ExitSpecMode" {
+                return []
+            }
             if hookToolName == "TodoWrite",
                let sessionID,
                let todoProgress = droidTodoProgress(toolInput: toolInput) {
@@ -184,6 +187,9 @@ extension AgentEventBridge {
             return [lifecyclePayload(target: target, toolName: toolName, state: .running, sessionID: sessionID, cwd: cwd)]
 
         case "Stop":
+            if permissionMode?.caseInsensitiveCompare("spec") == .orderedSame {
+                return []
+            }
             let taskProgress = try taskStore.taskProgress(sessionID: sessionID)
             return [lifecyclePayload(target: target, toolName: toolName, state: .idle, sessionID: sessionID, cwd: cwd, taskProgress: taskProgress)]
 

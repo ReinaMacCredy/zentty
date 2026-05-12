@@ -1277,6 +1277,44 @@ final class AgentEventBridgeTests: XCTestCase {
         XCTAssertEqual(payload.text, "Droid drafted a specification for your approval")
     }
 
+    func test_droid_postToolUse_exitSpecMode_emits_nothing() throws {
+        let store = try makeDroidTaskStore()
+        let json = """
+        {"hook_event_name":"PostToolUse","session_id":"sess-1","tool_name":"ExitSpecMode","permission_mode":"spec","cwd":"/tmp","tool_input":{"plan":"Some spec"}}
+        """
+        let payloads = try AgentEventBridge.droidAdapter(data: Data(json.utf8), environment: droidEnvironment(), taskStore: store)
+        XCTAssertTrue(payloads.isEmpty)
+    }
+
+    func test_droid_stop_in_spec_mode_emits_nothing() throws {
+        let store = try makeDroidTaskStore()
+        let json = """
+        {"hook_event_name":"Stop","session_id":"sess-1","permission_mode":"spec","cwd":"/tmp"}
+        """
+        let payloads = try AgentEventBridge.droidAdapter(data: Data(json.utf8), environment: droidEnvironment(), taskStore: store)
+        XCTAssertTrue(payloads.isEmpty)
+    }
+
+    func test_droid_stop_in_off_mode_still_idles() throws {
+        let store = try makeDroidTaskStore()
+        let json = """
+        {"hook_event_name":"Stop","session_id":"sess-1","permission_mode":"off","cwd":"/tmp"}
+        """
+        let payloads = try AgentEventBridge.droidAdapter(data: Data(json.utf8), environment: droidEnvironment(), taskStore: store)
+        let payload = try XCTUnwrap(payloads.first)
+        XCTAssertEqual(payload.state, .idle)
+    }
+
+    func test_droid_postToolUse_non_exitSpec_still_running() throws {
+        let store = try makeDroidTaskStore()
+        let json = """
+        {"hook_event_name":"PostToolUse","session_id":"sess-1","tool_name":"Read","permission_mode":"spec","cwd":"/tmp","tool_input":{"file_path":"/tmp/README.md"},"tool_response":"ok"}
+        """
+        let payloads = try AgentEventBridge.droidAdapter(data: Data(json.utf8), environment: droidEnvironment(), taskStore: store)
+        let payload = try XCTUnwrap(payloads.first)
+        XCTAssertEqual(payload.state, .running)
+    }
+
     func test_droid_preToolUse_manual_execute_reports_approval() throws {
         let store = try makeDroidTaskStore()
         let json = """
