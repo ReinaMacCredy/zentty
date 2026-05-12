@@ -20,6 +20,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let appUpdateController: AppUpdateControlling
     private let sessionRestoreStore: SessionRestoreStore
     private let notificationStore = NotificationStore()
+    private lazy var paneNotificationCoordinator = PaneNotificationCoordinator(
+        notificationStore: notificationStore,
+        configStore: configStore
+    )
     private var windowControllers: [ObjectIdentifier: MainWindowController] = [:]
     private var aboutWindowController: AboutWindowController?
     private var licensesWindowController: LicensesWindowController?
@@ -674,6 +678,57 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let target else { return }
         let resolvedWorklaneID = target.worklaneID(containing: paneID) ?? worklaneID
         target.navigateToPane(worklaneID: resolvedWorklaneID, paneID: paneID)
+    }
+
+    func deliverPaneNotification(_ request: PaneNotificationRequest) {
+        paneNotificationCoordinator.deliver(request)
+    }
+
+    @discardableResult
+    func createGridWindow(
+        inheritingFrom sourceController: MainWindowController,
+        sourcePaneID: PaneID,
+        rows: Int,
+        columns: Int,
+        command: String?,
+        includeSource: Bool,
+        focus: GridFocus
+    ) throws -> GridApplicationResult? {
+        let destinationWindowID = makeWindowID()
+        guard let workspaceState = sourceController.gridWindowWorkspaceState(
+            inheritingFrom: sourcePaneID,
+            destinationWindowID: destinationWindowID
+        ),
+              let destinationWorklaneID = workspaceState.activeWorklaneID,
+              let destinationPaneID = workspaceState.worklanes
+                .first(where: { $0.id == destinationWorklaneID })?
+                .paneStripState
+                .focusedPaneID else {
+            return nil
+        }
+
+        let destinationController = makeWindowController(
+            windowID: destinationWindowID,
+            initialWorkspaceState: workspaceState
+        )
+        destinationController.showSplitOutWindow(cascadingFrom: sourceController.window.frame)
+        destinationController.focusPane(id: destinationPaneID, in: destinationWorklaneID)
+        let result = try destinationController.applyGrid(
+            sourcePaneID: destinationPaneID,
+            rows: rows,
+            columns: columns,
+            command: command,
+            includeSource: includeSource,
+            focus: focus
+        )
+        if includeSource, let command {
+            _ = destinationController.sendText(
+                TerminalCommandSubmission.submittedText(for: command),
+                to: result.sourcePaneID
+            )
+        }
+        scheduleWorkspaceSnapshotSave()
+        return result
     }
 
     func windowController(with windowID: WindowID) -> MainWindowController? {

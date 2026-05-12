@@ -813,7 +813,7 @@ final class PaneRuntime {
         }
 
         hasSentInitialCommand = true
-        adapterValue.sendText(command + "\n")
+        adapterValue.sendText(TerminalCommandSubmission.submittedText(for: command))
         return true
     }
 

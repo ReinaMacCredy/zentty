@@ -5144,6 +5144,7 @@ final class AgentStatusSupportTests: XCTestCase {
                 .init(
                     identifier: recorder.requests.first?.identifier ?? "",
                     title: "Stopped early",
+                    subtitle: nil,
                     body: "Agent stopped early.",
                     windowID: "window-main",
                     soundName: ""
@@ -5172,6 +5173,7 @@ final class AgentStatusSupportTests: XCTestCase {
                 .init(
                     identifier: recorder.requests.first?.identifier ?? "",
                     title: "Agent ready",
+                    subtitle: nil,
                     body: "Implement push notifications",
                     windowID: "window-main",
                     soundName: ""
@@ -7017,17 +7019,36 @@ private final class WorklaneAttentionNotificationRecorder: WorklaneAttentionUser
     struct RequestRecord: Equatable {
         let identifier: String
         let title: String
+        let subtitle: String?
         let body: String
         let windowID: String
-        let soundName: String
+        let soundName: String?
     }
 
     private(set) var requests: [RequestRecord] = []
 
     func requestAuthorizationIfNeeded() {}
 
-    func add(identifier: String, title: String, body: String, windowID: String, worklaneID: String, paneID: String, soundName: String) {
-        requests.append(RequestRecord(identifier: identifier, title: title, body: body, windowID: windowID, soundName: soundName))
+    func add(
+        identifier: String,
+        title: String,
+        subtitle: String?,
+        body: String,
+        windowID: String,
+        worklaneID: String,
+        paneID: String,
+        soundName: String?
+    ) {
+        requests.append(
+            RequestRecord(
+                identifier: identifier,
+                title: title,
+                subtitle: subtitle,
+                body: body,
+                windowID: windowID,
+                soundName: soundName
+            )
+        )
     }
 }
 
