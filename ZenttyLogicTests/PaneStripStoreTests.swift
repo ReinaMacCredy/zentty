@@ -3055,6 +3055,94 @@ final class PaneStripStoreTests: XCTestCase {
         XCTAssertFalse(store.activeWorklane?.paneStripState.panes.contains(where: { $0.id == insertedPaneID }) ?? true)
     }
 
+    func test_worklane_close_confirmation_reason_reports_session_history_in_target_worklane() {
+        let targetPaneID = PaneID("target-shell")
+        var targetAuxiliary = PaneAuxiliaryState()
+        targetAuxiliary.hasCommandHistory = true
+        let otherPaneID = PaneID("other-shell")
+        var otherAuxiliary = PaneAuxiliaryState()
+        otherAuxiliary.shellActivityState = .commandRunning
+        let store = WorklaneStore(
+            worklanes: [
+                WorklaneState(
+                    id: WorklaneID("target"),
+                    title: "Target",
+                    paneStripState: PaneStripState(
+                        panes: [PaneState(id: targetPaneID, title: "target")],
+                        focusedPaneID: targetPaneID
+                    ),
+                    auxiliaryStateByPaneID: [targetPaneID: targetAuxiliary]
+                ),
+                WorklaneState(
+                    id: WorklaneID("other"),
+                    title: "Other",
+                    paneStripState: PaneStripState(
+                        panes: [PaneState(id: otherPaneID, title: "other")],
+                        focusedPaneID: otherPaneID
+                    ),
+                    auxiliaryStateByPaneID: [otherPaneID: otherAuxiliary]
+                ),
+            ],
+            activeWorklaneID: WorklaneID("target")
+        )
+
+        XCTAssertEqual(store.worklaneCloseConfirmationReason(WorklaneID("target")), .sessionHistory)
+    }
+
+    func test_worklane_close_confirmation_reason_prioritizes_running_processes() {
+        let historyPaneID = PaneID("history-shell")
+        var historyAuxiliary = PaneAuxiliaryState()
+        historyAuxiliary.hasCommandHistory = true
+        let runningPaneID = PaneID("running-shell")
+        var runningAuxiliary = PaneAuxiliaryState()
+        runningAuxiliary.terminalProgress = TerminalProgressReport(state: .indeterminate, progress: nil)
+        let store = WorklaneStore(
+            worklanes: [
+                WorklaneState(
+                    id: WorklaneID("target"),
+                    title: "Target",
+                    paneStripState: PaneStripState(
+                        panes: [
+                            PaneState(id: historyPaneID, title: "history"),
+                            PaneState(id: runningPaneID, title: "running"),
+                        ],
+                        focusedPaneID: historyPaneID
+                    ),
+                    auxiliaryStateByPaneID: [
+                        historyPaneID: historyAuxiliary,
+                        runningPaneID: runningAuxiliary,
+                    ]
+                )
+            ],
+            activeWorklaneID: WorklaneID("target")
+        )
+
+        XCTAssertEqual(store.worklaneCloseConfirmationReason(WorklaneID("target")), .runningProcess)
+    }
+
+    func test_worklane_close_confirmation_reason_ignores_closed_pane_auxiliary_state() {
+        let livePaneID = PaneID("live-shell")
+        let closedPaneID = PaneID("closed-shell")
+        var closedAuxiliary = PaneAuxiliaryState()
+        closedAuxiliary.shellActivityState = .commandRunning
+        let store = WorklaneStore(
+            worklanes: [
+                WorklaneState(
+                    id: WorklaneID("target"),
+                    title: "Target",
+                    paneStripState: PaneStripState(
+                        panes: [PaneState(id: livePaneID, title: "live")],
+                        focusedPaneID: livePaneID
+                    ),
+                    auxiliaryStateByPaneID: [closedPaneID: closedAuxiliary]
+                )
+            ],
+            activeWorklaneID: WorklaneID("target")
+        )
+
+        XCTAssertNil(store.worklaneCloseConfirmationReason(WorklaneID("target")))
+    }
+
     func test_close_focused_pane_reexpands_remaining_columns_to_fill_readable_width() {
         let layoutContext = PaneLayoutContext(
             displayClass: .largeDisplay,

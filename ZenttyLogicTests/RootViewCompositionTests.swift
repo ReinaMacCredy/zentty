@@ -59,6 +59,7 @@ final class RootViewCompositionTests: AppKitTestCase {
     }
 
     private func makeController(
+        configStore: AppConfigStore? = nil,
         sidebarWidthDefaults: UserDefaults = SidebarWidthPreference.userDefaults(),
         sidebarVisibilityDefaults: UserDefaults = SidebarVisibilityPreference.userDefaults(),
         paneLayoutDefaults: UserDefaults = PaneLayoutPreferenceStore.userDefaults(),
@@ -66,6 +67,7 @@ final class RootViewCompositionTests: AppKitTestCase {
         initialLayoutContext: PaneLayoutContext = .fallback
     ) -> RootViewController {
         let controller = RootViewController(
+            configStore: configStore,
             appUpdateStateStore: appUpdateStateStore,
             runtimeRegistry: PaneRuntimeRegistry(adapterFactory: { _ in MockTerminalAdapter() }),
             sidebarWidthDefaults: sidebarWidthDefaults,
@@ -103,6 +105,42 @@ final class RootViewCompositionTests: AppKitTestCase {
         window.makeKeyAndOrderFrontForAppKitTesting(nil)
         controller.view.layoutSubtreeIfNeeded()
         return window
+    }
+
+    private func closeWorklaneMenuItem(
+        for worklaneID: WorklaneID,
+        in controller: RootViewController
+    ) throws -> NSMenuItem {
+        let sidebarView = try XCTUnwrap(controller.view.subviews.compactMap { $0 as? SidebarView }.first)
+        let button = try XCTUnwrap(
+            sidebarView.debugSnapshotForTesting.worklaneButtons
+                .compactMap { $0 as? SidebarWorklaneRowButton }
+                .first { $0.worklaneID == worklaneID }
+        )
+        let menu = try XCTUnwrap(button.menu(for: try makeContextMenuEvent()))
+        return try XCTUnwrap(menu.item(withTitle: "Close Worklane"))
+    }
+
+    private func makeContextMenuEvent() throws -> NSEvent {
+        try XCTUnwrap(
+            NSEvent.mouseEvent(
+                with: .rightMouseDown,
+                location: NSPoint(x: 12, y: 12),
+                modifierFlags: [],
+                timestamp: 0,
+                windowNumber: 0,
+                context: nil,
+                eventNumber: 1,
+                clickCount: 1,
+                pressure: 0
+            )
+        )
+    }
+
+    private func waitForMainQueue() {
+        let settled = expectation(description: "main queue settled")
+        DispatchQueue.main.async { settled.fulfill() }
+        wait(for: [settled], timeout: 1.0)
     }
 
     private func makeSidebarSummary(
@@ -653,6 +691,85 @@ final class RootViewCompositionTests: AppKitTestCase {
         webButton.performClick(nil)
 
         XCTAssertEqual(selectedID, WorklaneID("worklane-web"))
+    }
+
+    func test_close_worklane_prompts_when_target_worklane_requires_pane_close_confirmation() throws {
+        let configStore = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyLogicTests.RootView.CloseWorklanePrompt")
+        )
+        let controller = makeController(configStore: configStore)
+        let window = hostInVisibleWindow(controller)
+        let targetPaneID = PaneID("target-shell")
+        var auxiliaryState = PaneAuxiliaryState()
+        auxiliaryState.hasCommandHistory = true
+        controller.replaceWorklanes([
+            WorklaneState(
+                id: WorklaneID("target"),
+                title: "TARGET",
+                paneStripState: PaneStripState(
+                    panes: [PaneState(id: targetPaneID, title: "shell")],
+                    focusedPaneID: targetPaneID
+                ),
+                auxiliaryStateByPaneID: [targetPaneID: auxiliaryState]
+            ),
+            WorklaneState(
+                id: WorklaneID("other"),
+                title: "OTHER",
+                paneStripState: PaneStripState(
+                    panes: [PaneState(id: PaneID("other-shell"), title: "other")],
+                    focusedPaneID: PaneID("other-shell")
+                )
+            ),
+        ], activeWorklaneID: WorklaneID("target"))
+        controller.view.layoutSubtreeIfNeeded()
+
+        let closeWorklane = try closeWorklaneMenuItem(for: WorklaneID("target"), in: controller)
+        NSApp.sendAction(try XCTUnwrap(closeWorklane.action), to: closeWorklane.target, from: closeWorklane)
+        waitForMainQueue()
+
+        XCTAssertNotNil(window.attachedSheet)
+        XCTAssertEqual(controller.activeWorklaneIDForTesting, WorklaneID("target"))
+    }
+
+    func test_close_worklane_skips_prompt_when_pane_close_confirmation_is_disabled() throws {
+        let configStore = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyLogicTests.RootView.CloseWorklaneNoPrompt")
+        )
+        try configStore.update { config in
+            config.confirmations.confirmBeforeClosingPane = false
+        }
+        let controller = makeController(configStore: configStore)
+        let window = hostInVisibleWindow(controller)
+        let targetPaneID = PaneID("target-shell")
+        var auxiliaryState = PaneAuxiliaryState()
+        auxiliaryState.hasCommandHistory = true
+        controller.replaceWorklanes([
+            WorklaneState(
+                id: WorklaneID("target"),
+                title: "TARGET",
+                paneStripState: PaneStripState(
+                    panes: [PaneState(id: targetPaneID, title: "shell")],
+                    focusedPaneID: targetPaneID
+                ),
+                auxiliaryStateByPaneID: [targetPaneID: auxiliaryState]
+            ),
+            WorklaneState(
+                id: WorklaneID("other"),
+                title: "OTHER",
+                paneStripState: PaneStripState(
+                    panes: [PaneState(id: PaneID("other-shell"), title: "other")],
+                    focusedPaneID: PaneID("other-shell")
+                )
+            ),
+        ], activeWorklaneID: WorklaneID("target"))
+        controller.view.layoutSubtreeIfNeeded()
+
+        let closeWorklane = try closeWorklaneMenuItem(for: WorklaneID("target"), in: controller)
+        NSApp.sendAction(try XCTUnwrap(closeWorklane.action), to: closeWorklane.target, from: closeWorklane)
+        waitForMainQueue()
+
+        XCTAssertNil(window.attachedSheet)
+        XCTAssertEqual(controller.activeWorklaneIDForTesting, WorklaneID("other"))
     }
 
     func test_root_controller_restores_persisted_sidebar_width() {

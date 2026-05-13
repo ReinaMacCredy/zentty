@@ -817,8 +817,16 @@ final class RootViewController: NSViewController {
             )
         }
         sidebarView.onCloseWorklaneRequested = { [weak self] worklaneID in
-            self?.worklaneStore.selectWorklane(id: worklaneID)
-            self?.worklaneStore.closeActiveWorklane()
+            guard let self else { return }
+            if self.configStore.current.confirmations.confirmBeforeClosingPane,
+               let reason = self.worklaneStore.worklaneCloseConfirmationReason(worklaneID)
+            {
+                self.showCloseWorklaneConfirmation(reason: reason) {
+                    self.closeWorklane(id: worklaneID)
+                }
+            } else {
+                self.closeWorklane(id: worklaneID)
+            }
         }
         sidebarView.onClosePaneRequested = { [weak self] worklaneID, paneID in
             guard let self else { return }
@@ -1393,6 +1401,15 @@ final class RootViewController: NSViewController {
         handlePaneCloseResult(worklaneStore.closeFocusedPane())
     }
 
+    private func closeWorklane(id worklaneID: WorklaneID) {
+        guard worklaneStore.worklanes.contains(where: { $0.id == worklaneID }) else {
+            return
+        }
+
+        worklaneStore.selectWorklane(id: worklaneID)
+        worklaneStore.closeActiveWorklane()
+    }
+
     private func handlePaneCloseResult(_ result: WorklaneStore.PaneCloseResult) {
         switch result {
         case .closed, .notFound:
@@ -1411,31 +1428,64 @@ final class RootViewController: NSViewController {
         view.window?.close()
     }
 
-    private var isShowingClosePaneConfirmation = false
+    private var isShowingCloseConfirmation = false
 
     private func showClosePaneConfirmation(
         reason: WorklaneStore.PaneCloseReason,
         onConfirm: @escaping () -> Void
     ) {
-        guard !isShowingClosePaneConfirmation else { return }
-        isShowingClosePaneConfirmation = true
+        let informativeText = switch reason {
+        case .runningProcess:
+            "The running process in this pane will be terminated."
+        case .sessionHistory:
+            "This pane's session history will be lost."
+        }
+        showCloseConfirmation(
+            messageText: "Close this pane?",
+            informativeText: informativeText,
+            confirmButtonTitle: "Close Pane",
+            onConfirm: onConfirm
+        )
+    }
+
+    private func showCloseWorklaneConfirmation(
+        reason: WorklaneStore.PaneCloseReason,
+        onConfirm: @escaping () -> Void
+    ) {
+        let informativeText = switch reason {
+        case .runningProcess:
+            "Running processes in this worklane will be terminated."
+        case .sessionHistory:
+            "This worklane's session history will be lost."
+        }
+        showCloseConfirmation(
+            messageText: "Close this worklane?",
+            informativeText: informativeText,
+            confirmButtonTitle: "Close Worklane",
+            onConfirm: onConfirm
+        )
+    }
+
+    private func showCloseConfirmation(
+        messageText: String,
+        informativeText: String,
+        confirmButtonTitle: String,
+        onConfirm: @escaping () -> Void
+    ) {
+        guard !isShowingCloseConfirmation else { return }
+        isShowingCloseConfirmation = true
 
         let alert = NSAlert()
-        alert.messageText = "Close this pane?"
-        switch reason {
-        case .runningProcess:
-            alert.informativeText = "The running process in this pane will be terminated."
-        case .sessionHistory:
-            alert.informativeText = "This pane's session history will be lost."
-        }
+        alert.messageText = messageText
+        alert.informativeText = informativeText
         alert.alertStyle = .warning
-        alert.addButton(withTitle: "Close Pane")
+        alert.addButton(withTitle: confirmButtonTitle)
         alert.addButton(withTitle: "Cancel")
         let isDark = currentTheme.windowBackground.isDarkThemeColor
         alert.window.appearance = NSAppearance(named: isDark ? .darkAqua : .aqua)
 
         guard let window = view.window else {
-            isShowingClosePaneConfirmation = false
+            isShowingCloseConfirmation = false
             if alert.runModal() == .alertFirstButtonReturn {
                 onConfirm()
             }
@@ -1443,7 +1493,7 @@ final class RootViewController: NSViewController {
         }
 
         alert.beginSheetModal(for: window) { [weak self] response in
-            self?.isShowingClosePaneConfirmation = false
+            self?.isShowingCloseConfirmation = false
             if response == .alertFirstButtonReturn {
                 onConfirm()
             }

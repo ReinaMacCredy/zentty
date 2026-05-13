@@ -503,6 +503,30 @@ final class WorklaneStore {
         return nil
     }
 
+    func worklaneCloseConfirmationReason(_ worklaneID: WorklaneID) -> PaneCloseReason? {
+        guard let worklane = worklanes.first(where: { $0.id == worklaneID }) else {
+            return nil
+        }
+
+        var hasSessionHistory = false
+        for pane in worklane.paneStripState.panes {
+            guard let auxiliaryState = worklane.auxiliaryStateByPaneID[pane.id],
+                  let reason = quitConfirmationReason(for: auxiliaryState)
+            else {
+                continue
+            }
+
+            switch reason {
+            case .runningProcess:
+                return .runningProcess
+            case .sessionHistory:
+                hasSessionHistory = true
+            }
+        }
+
+        return hasSessionHistory ? .sessionHistory : nil
+    }
+
     var anyPaneRequiresQuitConfirmation: Bool {
         worklanes.contains { worklane in
             worklane.auxiliaryStateByPaneID.values.contains {
