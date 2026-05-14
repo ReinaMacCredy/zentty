@@ -73,6 +73,7 @@ final class SidebarWorklaneRowButton: NSButton {
     var onClosePaneRequested: ((PaneID) -> Void)?
     var onSplitHorizontalRequested: ((PaneID) -> Void)?
     var onSplitVerticalRequested: ((PaneID) -> Void)?
+    var onAddPaneLeftRequested: ((PaneID) -> Void)?
     var onForceSplitRightRequested: ((PaneID) -> Void)?
     var onForceAddPaneRightRequested: ((PaneID) -> Void)?
     var onMovePaneToNewWindowRequested: ((PaneID) -> Void)?
@@ -699,6 +700,9 @@ final class SidebarWorklaneRowButton: NSButton {
                 },
                 onSplitVerticalRequested: { [weak self] paneID in
                     self?.onSplitVerticalRequested?(paneID)
+                },
+                onAddPaneLeftRequested: { [weak self] paneID in
+                    self?.onAddPaneLeftRequested?(paneID)
                 },
                 onForceSplitRightRequested: { [weak self] paneID in
                     self?.onForceSplitRightRequested?(paneID)

@@ -55,6 +55,7 @@ final class SidebarView: NSView {
     var onClosePaneRequested: ((WorklaneID, PaneID) -> Void)?
     var onSplitHorizontalRequested: ((WorklaneID, PaneID) -> Void)?
     var onSplitVerticalRequested: ((WorklaneID, PaneID) -> Void)?
+    var onAddPaneLeftRequested: ((WorklaneID, PaneID) -> Void)?
     var onForceSplitRightRequested: ((WorklaneID, PaneID) -> Void)?
     var onForceAddPaneRightRequested: ((WorklaneID, PaneID) -> Void)?
     var onMovePaneToNewWindowRequested: ((WorklaneID, PaneID) -> Void)?
@@ -451,6 +452,9 @@ final class SidebarView: NSView {
         }
         button.onSplitVerticalRequested = { [weak self] paneID in
             self?.onSplitVerticalRequested?(worklaneID, paneID)
+        }
+        button.onAddPaneLeftRequested = { [weak self] paneID in
+            self?.onAddPaneLeftRequested?(worklaneID, paneID)
         }
         button.onForceSplitRightRequested = { [weak self] paneID in
             self?.onForceSplitRightRequested?(worklaneID, paneID)

@@ -140,7 +140,10 @@ enum CommandPaletteItemBuilder {
                 shortcutDisplay: shortcut?.displayString,
                 category: definition.category.title,
                 searchText: searchText(for: definition, title: title, subtitle: subtitle),
-                iconSystemName: iconSystemName(for: definition.id),
+                iconSystemName: iconSystemName(
+                    for: definition.id,
+                    rightPaneCommandPresentation: rightPaneCommandPresentation
+                ),
                 family: nil,
                 familySearchText: nil,
                 familyOrder: nil
@@ -406,12 +409,15 @@ enum CommandPaletteItemBuilder {
             )
     }
 
-    private static func iconSystemName(for commandID: AppCommandID) -> String {
+    private static func iconSystemName(
+        for commandID: AppCommandID,
+        rightPaneCommandPresentation: PaneRightCommandPresentation
+    ) -> String {
         switch commandID {
         case .newWorklane:
             "plus.square.on.square"
         case .splitHorizontally:
-            "rectangle.split.2x1"
+            rightPaneCommandPresentation.primaryIconSystemName
         case .splitVertically:
             "rectangle.split.1x2"
         case .openSettings:

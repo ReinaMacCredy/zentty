@@ -1273,20 +1273,22 @@ final class PaneContainerView: NSView {
         customMenu.addItem(makeContextMenuItem(
             title: rightPaneCommandPresentation.primaryTitle,
             action: #selector(MainWindowController.addPaneRight(_:)),
-            symbolName: "arrow.right.square",
-            fallbackSymbolName: "arrow.right"
+            symbolName: rightPaneCommandPresentation.primaryIconSystemName
+        ))
+        customMenu.addItem(makeContextMenuItem(
+            title: "Add Pane Left",
+            action: #selector(MainWindowController.addPaneLeft(_:)),
+            symbolName: "arrow.left.square"
         ))
         customMenu.addItem(makeContextMenuItem(
             title: "New Pane Below",
             action: #selector(MainWindowController.addPaneDown(_:)),
-            symbolName: "arrow.down.square",
-            fallbackSymbolName: "arrow.down"
+            symbolName: "rectangle.split.1x2"
         ))
         customMenu.addItem(makeContextMenuItem(
             title: rightPaneCommandPresentation.forceOppositeTitle,
             action: rightPaneCommandPresentation.forceOppositeCommand.contextMenuSelector,
-            symbolName: "rectangle.split.2x1",
-            fallbackSymbolName: "arrow.right"
+            symbolName: rightPaneCommandPresentation.forceOppositeIconSystemName
         ))
         customMenu.addItem(.separator())
         let moveToWindowItem = makeContextMenuItem(

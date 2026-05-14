@@ -8,6 +8,7 @@ final class SidebarPaneRowRenderer {
         var onClosePaneRequested: ((PaneID) -> Void)?
         var onSplitHorizontalRequested: ((PaneID) -> Void)?
         var onSplitVerticalRequested: ((PaneID) -> Void)?
+        var onAddPaneLeftRequested: ((PaneID) -> Void)?
         var onForceSplitRightRequested: ((PaneID) -> Void)?
         var onForceAddPaneRightRequested: ((PaneID) -> Void)?
         var onMovePaneToNewWindowRequested: ((PaneID) -> Void)?
@@ -112,6 +113,7 @@ final class SidebarPaneRowRenderer {
             button.onClosePane = callbacks.onClosePaneRequested
             button.onSplitHorizontal = callbacks.onSplitHorizontalRequested
             button.onSplitVertical = callbacks.onSplitVerticalRequested
+            button.onAddPaneLeft = callbacks.onAddPaneLeftRequested
             button.onForceSplitRight = callbacks.onForceSplitRightRequested
             button.onForceAddPaneRight = callbacks.onForceAddPaneRightRequested
             button.onMovePaneToNewWindow = callbacks.onMovePaneToNewWindowRequested

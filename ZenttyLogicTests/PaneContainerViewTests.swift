@@ -1662,6 +1662,7 @@ final class PaneContainerViewTests: AppKitTestCase {
                 "Paste",
                 "---",
                 "Add Pane Right",
+                "Add Pane Left",
                 "New Pane Below",
                 "Split Right",
                 "---",

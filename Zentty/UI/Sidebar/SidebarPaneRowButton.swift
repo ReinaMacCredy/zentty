@@ -80,6 +80,7 @@ struct SidebarWorklaneContextMenuActions {
     var moveDownAction: Selector
     var splitHorizontalAction: Selector?
     var splitVerticalAction: Selector?
+    var addPaneLeftAction: Selector?
     var forceSplitRightAction: Selector?
     var forceAddPaneRightAction: Selector?
     var movePaneToNewWindowAction: Selector?
@@ -247,9 +248,19 @@ enum SidebarWorklaneContextMenu {
                     title: rightPaneCommandPresentation.primaryTitle,
                     action: splitHorizontalAction,
                     target: actions.target,
-                    symbolName: "rectangle.split.2x1"
+                    symbolName: rightPaneCommandPresentation.primaryIconSystemName
                 )
             )
+            if let addPaneLeftAction = actions.addPaneLeftAction {
+                menu.addItem(
+                    SidebarContextMenu.item(
+                        title: "Add Pane Left",
+                        action: addPaneLeftAction,
+                        target: actions.target,
+                        symbolName: "arrow.left.square"
+                    )
+                )
+            }
             menu.addItem(
                 SidebarContextMenu.item(
                     title: "New Pane Below",
@@ -264,8 +275,7 @@ enum SidebarWorklaneContextMenu {
                         title: rightPaneCommandPresentation.forceOppositeTitle,
                         action: forceRightAction,
                         target: actions.target,
-                        symbolName: "arrow.right.square",
-                        fallbackSymbolName: "rectangle.split.2x1"
+                        symbolName: rightPaneCommandPresentation.forceOppositeIconSystemName
                     )
                 )
             }
@@ -503,6 +513,7 @@ final class SidebarPaneRowButton: NSButton {
     var onClosePane: ((PaneID) -> Void)?
     var onSplitHorizontal: ((PaneID) -> Void)?
     var onSplitVertical: ((PaneID) -> Void)?
+    var onAddPaneLeft: ((PaneID) -> Void)?
     var onForceSplitRight: ((PaneID) -> Void)?
     var onForceAddPaneRight: ((PaneID) -> Void)?
     var onMovePaneToNewWindow: ((PaneID) -> Void)?
@@ -712,6 +723,7 @@ final class SidebarPaneRowButton: NSButton {
                 moveDownAction: #selector(handleMoveWorklaneDown),
                 splitHorizontalAction: #selector(handleSplitHorizontal),
                 splitVerticalAction: #selector(handleSplitVertical),
+                addPaneLeftAction: #selector(handleAddPaneLeft),
                 forceSplitRightAction: #selector(handleForceSplitRight),
                 forceAddPaneRightAction: #selector(handleForceAddPaneRight),
                 movePaneToNewWindowAction: #selector(handleMovePaneToNewWindow),
@@ -755,6 +767,10 @@ final class SidebarPaneRowButton: NSButton {
 
     @objc private func handleSplitVertical() {
         onSplitVertical?(paneID)
+    }
+
+    @objc private func handleAddPaneLeft() {
+        onAddPaneLeft?(paneID)
     }
 
     @objc private func handleForceSplitRight() {
