@@ -198,6 +198,10 @@ final class TerminalPaneHostView: NSView, TerminalViewportDiagnosticsContextConf
         searchHUDView.updateShortcutTooltips(shortcutManager)
     }
 
+    func applySearchHUDTheme(_ theme: ZenttyTheme, animated: Bool) {
+        searchHUDView.apply(theme: theme, animated: animated)
+    }
+
     override func scrollWheel(with event: NSEvent) {
         if onScrollWheel?(event) == true {
             return
@@ -265,6 +269,26 @@ final class TerminalPaneHostView: NSView, TerminalViewportDiagnosticsContextConf
 
     var searchHUDCountTextForTesting: String {
         searchHUDView.countTextForTesting
+    }
+
+    var searchHUDBackgroundColorTokenForTesting: String {
+        searchHUDView.backgroundColorTokenForTesting
+    }
+
+    var searchHUDBorderColorTokenForTesting: String {
+        searchHUDView.borderColorTokenForTesting
+    }
+
+    var searchHUDCountTextColorTokenForTesting: String {
+        searchHUDView.countTextColorTokenForTesting
+    }
+
+    var searchHUDQueryTextColorTokenForTesting: String {
+        searchHUDView.queryTextColorTokenForTesting
+    }
+
+    var searchHUDNextButtonTintColorTokenForTesting: String {
+        searchHUDView.nextButtonTintColorTokenForTesting
     }
 
     var searchHUDNextButtonForTesting: PaneSearchHUDButton {

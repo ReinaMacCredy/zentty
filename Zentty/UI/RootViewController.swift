@@ -1996,6 +1996,7 @@ final class RootViewController: NSViewController {
         notificationCoordinator.applyTheme(theme, animated: animated)
         updatePaneNavigationButtonState()
         windowChromeView.apply(theme: theme, animated: animated)
+        globalSearchHUDView.apply(theme: theme, animated: animated)
         appCanvasView.apply(theme: theme, animated: animated)
         applySidebarMotionState(
             sidebarMotionCoordinator.currentMotionState,

@@ -20,9 +20,13 @@ private protocol LibghosttyScrollbarHandling: AnyObject {
 @MainActor
 private final class LibghosttyOverlayHostView: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? {
+        let localPoint = convert(point, from: superview)
+        guard !isHidden, alphaValue > 0, bounds.contains(localPoint) else {
+            return nil
+        }
+
         for subview in subviews.reversed() {
-            let pointInSubview = convert(point, to: subview)
-            if let hitView = subview.hitTest(pointInSubview) {
+            if let hitView = subview.hitTest(localPoint) {
                 return hitView
             }
         }

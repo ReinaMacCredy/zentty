@@ -192,6 +192,16 @@ final class LibghosttySurfaceScrollHostViewTests: AppKitTestCase {
         XCTAssertTrue(hitView === overlayControl)
     }
 
+    func test_overlay_host_hit_testing_preserves_standard_controls_using_appkit_coordinates() throws {
+        let harness = makeScrollHostHarness()
+        let button = NSButton(frame: NSRect(x: 20, y: 20, width: 80, height: 30))
+        harness.hostView.terminalOverlayHostView.addSubview(button)
+
+        let hitView = harness.hostView.hitTest(CGPoint(x: 30, y: 30))
+
+        XCTAssertTrue(hitView === button || hitView?.isDescendant(of: button) == true)
+    }
+
     func test_context_menu_builder_set_on_scroll_host_reaches_surface_view() {
         let harness = makeScrollHostHarness()
         var builderCalled = false
@@ -273,7 +283,8 @@ private final class ScrollHostSurfaceSpy: LibghosttySurfaceControlling {
 @MainActor
 private final class HitTestableOverlayView: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? {
-        bounds.contains(point) ? self : nil
+        let localPoint = superview.map { convert(point, from: $0) } ?? point
+        return bounds.contains(localPoint) ? self : nil
     }
 }
 

@@ -125,6 +125,26 @@ final class PaneSearchHUDView: NSView {
         closeButton.toolTip ?? ""
     }
 
+    var backgroundColorTokenForTesting: String {
+        layer?.backgroundColor.flatMap(NSColor.init(cgColor:))?.themeToken ?? ""
+    }
+
+    var borderColorTokenForTesting: String {
+        layer?.borderColor.flatMap(NSColor.init(cgColor:))?.themeToken ?? ""
+    }
+
+    var countTextColorTokenForTesting: String {
+        countLabel.textColor?.themeToken ?? ""
+    }
+
+    var queryTextColorTokenForTesting: String {
+        queryField.textColor?.themeToken ?? ""
+    }
+
+    var nextButtonTintColorTokenForTesting: String {
+        nextButton.contentTintColor?.themeToken ?? ""
+    }
+
     var preservesInteractiveFrame: Bool {
         isDragging || isSnapAnimationInFlight
     }
@@ -152,13 +172,13 @@ final class PaneSearchHUDView: NSView {
         wantsLayer = true
         layer?.cornerRadius = 12
         layer?.cornerCurve = .continuous
-        layer?.masksToBounds = true
-        layer?.backgroundColor = NSColor(calibratedWhite: 0.10, alpha: 0.96).cgColor
+        layer?.masksToBounds = false
         layer?.borderWidth = 1
-        layer?.borderColor = NSColor(calibratedWhite: 1, alpha: 0.08).cgColor
+        layer?.shadowOpacity = 1
+        layer?.shadowRadius = 14
+        layer?.shadowOffset = CGSize(width: 0, height: 8)
 
         countLabel.font = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .medium)
-        countLabel.textColor = NSColor(white: 0.74, alpha: 1)
         countLabel.alignment = .right
         countLabel.translatesAutoresizingMaskIntoConstraints = false
 
@@ -178,7 +198,6 @@ final class PaneSearchHUDView: NSView {
             systemSymbolName: "chevron.up",
             accessibilityDescription: "Find Previous"
         )
-        previousButton.contentTintColor = NSColor(white: 0.76, alpha: 1)
         previousButton.target = self
         previousButton.action = #selector(handlePreviousButton)
         previousButton.translatesAutoresizingMaskIntoConstraints = false
@@ -187,7 +206,6 @@ final class PaneSearchHUDView: NSView {
             systemSymbolName: "chevron.down",
             accessibilityDescription: "Find Next"
         )
-        nextButton.contentTintColor = NSColor(white: 0.76, alpha: 1)
         nextButton.target = self
         nextButton.action = #selector(handleNextButton)
         nextButton.translatesAutoresizingMaskIntoConstraints = false
@@ -196,7 +214,6 @@ final class PaneSearchHUDView: NSView {
             systemSymbolName: "xmark.circle.fill",
             accessibilityDescription: "Close Find"
         )
-        closeButton.contentTintColor = NSColor(white: 0.76, alpha: 1)
         closeButton.target = self
         closeButton.action = #selector(handleCloseButton)
         closeButton.translatesAutoresizingMaskIntoConstraints = false
@@ -236,6 +253,29 @@ final class PaneSearchHUDView: NSView {
             closeButton.widthAnchor.constraint(equalToConstant: Layout.closeButtonSize.width),
             closeButton.heightAnchor.constraint(equalToConstant: Layout.closeButtonSize.height),
         ])
+
+        apply(theme: .fallback(for: nil), animated: false)
+    }
+
+    func apply(theme: ZenttyTheme, animated: Bool) {
+        let textColor = theme.commandPaletteText
+        let secondaryTextColor = theme.commandPaletteSecondaryText
+        appearance = NSAppearance(named: theme.sidebarGlassAppearance.nsAppearanceName)
+        queryField.applySearchHUDTheme(
+            textColor: textColor,
+            placeholderColor: secondaryTextColor.withAlphaComponent(0.72),
+            placeholder: queryField.placeholderString ?? "Find"
+        )
+        countLabel.textColor = secondaryTextColor
+        previousButton.contentTintColor = textColor.withAlphaComponent(0.78)
+        nextButton.contentTintColor = textColor.withAlphaComponent(0.78)
+        closeButton.contentTintColor = textColor.withAlphaComponent(0.86)
+
+        performThemeAnimation(animated: animated) {
+            self.layer?.backgroundColor = theme.commandPaletteBackground.cgColor
+            self.layer?.borderColor = theme.commandPaletteBorder.cgColor
+            self.layer?.shadowColor = theme.commandPaletteShadow.cgColor
+        }
     }
 
     @objc
@@ -458,6 +498,17 @@ final class PaneSearchTextField: NSTextField {
 
     override var mouseDownCanMoveWindow: Bool {
         false
+    }
+
+    func applySearchHUDTheme(textColor: NSColor, placeholderColor: NSColor, placeholder: String) {
+        self.textColor = textColor
+        placeholderAttributedString = NSAttributedString(
+            string: placeholder,
+            attributes: [
+                .foregroundColor: placeholderColor,
+                .font: font ?? NSFont.systemFont(ofSize: 13, weight: .medium),
+            ]
+        )
     }
 
     func handleCommand(selector: Selector) -> Bool {

@@ -878,6 +878,26 @@ final class PaneContainerView: NSView {
         terminalHostView.searchHUDCountTextForTesting
     }
 
+    var searchHUDBackgroundColorTokenForTesting: String {
+        terminalHostView.searchHUDBackgroundColorTokenForTesting
+    }
+
+    var searchHUDBorderColorTokenForTesting: String {
+        terminalHostView.searchHUDBorderColorTokenForTesting
+    }
+
+    var searchHUDCountTextColorTokenForTesting: String {
+        terminalHostView.searchHUDCountTextColorTokenForTesting
+    }
+
+    var searchHUDQueryTextColorTokenForTesting: String {
+        terminalHostView.searchHUDQueryTextColorTokenForTesting
+    }
+
+    var searchHUDNextButtonTintColorTokenForTesting: String {
+        terminalHostView.searchHUDNextButtonTintColorTokenForTesting
+    }
+
     var searchHUDNextButtonForTesting: PaneSearchHUDButton {
         terminalHostView.searchHUDNextButtonForTesting
     }
@@ -1699,6 +1719,7 @@ final class PaneContainerView: NSView {
     private func applyThemeColors(_ theme: ZenttyTheme, animated: Bool = false) {
         statusTitleLabel.textColor = theme.failurePrimaryText
         statusMessageLabel.textColor = theme.failureSecondaryText
+        terminalHostView.applySearchHUDTheme(theme, animated: animated)
         performThemeAnimation(animated: animated) {
             let terminalBackingColor = self.zoomAwareTerminalBackingColor(
                 theme: theme,

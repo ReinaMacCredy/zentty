@@ -1162,6 +1162,39 @@ final class PaneContainerViewTests: AppKitTestCase {
         )
     }
 
+    func test_search_hud_uses_current_theme_colors() {
+        let adapter = PaneContainerTerminalAdapterSpy()
+        let pane = PaneState(id: PaneID("shell"), title: "shell")
+        let runtime = PaneRuntime(
+            pane: pane,
+            adapter: adapter,
+            metadataSink: { _, _ in },
+            eventSink: { _, _ in }
+        )
+        let theme = ZenttyTheme.fallback(for: NSAppearance(named: .aqua))
+        let paneView = PaneContainerView(
+            pane: pane,
+            width: 420,
+            height: 520,
+            emphasis: 1,
+            isFocused: true,
+            runtime: runtime,
+            theme: theme
+        )
+
+        runtime.showSearch()
+        paneView.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(paneView.searchHUDBackgroundColorTokenForTesting, theme.commandPaletteBackground.themeToken)
+        XCTAssertEqual(paneView.searchHUDBorderColorTokenForTesting, theme.commandPaletteBorder.themeToken)
+        XCTAssertEqual(paneView.searchHUDCountTextColorTokenForTesting, theme.commandPaletteSecondaryText.themeToken)
+        XCTAssertEqual(paneView.searchHUDQueryTextColorTokenForTesting, theme.commandPaletteText.themeToken)
+        XCTAssertEqual(
+            paneView.searchHUDNextButtonTintColorTokenForTesting,
+            theme.commandPaletteText.withAlphaComponent(0.78).themeToken
+        )
+    }
+
     func test_search_hud_is_portal_hosted_inside_terminal_host() {
         let adapter = PaneContainerTerminalAdapterSpy()
         let pane = PaneState(id: PaneID("shell"), title: "shell")
