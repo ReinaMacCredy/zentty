@@ -328,7 +328,7 @@ final class RootViewCompositionTests: AppKitTestCase {
         XCTAssertEqual(toast.frame.midX, canvasView.bounds.midX, accuracy: 0.5)
     }
 
-    func test_global_search_hud_is_positioned_inside_top_right_of_canvas_area() throws {
+    func test_global_search_uses_sidebar_row_instead_of_floating_hud() throws {
         let controller = makeController()
         controller.loadViewIfNeeded()
         controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
@@ -337,13 +337,11 @@ final class RootViewCompositionTests: AppKitTestCase {
         controller.view.layoutSubtreeIfNeeded()
 
         let rootSubviews = controller.view.subviews
-        let appCanvasView = try XCTUnwrap(rootSubviews.first { $0 is AppCanvasView })
-        let windowChromeView = try XCTUnwrap(rootSubviews.first { $0 is WindowChromeView })
-        let globalSearchHUDView = try XCTUnwrap(rootSubviews.first { $0 is WindowSearchHUDView })
+        let sidebarView = try XCTUnwrap(rootSubviews.first { $0 is SidebarView } as? SidebarView)
 
-        XCTAssertLessThanOrEqual(globalSearchHUDView.frame.maxY, appCanvasView.frame.maxY - 13.5)
-        XCTAssertGreaterThanOrEqual(globalSearchHUDView.frame.maxX, appCanvasView.frame.maxX - 14.5)
-        XCTAssertLessThan(globalSearchHUDView.frame.maxY, windowChromeView.frame.minY)
+        XCTAssertFalse(rootSubviews.contains { String(describing: type(of: $0)) == "WindowSearchHUDView" })
+        XCTAssertTrue(sidebarView.isGlobalSearchPresentedForTesting)
+        XCTAssertGreaterThan(sidebarView.globalSearchRowHeightForTesting, 0)
     }
 
     func test_root_controller_layers_sidebar_above_chrome_and_toggle_above_sidebar() throws {
@@ -1199,13 +1197,21 @@ final class RootViewCompositionTests: AppKitTestCase {
         sidebarView.layoutSubtreeIfNeeded()
 
         XCTAssertGreaterThanOrEqual(sidebarView.addWorklaneContentMinX, 76)
-        XCTAssertGreaterThan(sidebarView.addWorklaneButtonWidth, 120)
+        XCTAssertGreaterThanOrEqual(sidebarView.addWorklaneButtonWidth, 120)
         let buttonMaxX = sidebarView.addWorklaneButtonMinX + sidebarView.addWorklaneButtonWidth
-        let expectedTrailing = sidebarView.bounds.width - ShellMetrics.sidebarContentInset
-        let expectedMaxWidth = expectedTrailing - sidebarView.addWorklaneButtonMinX
-        XCTAssertEqual(sidebarView.addWorklaneWidthConstraintConstant, expectedMaxWidth, accuracy: 1.0)
-        XCTAssertLessThanOrEqual(buttonMaxX, expectedTrailing + 1.0)
+        XCTAssertEqual(
+            sidebarView.addWorklaneWidthConstraintConstant,
+            sidebarView.addWorklaneButtonWidth,
+            accuracy: 1.0
+        )
+        XCTAssertLessThanOrEqual(buttonMaxX, sidebarView.globalSearchButtonMinX + 1.0)
         XCTAssertLessThan(sidebarView.addWorklaneIconAlpha, sidebarView.addWorklaneTitleAlpha)
+        XCTAssertEqual(sidebarView.addWorklaneBackgroundAlpha, 0, accuracy: 0.001)
+        XCTAssertEqual(sidebarView.addWorklaneBorderAlpha, 0, accuracy: 0.001)
+        XCTAssertTrue(sidebarView.headerBandIsHidden)
+        XCTAssertFalse(sidebarView.headerAccessoryGroupIsHidden)
+        XCTAssertEqual(sidebarView.headerAccessoryGroupBackgroundAlpha, 0, accuracy: 0.001)
+        XCTAssertEqual(sidebarView.headerAccessoryGroupBorderAlpha, 0, accuracy: 0.001)
     }
 
     func test_sidebar_header_button_uses_full_width_in_hover_peek() {
@@ -1239,6 +1245,70 @@ final class RootViewCompositionTests: AppKitTestCase {
         XCTAssertLessThanOrEqual(
             sidebarView.addWorklaneButtonWidth,
             sidebarView.bounds.width - (ShellMetrics.sidebarContentInset * 2) + 1.0
+        )
+        XCTAssertGreaterThanOrEqual(sidebarView.firstWorklaneTopInset, 8)
+        XCTAssertLessThanOrEqual(
+            sidebarView.firstWorklaneTopInset,
+            12,
+            "Hover peek should keep the first row close under the header divider"
+        )
+        XCTAssertEqual(
+            sidebarView.bookmarksButtonMinX - sidebarView.globalSearchButtonMaxX,
+            0,
+            accuracy: 0.5
+        )
+        sidebarView.performDebugActionForTesting(.setAddWorklaneHovered(true))
+        XCTAssertEqual(
+            sidebarView.addWorklaneBackgroundWidth,
+            sidebarView.addWorklaneMinimumUntruncatedWidth,
+            accuracy: 0.5,
+            "Hover fill should hug the New worklane content, not stretch toward search"
+        )
+        XCTAssertLessThan(sidebarView.addWorklaneBackgroundWidth, sidebarView.addWorklaneButtonWidth)
+        XCTAssertFalse(sidebarView.headerBandIsHidden)
+        XCTAssertTrue(sidebarView.hasVisibleDivider)
+        XCTAssertEqual(sidebarView.headerBandCornerRadius, 0, accuracy: 0.001)
+        XCTAssertLessThanOrEqual(
+            sidebarView.headerBandBottomBorderAlpha,
+            0.01,
+            "The visible peek divider should sit below the header, not on the button row edge"
+        )
+        XCTAssertTrue(sidebarView.headerAccessoryGroupIsHidden)
+    }
+
+    func test_sidebar_global_search_row_sits_below_hover_peek_divider() {
+        let sidebarView = SidebarView(frame: NSRect(x: 0, y: 0, width: 280, height: 500))
+        sidebarView.render(
+            summaries: [
+                makeSidebarSummary(
+                    worklaneID: WorklaneID("worklane-main"),
+                    title: "MAIN",
+                    badgeText: "M",
+                    primaryText: "shell",
+                    contextText: "",
+                    isActive: true,
+                    showsGeneratedTitle: false
+                )
+            ],
+            theme: ZenttyTheme.fallback(for: nil)
+        )
+
+        sidebarView.updateHeaderLayout(visibilityMode: .hoverPeek, pinnedContentMinX: 76)
+        sidebarView.setGlobalSearchPresented(true, animated: false)
+        sidebarView.layoutSubtreeIfNeeded()
+
+        let dividerFrame = sidebarView.headerDividerFrameInSidebar
+        let inputFrame = sidebarView.globalSearchInputFrameInSidebar
+
+        XCTAssertFalse(
+            inputFrame.intersects(dividerFrame),
+            "Peek search input should sit below the divider instead of painting over it"
+        )
+        XCTAssertEqual(
+            dividerFrame.maxY - inputFrame.maxY,
+            inputFrame.minY - sidebarView.firstWorklaneMaxY,
+            accuracy: 1.0,
+            "Peek search input should sit optically centered between the divider and first row"
         )
     }
 

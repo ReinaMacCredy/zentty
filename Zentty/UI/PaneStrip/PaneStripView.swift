@@ -68,6 +68,7 @@ final class PaneStripView: NSView {
     var moveToWorklaneCatalogProvider: ((PaneID) -> WorklaneDestinationCatalog?)?
     var restoredRerunnableCommandProvider: ((PaneID) -> String?)?
     var sidebarWidthProvider: (() -> CGFloat)?
+    var shouldSuppressProgrammaticTerminalFocus: (() -> Bool)?
     weak var dragOverlayView: NSView? {
         didSet { dragCoordinator.dragHostView = dragOverlayView }
     }
@@ -1131,6 +1132,12 @@ final class PaneStripView: NSView {
             return
         }
 
+        if shouldSuppressProgrammaticTerminalFocus?() == true {
+            pendingProgrammaticFocusPaneID = nil
+            focusGeneration &+= 1
+            return
+        }
+
         guard force || paneID != lastFocusedPaneID else {
             return
         }
@@ -1146,6 +1153,13 @@ final class PaneStripView: NSView {
 
     private func attemptFocus(paneID: PaneID, generation: UInt64, retryCount: Int) {
         guard generation == focusGeneration else { return }
+        if shouldSuppressProgrammaticTerminalFocus?() == true {
+            if pendingProgrammaticFocusPaneID == paneID {
+                pendingProgrammaticFocusPaneID = nil
+            }
+            focusGeneration &+= 1
+            return
+        }
         guard retryCount < 50 else {
             if pendingProgrammaticFocusPaneID == paneID {
                 pendingProgrammaticFocusPaneID = nil

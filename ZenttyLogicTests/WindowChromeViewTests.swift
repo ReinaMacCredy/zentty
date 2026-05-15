@@ -27,17 +27,12 @@ final class WindowChromeViewTests: AppKitTestCase {
     func test_search_hud_tooltips_use_configured_find_shortcuts() {
         let shortcutManager = ShortcutManager(shortcuts: .default)
         let localHUD = PaneSearchHUDView()
-        let globalHUD = WindowSearchHUDView()
 
         localHUD.updateShortcutTooltips(shortcutManager)
-        globalHUD.updateShortcutTooltips(shortcutManager)
 
         XCTAssertEqual(localHUD.previousToolTipForTesting, "Find Previous (⌘⇧G)")
         XCTAssertEqual(localHUD.nextToolTipForTesting, "Find Next (⌘G)")
         XCTAssertEqual(localHUD.closeToolTipForTesting, "Close Find")
-        XCTAssertEqual(globalHUD.previousToolTipForTesting, "Find Previous (⌘⇧G)")
-        XCTAssertEqual(globalHUD.nextToolTipForTesting, "Find Next (⌘G)")
-        XCTAssertEqual(globalHUD.closeToolTipForTesting, "Close Global Find")
     }
 
     func test_window_chrome_branch_tooltip_uses_custom_shortcut_when_clickable() {

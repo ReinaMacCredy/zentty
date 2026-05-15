@@ -1,13 +1,19 @@
 import AppKit
 import QuartzCore
 
-final class SidebarBookmarksButton: NSButton {
+enum SidebarHeaderAccessorySegmentPosition {
+    case leading
+    case trailing
+}
+
+final class SidebarGlobalSearchButton: NSButton {
     private let iconView = NSImageView()
     private var trackingArea: NSTrackingArea?
     private var currentTheme = ZenttyTheme.fallback(for: nil)
-    private var segmentPosition: SidebarHeaderAccessorySegmentPosition = .trailing
+    private var segmentPosition: SidebarHeaderAccessorySegmentPosition = .leading
+    private(set) var currentSymbolName = "magnifyingglass"
     private(set) var isHovered = false
-    private(set) var isPopoverPresented = false
+    private(set) var isSearchPresented = false
 
     static let buttonWidth: CGFloat = 30
     static let buttonHeight: CGFloat = ShellMetrics.sidebarCreateWorklaneButtonHeight
@@ -35,8 +41,8 @@ final class SidebarBookmarksButton: NSButton {
 
     private func setup() {
         title = ""
-        setAccessibilityLabel("Bookmarks and presets")
-        toolTip = "Bookmarks & presets"
+        setAccessibilityLabel("Global Find")
+        toolTip = "Global Find"
         isBordered = false
         bezelStyle = .regularSquare
         wantsLayer = true
@@ -70,8 +76,8 @@ final class SidebarBookmarksButton: NSButton {
 
     func updateShortcutTooltip(_ shortcutManager: ShortcutManager) {
         toolTip = CommandTooltipFormatter.title(
-            "Bookmarks & Presets",
-            commandID: .openBookmarksPopover,
+            "Global Find",
+            commandID: .globalFind,
             shortcutManager: shortcutManager
         )
     }
@@ -126,20 +132,21 @@ final class SidebarBookmarksButton: NSButton {
         applyCurrentAppearance(animated: animated)
     }
 
-    func setPopoverPresented(_ presented: Bool, animated: Bool = true) {
-        guard isPopoverPresented != presented else { return }
-        isPopoverPresented = presented
+    func setSearchPresented(_ presented: Bool, animated: Bool) {
+        guard isSearchPresented != presented else { return }
+        isSearchPresented = presented
         updateSymbolImage()
         applyCurrentAppearance(animated: animated)
     }
 
     private func updateSymbolImage() {
-        let symbolName = isPopoverPresented ? "bookmark.fill" : "bookmark"
+        let symbolName = "magnifyingglass"
+        currentSymbolName = symbolName
         iconView.image = NSImage(
             systemSymbolName: symbolName,
-            accessibilityDescription: "Bookmarks and presets"
+            accessibilityDescription: "Global Find"
         )?.withSymbolConfiguration(
-            NSImage.SymbolConfiguration(pointSize: 12, weight: .semibold)
+            NSImage.SymbolConfiguration(pointSize: 13, weight: .semibold)
         )
         needsLayout = true
     }
@@ -155,10 +162,15 @@ final class SidebarBookmarksButton: NSButton {
     }
 
     private func applyCurrentAppearance(animated: Bool) {
-        let isEmphasized = isHovered || isHighlighted || isPopoverPresented
-        let iconColor = isEmphasized
-            ? currentTheme.secondaryText.withAlphaComponent(0.96)
-            : currentTheme.tertiaryText.withAlphaComponent(0.68)
+        let isEmphasized = isHovered || isHighlighted || isSearchPresented
+        let iconColor: NSColor
+        if isSearchPresented {
+            iconColor = currentTheme.primaryText.withAlphaComponent(0.98)
+        } else if isEmphasized {
+            iconColor = currentTheme.secondaryText.withAlphaComponent(0.96)
+        } else {
+            iconColor = currentTheme.tertiaryText.withAlphaComponent(0.68)
+        }
         let backgroundColor: NSColor
         if isEmphasized {
             let mix: CGFloat = currentTheme.sidebarBackground.isDarkThemeColor ? 0.12 : 0.18
@@ -187,5 +199,9 @@ final class SidebarBookmarksButton: NSButton {
         case .trailing:
             [.layerMinXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMinYCorner, .layerMaxXMaxYCorner]
         }
+    }
+
+    var backgroundAlphaForTesting: CGFloat {
+        layer?.backgroundColor.map { NSColor(cgColor: $0)?.alphaComponent ?? 0 } ?? 0
     }
 }

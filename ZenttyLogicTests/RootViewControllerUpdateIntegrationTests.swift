@@ -136,7 +136,7 @@ final class RootViewControllerUpdateIntegrationTests: AppKitTestCase {
         controller.handle(.globalFind)
         controller.updateGlobalSearchQueryForTesting("build")
 
-        XCTAssertTrue(controller.isGlobalSearchHUDVisibleForTesting)
+        XCTAssertTrue(controller.isGlobalSearchPresentedForTesting)
         XCTAssertEqual(
             controller.globalSearchStateForTesting,
             GlobalSearchState(
@@ -244,13 +244,25 @@ final class RootViewControllerUpdateIntegrationTests: AppKitTestCase {
         controller.handle(.globalFind)
         controller.updateGlobalSearchQueryForTesting("build")
 
-        XCTAssertTrue(controller.isGlobalSearchHUDVisibleForTesting)
+        XCTAssertTrue(controller.isGlobalSearchPresentedForTesting)
         XCTAssertTrue(controller.globalSearchStateForTesting.hasRememberedSearch)
 
         controller.replaceWorklanes([updatedWorklane], activeWorklaneID: worklaneID)
 
         XCTAssertEqual(controller.globalSearchStateForTesting, GlobalSearchState())
-        XCTAssertFalse(controller.isGlobalSearchHUDVisibleForTesting)
+        XCTAssertFalse(controller.isGlobalSearchPresentedForTesting)
+    }
+
+    func test_root_controller_escape_from_sidebar_global_search_ends_search() {
+        let controller = makeController()
+        controller.loadViewIfNeeded()
+
+        controller.handle(.globalFind)
+        controller.updateGlobalSearchQueryForTesting("build")
+        controller.closeGlobalSearchForTesting()
+
+        XCTAssertEqual(controller.globalSearchStateForTesting, GlobalSearchState())
+        XCTAssertFalse(controller.isGlobalSearchPresentedForTesting)
     }
 
 }

@@ -1,7 +1,7 @@
 import AppKit
 
 enum WindowDragSuppressionTarget: Equatable {
-    case globalSearchHUD
+    case globalSearchControls
     case proxyIcon
 }
 
