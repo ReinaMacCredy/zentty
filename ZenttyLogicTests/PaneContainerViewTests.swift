@@ -1133,7 +1133,7 @@ final class PaneContainerViewTests: AppKitTestCase {
         XCTAssertGreaterThan(paneView.searchHUDFrameForTesting.midY, paneView.bounds.midY)
     }
 
-    func test_search_hud_shows_unselected_count_when_opened_before_results_arrive() {
+    func test_search_hud_hides_count_when_opened_before_query() {
         let adapter = PaneContainerTerminalAdapterSpy()
         let pane = PaneState(id: PaneID("shell"), title: "shell")
         let runtime = PaneRuntime(
@@ -1157,8 +1157,8 @@ final class PaneContainerViewTests: AppKitTestCase {
 
         XCTAssertEqual(
             paneView.searchHUDCountTextForTesting,
-            "-/0",
-            "Opening the HUD should not imply that the first match is already selected before search results arrive"
+            "",
+            "Opening the HUD before a query should not show an empty search result count"
         )
     }
 

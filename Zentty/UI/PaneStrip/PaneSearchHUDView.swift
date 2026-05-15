@@ -318,6 +318,10 @@ final class PaneSearchHUDView: NSView {
     }
 
     private func countText(for search: PaneSearchState) -> String {
+        guard !search.needle.isEmpty || search.selected >= 0 || search.total > 0 else {
+            return ""
+        }
+
         let totalText = search.total >= 0 ? String(search.total) : "?"
         if search.selected >= 0 {
             return "\(search.selected + 1)/\(totalText)"
