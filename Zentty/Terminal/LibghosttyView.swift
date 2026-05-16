@@ -1070,7 +1070,7 @@ final class LibghosttyView: NSView, TerminalFocusReporting, TerminalViewportDiag
     }
 
     @IBAction func copy(_ sender: Any?) {
-        if CleanCopyPipeline.isAutoCleanEnabled {
+        if CleanCopyPipeline.shouldCleanTerminalCopyAction() {
             CleanCopyPipeline.suppressCallbackCleaning = true
             _ = surfaceController?.performBindingAction(BindingAction.copyToClipboard)
             CleanCopyPipeline.suppressCallbackCleaning = false
