@@ -83,6 +83,7 @@ final class RootViewController: NSViewController {
     private let configStore: AppConfigStore
     private let appUpdateStateStore: AppUpdateStateStore
     private let openWithService: OpenWithServing
+    private let taskRunnerDiscoveryService = TaskRunnerDiscoveryService()
     private let sidebarView = SidebarView()
     private let sidebarHoverRailView = SidebarHoverRailView()
     private let sidebarToggleButton = SidebarToggleButton()
@@ -1072,6 +1073,12 @@ final class RootViewController: NSViewController {
             commandPaletteController.onOpenWith = { [weak self] stableID, workingDirectory in
                 self?.openWithFromPalette(stableID: stableID, workingDirectory: workingDirectory)
             }
+            commandPaletteController.onRunTaskRunner = { [weak self] action in
+                self?.runTaskRunner(action)
+            }
+            commandPaletteController.onOpenTaskRunnerSource = { [weak self] sourcePath in
+                self?.openTaskRunnerSource(sourcePath: sourcePath)
+            }
             commandPaletteController.onSetWorklaneColor = { [weak self] color in
                 guard let self else { return }
                 self.worklaneStore.setColor(color, on: self.worklaneStore.activeWorklaneID)
@@ -1715,6 +1722,16 @@ final class RootViewController: NSViewController {
             focusedOpenWithContext != nil
             ? availableOpenWithTargets
             : []
+        let taskRunnerActions: [TaskRunnerAction] = {
+            guard let focusedPanePath else { return [] }
+            do {
+                return try taskRunnerDiscoveryService.discover(focusedWorkingDirectory: focusedPanePath)
+            } catch {
+                Logger(subsystem: "be.zenjoy.zentty", category: "TaskRunners")
+                    .error("Task runner discovery failed: \(error.localizedDescription, privacy: .public)")
+                return []
+            }
+        }()
 
         commandPaletteController.show(
             in: window,
@@ -1731,6 +1748,7 @@ final class RootViewController: NSViewController {
             openWithIconProvider: { [weak self] target in
                 self?.openWithService.icon(for: target)
             },
+            taskRunnerActions: taskRunnerActions,
             rightPaneCommandPresentation: currentPaneLayoutContext.rightPaneCommandPresentation
         )
     }
@@ -1783,6 +1801,78 @@ final class RootViewController: NSViewController {
             return
         }
         openWithService.open(target: target, workingDirectory: workingDirectory)
+    }
+
+    private func runTaskRunner(_ action: TaskRunnerAction) {
+        guard action.isEnabled else {
+            openTaskRunnerSource(sourcePath: action.sourcePath)
+            return
+        }
+
+        switch taskRunnerLaunchDestination(for: action) {
+        case let .focusedPane(paneID):
+            guard let runtime = runtimeRegistry.runtime(for: paneID) else {
+                runTaskRunnerInNewPane(action)
+                return
+            }
+
+            runtime.adapter.cancelPromptInput()
+            runtime.adapter.submitCommand(action.executionCommand)
+            runtime.hostView.focusTerminalIfReady()
+        case .newPane:
+            runTaskRunnerInNewPane(action)
+        }
+    }
+
+    private enum TaskRunnerLaunchDestination {
+        case focusedPane(PaneID)
+        case newPane
+    }
+
+    private func taskRunnerLaunchDestination(for action: TaskRunnerAction) -> TaskRunnerLaunchDestination {
+        guard
+            action.environment.isEmpty,
+            let activeWorklane = worklaneStore.activeWorklane,
+            let focusedPaneID = activeWorklane.paneStripState.focusedPaneID,
+            runtimeRegistry.runtime(for: focusedPaneID) != nil,
+            let auxiliaryState = activeWorklane.auxiliaryStateByPaneID[focusedPaneID],
+            auxiliaryState.shellActivityState == .promptIdle,
+            auxiliaryState.terminalProgress?.state.indicatesActivity != true
+        else {
+            return .newPane
+        }
+
+        return .focusedPane(focusedPaneID)
+    }
+
+    private func runTaskRunnerInNewPane(_ action: TaskRunnerAction) {
+        let request = TerminalSessionRequest(
+            workingDirectory: action.workingDirectory,
+            command: action.executionCommand,
+            inheritFromPaneID: worklaneStore.activeWorklane?.paneStripState.focusedPaneID,
+            environmentVariables: action.environment
+        )
+        guard let paneID = splitWithLayout(
+            placement: .afterFocused,
+            isHorizontal: true,
+            layout: .none,
+            sessionRequest: request
+        ) else {
+            showCommandFailureToast()
+            return
+        }
+
+        DispatchQueue.main.async { [weak self] in
+            self?.runtimeRegistry.runtime(for: paneID)?.hostView.focusTerminalIfReady()
+        }
+    }
+
+    private func openTaskRunnerSource(sourcePath: String) {
+        if let target = primaryOpenWithTarget {
+            openWithService.open(target: target, workingDirectory: sourcePath)
+        } else {
+            NSWorkspace.shared.open(URL(fileURLWithPath: sourcePath))
+        }
     }
 
     private func copyFocusedPanePath() {
@@ -2693,6 +2783,10 @@ final class RootViewController: NSViewController {
 
         func triggerCopyFocusedPanePathForTesting() {
             copyFocusedPanePath()
+        }
+
+        func runTaskRunnerForTesting(_ action: TaskRunnerAction) {
+            runTaskRunner(action)
         }
 
         func handleSidebarVisibilityEvent(_ event: SidebarVisibilityEvent) {
