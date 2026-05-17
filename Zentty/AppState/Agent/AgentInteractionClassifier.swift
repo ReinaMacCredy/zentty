@@ -146,6 +146,29 @@ enum AgentInteractionClassifier {
         )
     }
 
+    static func isCodexAutoApprovalLifecycleMessage(_ message: String?, payloadType: String? = nil) -> Bool {
+        let parts = [payloadType, message].compactMap(trimmed)
+        guard !parts.isEmpty else {
+            return false
+        }
+
+        let compact = parts
+            .joined(separator: " ")
+            .lowercased()
+            .filter { $0.isLetter || $0.isNumber }
+
+        if compact.contains("autoapprovalreview")
+            || compact.contains("automaticapprovalreview")
+            || compact.contains("autoreviewer")
+            || compact.contains("autoreviewreturned") {
+            return true
+        }
+
+        return compact.contains("guardian")
+            && compact.contains("approval")
+            && compact.contains("review")
+    }
+
     static func specificity(forWaitingMessage message: String?) -> WaitingMessageSpecificity? {
         guard let normalized = normalized(message) else {
             return nil

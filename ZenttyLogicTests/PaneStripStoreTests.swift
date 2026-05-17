@@ -4887,6 +4887,33 @@ final class PaneStripStoreTests: XCTestCase {
         )
     }
 
+    func test_desktop_notification_event_ignores_codex_auto_approval_review_lifecycle_copy() throws {
+        let store = WorklaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+
+        store.updateMetadata(
+            paneID: paneID,
+            metadata: TerminalMetadata(
+                title: "Codex",
+                currentWorkingDirectory: "/tmp/project",
+                processName: "codex",
+                gitBranch: "main"
+            )
+        )
+
+        store.handleTerminalEvent(
+            paneID: paneID,
+            event: .desktopNotification(
+                TerminalDesktopNotification(
+                    title: "Codex",
+                    body: "Automatic approval review denied the requested action."
+                )
+            )
+        )
+
+        XCTAssertNil(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus)
+    }
+
     func test_desktop_notification_event_can_recognize_codex_from_notification_title_without_metadata() throws {
         let store = WorklaneStore()
         let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
@@ -6150,7 +6177,7 @@ final class PaneStripStoreTests: XCTestCase {
         XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText, "Needs input")
     }
 
-    func test_codex_main_needs_approval_title_promotes_running_session_to_requires_approval() throws {
+    func test_codex_main_needs_approval_title_does_not_promote_running_session_without_permission_hook() throws {
         let store = WorklaneStore(readyStatusDebounceInterval: 0)
         let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
         store.knownNonRepositoryPaths.insert("/tmp/project")
@@ -6182,13 +6209,10 @@ final class PaneStripStoreTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state, .needsInput)
-        XCTAssertEqual(
-            store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.interactionKind,
-            .some(.approval)
-        )
-        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.runtimePhase, .needsInput)
-        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText, "Requires approval")
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state, .running)
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.interactionKind, .some(.none))
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.runtimePhase, .running)
+        XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.presentation.statusText, "Running")
     }
 
     func test_interrupted_codex_run_does_not_surface_ready_and_new_claude_start_stays_starting() throws {

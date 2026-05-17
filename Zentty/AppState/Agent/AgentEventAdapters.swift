@@ -1103,12 +1103,15 @@ extension AgentEventBridge {
             }
         }
 
-        guard let normalizedMessage = AgentInteractionClassifier.trimmed(message),
-              let interactionKind = codexNotifyInteractionKind(message: normalizedMessage, payloadType: payloadType) else {
+        guard let normalizedMessage = AgentInteractionClassifier.trimmed(message) else {
             return []
         }
 
-        if codexNotifyIsAutoApprovalSuccessMessage(normalizedMessage) {
+        if AgentInteractionClassifier.isCodexAutoApprovalLifecycleMessage(normalizedMessage, payloadType: payloadType) {
+            return []
+        }
+
+        guard let interactionKind = codexNotifyInteractionKind(message: normalizedMessage, payloadType: payloadType) else {
             return []
         }
 
@@ -1128,25 +1131,6 @@ extension AgentEventBridge {
             artifactLabel: nil,
             artifactURL: nil
         )]
-    }
-
-    private static func codexNotifyIsAutoApprovalSuccessMessage(_ message: String) -> Bool {
-        let normalized = message.lowercased()
-        let compact = normalized.filter { $0.isLetter || $0.isNumber }
-
-        let mentionsAutoApprovalSuccess = [
-            "automaticapprovalreviewapproved",
-            "autoreviewerapproved",
-            "autoreviewreturned",
-        ].contains(where: compact.contains)
-
-        guard mentionsAutoApprovalSuccess else {
-            return false
-        }
-
-        return compact.contains("approved")
-            || compact.contains("allowdecision")
-            || compact.contains("allowed")
     }
 
     private static func codexNotifyInteractionKind(

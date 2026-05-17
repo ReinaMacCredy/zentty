@@ -810,6 +810,30 @@ final class AgentEventBridgeTests: XCTestCase {
         XCTAssertTrue(payloads.isEmpty)
     }
 
+    func test_codex_notify_ignores_automatic_approval_review_lifecycle_messages() throws {
+        let messages = [
+            ("notification", "Automatic approval review started for command: xcodebuild test"),
+            ("notification", "Automatic approval review denied the requested action."),
+            ("notification", "Automatic approval review aborted before completion."),
+            ("notification", "Automatic approval review timed out while checking the requested action."),
+            ("notification", "Auto-reviewer is checking whether Codex can run xcodebuild test"),
+            ("permission-request", "Automatic approval review started for command: xcodebuild test"),
+        ]
+
+        for (type, message) in messages {
+            let json = """
+            {
+              "type": "\(type)",
+              "message": "\(message)"
+            }
+            """
+
+            let payloads = try AgentEventBridge.codexNotifyAdapter(data: Data(json.utf8), environment: codexEnvironment())
+
+            XCTAssertTrue(payloads.isEmpty, "Expected auto-review lifecycle message to be ignored: \(message)")
+        }
+    }
+
     func test_codex_notify_permission_request_still_maps_to_approval() throws {
         let json = """
         {
@@ -824,6 +848,22 @@ final class AgentEventBridgeTests: XCTestCase {
         XCTAssertEqual(payloads[0].state, .needsInput)
         XCTAssertEqual(payloads[0].interactionKind, .approval)
         XCTAssertEqual(payloads[0].text, "Codex needs your approval to run xcodebuild test")
+    }
+
+    func test_codex_notify_permission_request_that_mentions_auto_review_still_maps_to_approval() throws {
+        let json = """
+        {
+          "type": "permission-request",
+          "message": "Codex needs your approval to run auto review command"
+        }
+        """
+
+        let payloads = try AgentEventBridge.codexNotifyAdapter(data: Data(json.utf8), environment: codexEnvironment())
+
+        XCTAssertEqual(payloads.count, 1)
+        XCTAssertEqual(payloads[0].state, .needsInput)
+        XCTAssertEqual(payloads[0].interactionKind, .approval)
+        XCTAssertEqual(payloads[0].text, "Codex needs your approval to run auto review command")
     }
 
     func test_codex_adapter_prompt_submit() throws {

@@ -1330,15 +1330,20 @@ extension WorklaneStore {
         let combinedParts = [title, body].compactMap { $0 }
         let combinedMessage = combinedParts.isEmpty ? nil : combinedParts.joined(separator: "\n")
 
-        guard AgentInteractionClassifier.requiresHumanInput(message: combinedMessage) else {
-            return nil
-        }
-
         let existingStatus = worklane.auxiliaryStateByPaneID[paneID]?.agentStatus
         let tool = existingStatus?.tool
             ?? AgentToolRecognizer.recognize(metadata: worklane.auxiliaryStateByPaneID[paneID]?.metadata)
             ?? AgentTool.resolveKnown(named: title)
         guard let tool else {
+            return nil
+        }
+
+        if tool == .codex,
+           AgentInteractionClassifier.isCodexAutoApprovalLifecycleMessage(combinedMessage) {
+            return nil
+        }
+
+        guard AgentInteractionClassifier.requiresHumanInput(message: combinedMessage) else {
             return nil
         }
 

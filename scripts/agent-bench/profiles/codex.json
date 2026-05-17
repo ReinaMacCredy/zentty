@@ -32,6 +32,14 @@
       "untrusted",
       "Run this exact shell command: printf ZENTTY_AGENT_BENCH_APPROVAL_OK"
     ],
+    "auto_approval": [
+      "--ask-for-approval",
+      "untrusted",
+      "exec",
+      "--sandbox",
+      "workspace-write",
+      "Run this exact shell command: printf ZENTTY_AGENT_BENCH_AUTO_APPROVAL_OK"
+    ],
     "question": [
       "Ask me one short random question using the askuserquestion tool. Do not answer it yourself."
     ],
@@ -74,6 +82,11 @@
     },
     "approval": {
       "required_events": ["session-start", "prompt-submit", "permission-request", "post-tool-use", "stop"]
+    },
+    "auto_approval": {
+      "required_events": ["session-start", "prompt-submit", "pre-tool-use", "post-tool-use", "stop"],
+      "forbidden_events": ["permission-request"],
+      "forbidden_terminal_phases": ["needs-input"]
     },
     "question": {
       "required_events": ["session-start", "prompt-submit"]

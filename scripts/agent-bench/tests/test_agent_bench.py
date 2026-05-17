@@ -176,6 +176,31 @@ class ExpectationTests(unittest.TestCase):
         self.assertTrue(result.passed)
         self.assertEqual(result.result_kind, "bootstrap-pass")
 
+    def test_scenario_expectation_keeps_required_terminal_phases_as_third_positional_argument(self):
+        scenario = agent_bench.ScenarioExpectation("tui_restart", [], ["idle"])
+
+        self.assertEqual(scenario.required_terminal_phases, ["idle"])
+        self.assertEqual(scenario.forbidden_events, [])
+
+    def test_validation_fails_when_forbidden_hook_event_is_observed(self):
+        scenario = agent_bench.ScenarioExpectation(
+            name="auto_approval",
+            required_events=["session-start", "prompt-submit", "stop"],
+            forbidden_events=["permission-request"],
+        )
+        observed = [
+            agent_bench.TraceRecord(kind="hook", agent="codex", scenario="auto_approval", event_name="session-start"),
+            agent_bench.TraceRecord(kind="hook", agent="codex", scenario="auto_approval", event_name="prompt-submit"),
+            agent_bench.TraceRecord(kind="hook", agent="codex", scenario="auto_approval", event_name="permission-request"),
+            agent_bench.TraceRecord(kind="hook", agent="codex", scenario="auto_approval", event_name="stop"),
+        ]
+
+        result = agent_bench.validate_scenario("codex", scenario, observed)
+
+        self.assertFalse(result.passed)
+        self.assertEqual(result.missing_events, ["forbidden:permission-request"])
+        self.assertEqual(result.result_kind, "forbidden-hook")
+
     def test_validation_reports_missing_session_identity(self):
         scenario = agent_bench.ScenarioExpectation(
             name="session_capture",
@@ -632,6 +657,67 @@ class ExpectationTests(unittest.TestCase):
 
         self.assertIn("post-tool-use", profile.expectations["approval"].required_events)
 
+    def test_codex_auto_approval_profile_forbids_manual_approval_signals(self):
+        profile = agent_bench.load_profiles(ROOT / "profiles")["codex"]
+        expectation = profile.expectations["auto_approval"]
+
+        self.assertIn("auto_approval", profile.launch_args_by_scenario)
+        self.assertEqual(expectation.forbidden_events, ["permission-request"])
+        self.assertEqual(expectation.forbidden_terminal_phases, ["needs-input"])
+        self.assertNotIn("auto_approval", profile.input_by_scenario)
+
+    def test_completed_result_fails_when_forbidden_terminal_phase_is_observed(self):
+        result = agent_bench.classify_completed_result(
+            agent="codex",
+            scenario="auto_approval",
+            expectation=agent_bench.ScenarioExpectation(
+                "auto_approval",
+                ["session-start", "prompt-submit", "stop"],
+                forbidden_terminal_phases=["needs-input"],
+            ),
+            records=[
+                agent_bench.TraceRecord(kind="hook", agent="codex", scenario="auto_approval", event_name="session-start"),
+                agent_bench.TraceRecord(kind="hook", agent="codex", scenario="auto_approval", event_name="prompt-submit"),
+                agent_bench.TraceRecord(kind="hook", agent="codex", scenario="auto_approval", event_name="stop"),
+            ],
+            terminal_observations=[
+                agent_bench.TerminalObservation(kind="title", text="main needs approval", offset=0),
+            ],
+            output="ZENTTY_AGENT_BENCH_AUTO_APPROVAL_OK",
+            skip_patterns=[],
+            exit_code=0,
+            completed_by_predicate=True,
+            strict=True,
+        )
+
+        self.assertFalse(result.passed)
+        self.assertEqual(result.result_kind, "forbidden-terminal-phase")
+
+    def test_timeout_result_fails_when_forbidden_terminal_phase_is_observed(self):
+        result = agent_bench.classify_timeout_result(
+            agent="codex",
+            scenario="auto_approval",
+            expectation=agent_bench.ScenarioExpectation(
+                "auto_approval",
+                ["session-start", "prompt-submit"],
+                forbidden_terminal_phases=["needs-input"],
+            ),
+            records=[
+                agent_bench.TraceRecord(kind="hook", agent="codex", scenario="auto_approval", event_name="session-start"),
+                agent_bench.TraceRecord(kind="hook", agent="codex", scenario="auto_approval", event_name="prompt-submit"),
+            ],
+            terminal_observations=[
+                agent_bench.TerminalObservation(kind="title", text="main needs approval", offset=0),
+            ],
+            output="",
+            skip_patterns=[],
+            timeout=30,
+            strict=True,
+        )
+
+        self.assertFalse(result.passed)
+        self.assertEqual(result.result_kind, "forbidden-terminal-phase")
+
 
 class TimelineTests(unittest.TestCase):
     def test_extracts_terminal_title_and_osc9_observations(self):
@@ -842,7 +928,10 @@ class TaskObservationTests(unittest.TestCase):
 
         observations = agent_bench.task_observations_for_records("cursor", "tasks", records)
 
-        self.assertEqual(observations, [{"event": "preToolUse", "tool": "TodoWrite", "done": 1, "total": 3}])
+        self.assertEqual(
+            observations,
+            [{"event": "preToolUse", "tool": "TodoWrite", "done": 1, "total": 3, "source": "raw_tool_call"}],
+        )
 
     def test_completed_tasks_scenario_without_todo_write_is_missing_task_hook(self):
         result = agent_bench.classify_completed_result(

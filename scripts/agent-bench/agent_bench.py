@@ -88,6 +88,8 @@ class ScenarioExpectation:
     required_events: list[str]
     required_terminal_phases: list[str] = dataclasses.field(default_factory=list)
     required_bootstrap_arguments: list[list[str]] = dataclasses.field(default_factory=list)
+    forbidden_events: list[str] = dataclasses.field(default_factory=list)
+    forbidden_terminal_phases: list[str] = dataclasses.field(default_factory=list)
     session_identity: SessionIdentityExpectation | None = None
     synthetic: bool = False
     fixture: str | None = None
@@ -259,6 +261,18 @@ def validate_scenario(agent: str, expectation: ScenarioExpectation, records: lis
     observed = [record.event_name for record in records if record.agent == agent and record.scenario == expectation.name]
     observed_values = [event for event in observed if event]
     observed_counts = Counter(observed_values)
+    forbidden = [event for event in expectation.forbidden_events if observed_counts[event] > 0]
+    if forbidden:
+        return ScenarioResult(
+            agent=agent,
+            scenario=expectation.name,
+            passed=False,
+            missing_events=[f"forbidden:{event}" for event in forbidden],
+            observed_events=observed_values,
+            status="fail",
+            result_kind="forbidden-hook",
+        )
+
     missing: list[str] = []
     for event in expectation.required_events:
         if observed_counts[event] > 0:
@@ -433,6 +447,18 @@ def missing_required_terminal_phases(
     return missing
 
 
+def forbidden_terminal_phases(
+    expectation: ScenarioExpectation,
+    observations: list[TerminalObservation],
+) -> list[str]:
+    observed_phases = {
+        phase
+        for observation in observations
+        if (phase := terminal_observation_phase(observation))
+    }
+    return [phase for phase in expectation.forbidden_terminal_phases if phase in observed_phases]
+
+
 def classify_completed_result(
     agent: str,
     scenario: str,
@@ -447,7 +473,10 @@ def classify_completed_result(
 ) -> ScenarioResult:
     result = validate_scenario(agent, expectation, records)
     if not result.passed:
-        if result.result_kind == "missing-bootstrap":
+        if result.result_kind == "forbidden-hook":
+            result.status = "fail"
+            result.detail = "forbidden hook event observed"
+        elif result.result_kind == "missing-bootstrap":
             result.status = "fail"
             result.detail = "restore launch command did not reach bootstrap with required arguments"
         elif result.result_kind == "missing-session-identity":
@@ -473,6 +502,14 @@ def classify_completed_result(
             result.status = "fail"
             result.detail = "missing required hooks"
             result.result_kind = "missing-hook"
+        return result
+    forbidden_phases = forbidden_terminal_phases(expectation, terminal_observations)
+    if forbidden_phases:
+        result.passed = False
+        result.status = "fail"
+        result.missing_events = [f"forbidden:{phase}" for phase in forbidden_phases]
+        result.detail = "forbidden terminal phase observed"
+        result.result_kind = "forbidden-terminal-phase"
         return result
     missing_terminal_phases = missing_required_terminal_phases(expectation, terminal_observations)
     if missing_terminal_phases:
@@ -540,7 +577,16 @@ def classify_timeout_result(
 ) -> ScenarioResult:
     partial = validate_scenario(agent, expectation, records)
     if not partial.missing_events:
-        missing_terminal_phases = missing_required_terminal_phases(expectation, terminal_observations)
+        forbidden_phases = forbidden_terminal_phases(expectation, terminal_observations)
+        if forbidden_phases:
+            partial.passed = False
+            partial.status = "fail"
+            partial.missing_events = [f"forbidden:{phase}" for phase in forbidden_phases]
+            partial.detail = "forbidden terminal phase observed"
+            partial.result_kind = "forbidden-terminal-phase"
+            return partial
+        else:
+            missing_terminal_phases = missing_required_terminal_phases(expectation, terminal_observations)
         if missing_terminal_phases:
             partial.passed = False
             partial.status = "fail"
@@ -582,6 +628,10 @@ def classify_timeout_result(
                     else "hook-pass"
                 )
             partial.warnings.append("process timed out after required hooks were observed")
+    elif partial.result_kind == "forbidden-hook":
+        partial.passed = False
+        partial.status = "fail"
+        partial.detail = "forbidden hook event observed"
     elif partial.result_kind == "missing-bootstrap":
         partial.passed = False
         partial.status = "fail"
@@ -1492,7 +1542,9 @@ def load_profiles(path: pathlib.Path) -> dict[str, AgentProfile]:
             expectations[name] = ScenarioExpectation(
                 name=name,
                 required_events=list(value.get("required_events", [])),
+                forbidden_events=list(value.get("forbidden_events", [])),
                 required_terminal_phases=list(value.get("required_terminal_phases", [])),
+                forbidden_terminal_phases=list(value.get("forbidden_terminal_phases", [])),
                 required_bootstrap_arguments=[
                     [str(argument) for argument in arguments]
                     for arguments in value.get("required_bootstrap_arguments", [])
@@ -2179,6 +2231,7 @@ def bench_marker_observed(text: str) -> bool:
     return (
         "ZENTTY_AGENT_BENCH_OK" in text
         or "ZENTTY_AGENT_BENCH_APPROVAL_OK" in text
+        or "ZENTTY_AGENT_BENCH_AUTO_APPROVAL_OK" in text
         or "ZENTTY_AGENT_BENCH_TASKS_OK" in text
     )
 

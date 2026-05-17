@@ -1813,7 +1813,7 @@ final class PanePresentationStateTests: XCTestCase {
         XCTAssertEqual(presentation.statusText, "Needs input")
     }
 
-    func test_normalize_promotes_running_codex_session_when_title_needs_approval() {
+    func test_normalize_does_not_promote_running_codex_session_when_title_needs_approval_without_permission_hook() {
         let raw = PaneRawState(
             metadata: TerminalMetadata(
                 title: "main needs approval",
@@ -1845,8 +1845,8 @@ final class PanePresentationStateTests: XCTestCase {
             previous: nil
         )
 
-        XCTAssertEqual(presentation.runtimePhase, .needsInput)
-        XCTAssertEqual(presentation.interactionKind, .approval)
-        XCTAssertEqual(presentation.statusText, "Requires approval")
+        XCTAssertEqual(presentation.runtimePhase, .running)
+        XCTAssertEqual(presentation.interactionKind, .none)
+        XCTAssertEqual(presentation.statusText, "Running")
     }
 }

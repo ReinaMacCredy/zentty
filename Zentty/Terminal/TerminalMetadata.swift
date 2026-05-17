@@ -370,7 +370,7 @@ enum TerminalMetadataChangeClassifier {
         let interactionKind: PaneAgentInteractionKind
         switch words[2] {
         case "approval":
-            interactionKind = .approval
+            return nil
         case "input":
             interactionKind = .genericInput
         default:
