@@ -52,6 +52,8 @@ enum ServerIPCHandler {
             return try ServerIPCCommand.parse(arguments: ["open"] + arguments)
         case "server-watch-set":
             return try ServerIPCCommand.parse(arguments: ["watch-set"] + arguments)
+        case "server-watch-clear":
+            return try ServerIPCCommand.parse(arguments: ["watch-clear"] + arguments)
         default:
             throw AgentIPCError.unsupportedSubcommand(subcommand)
         }

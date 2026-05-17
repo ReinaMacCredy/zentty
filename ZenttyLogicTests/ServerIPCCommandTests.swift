@@ -66,6 +66,30 @@ final class ServerIPCCommandTests: XCTestCase {
         XCTAssertTrue(command.expectsResponse)
     }
 
+    func test_watch_clear_command_is_internal_cleanup_command() throws {
+        let command = try ServerIPCCommand.parse(arguments: ["watch-clear"])
+
+        XCTAssertEqual(command, .watchClear(json: false))
+        XCTAssertEqual(command.ipcSubcommand, "server-watch-clear")
+        XCTAssertEqual(command.ipcArguments, [])
+        XCTAssertFalse(command.expectsResponse)
+    }
+
+    func test_watch_clear_command_builds_authenticated_server_request() throws {
+        let request = try ServerIPCCommand.makeRequest(
+            command: .watchClear(json: false),
+            environment: paneEnvironment,
+            id: "request-watch-clear"
+        )
+
+        XCTAssertEqual(request.kind, .server)
+        XCTAssertEqual(request.id, "request-watch-clear")
+        XCTAssertEqual(request.subcommand, "server-watch-clear")
+        XCTAssertEqual(request.arguments, [])
+        XCTAssertFalse(request.expectsResponse)
+        XCTAssertEqual(request.environment["ZENTTY_PANE_ID"], "pane-main")
+    }
+
     func test_make_request_uses_server_kind_and_forwards_pane_environment() throws {
         let command = try ServerIPCCommand.parse(arguments: ["set", "3000", "--json"])
         let request = try ServerIPCCommand.makeRequest(
@@ -132,12 +156,17 @@ final class ServerIPCCommandTests: XCTestCase {
             subcommand: "server-watch-set",
             arguments: ["localhost:5173", "--json"]
         )
+        let watchClear = try ServerIPCHandler.parseCommand(
+            subcommand: "server-watch-clear",
+            arguments: []
+        )
 
         XCTAssertEqual(set, .set(rawURL: "localhost:5173", pid: nil, json: true))
         XCTAssertEqual(list, .list(json: true))
         XCTAssertEqual(open, .open(rawURL: "localhost:5173", browserID: "bundle:com.google.Chrome", json: false))
         XCTAssertEqual(clear, .clear(json: false))
         XCTAssertEqual(watchSet, .watchSet(rawURL: "localhost:5173", pid: nil, json: true))
+        XCTAssertEqual(watchClear, .watchClear(json: false))
     }
 
     private var paneEnvironment: [String: String] {

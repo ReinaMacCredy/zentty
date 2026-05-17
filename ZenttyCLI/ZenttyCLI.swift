@@ -552,6 +552,10 @@ struct ServerWatchCommand: ParsableCommand {
                 json: false
             ))
         })
+        try? ServerCommandIPC.send(.watchClear(json: false))
+        defer {
+            try? ServerCommandIPC.send(.watchClear(json: false))
+        }
         let status = try runner.run(command: watchedCommand)
         if status != 0 {
             throw ExitCode(status)

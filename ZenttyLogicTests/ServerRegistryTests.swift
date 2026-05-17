@@ -116,6 +116,23 @@ final class ServerRegistryTests: XCTestCase {
         XCTAssertEqual(registry.servers(in: otherWorklaneID).map(\.origin), ["http://localhost:5173"])
     }
 
+    func test_server_menu_ordering_sorts_by_display_url_without_changing_primary_choice() throws {
+        let servers = [
+            try server("http://localhost:4568/", source: .scanner, paneID: paneA, updatedAt: date(20)),
+            try server("http://localhost:4567/", source: .scanner, paneID: paneA, updatedAt: date(30)),
+            try server("http://127.0.0.1:9000/", source: .scanner, paneID: paneA, updatedAt: date(10)),
+        ]
+
+        let sorted = ServerMenuOrdering.sortedForDisplay(servers)
+
+        XCTAssertEqual(sorted.map(\.display), [
+            "localhost:4567",
+            "localhost:4568",
+            "localhost:9000",
+        ])
+        XCTAssertEqual(servers[1].origin, "http://localhost:4567")
+    }
+
     private func server(
         _ rawURL: String,
         worklaneID: WorklaneID? = nil,

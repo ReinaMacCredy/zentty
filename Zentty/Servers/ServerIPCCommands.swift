@@ -6,6 +6,7 @@ enum ServerIPCCommand: Equatable, Sendable {
     case list(json: Bool)
     case open(rawURL: String?, browserID: String?, json: Bool)
     case watchSet(rawURL: String, pid: Int?, json: Bool)
+    case watchClear(json: Bool)
     case watch(command: [String])
 
     static let outsidePaneMessage = "zentty server commands must run inside a Zentty pane."
@@ -22,6 +23,8 @@ enum ServerIPCCommand: Equatable, Sendable {
             "server-open"
         case .watchSet:
             "server-watch-set"
+        case .watchClear:
+            "server-watch-clear"
         case .watch:
             nil
         }
@@ -61,6 +64,8 @@ enum ServerIPCCommand: Equatable, Sendable {
                 arguments.append("--json")
             }
             return arguments
+        case .watchClear(let json):
+            return json ? ["--json"] : []
         case .watch(let command):
             return command
         }
@@ -69,7 +74,7 @@ enum ServerIPCCommand: Equatable, Sendable {
     var expectsResponse: Bool {
         switch self {
         case .set(_, _, let json), .clear(let json), .list(let json), .open(_, _, let json),
-             .watchSet(_, _, let json):
+             .watchSet(_, _, let json), .watchClear(let json):
             json
         case .watch:
             false
@@ -77,7 +82,7 @@ enum ServerIPCCommand: Equatable, Sendable {
     }
 
     static func isServerSubcommand(_ subcommand: String) -> Bool {
-        ["server-set", "server-clear", "server-list", "server-open", "server-watch-set"].contains(subcommand)
+        ["server-set", "server-clear", "server-list", "server-open", "server-watch-set", "server-watch-clear"].contains(subcommand)
     }
 
     static func parse(arguments: [String]) throws -> ServerIPCCommand {
@@ -101,6 +106,8 @@ enum ServerIPCCommand: Equatable, Sendable {
                 throw ServerIPCCommandError.invalidWatchSet
             }
             return .watchSet(rawURL: rawURL, pid: pid, json: json)
+        case "watch-clear":
+            return try parseNoArgumentCommand(trailing, makeCommand: ServerIPCCommand.watchClear)
         case "watch":
             return try parseWatch(trailing)
         default:

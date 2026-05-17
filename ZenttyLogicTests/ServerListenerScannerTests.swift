@@ -158,6 +158,31 @@ final class ServerListenerScannerTests: XCTestCase {
         XCTAssertEqual(servers.map(\.origin), ["http://localhost:4000"])
     }
 
+    func test_later_discovered_subprocess_server_gets_newer_timestamp() throws {
+        let date = date
+        let scanner = ServerListenerScanner(
+            processInspector: FakeProcessInspector(
+                sockets: [
+                    ListeningSocket(pid: 300, localHost: "localhost", port: 4568),
+                    ListeningSocket(pid: 400, localHost: "localhost", port: 4567),
+                ],
+                parentByPID: [
+                    300: 100,
+                    400: 100,
+                ],
+                cwdByPID: [:]
+            ),
+            currentDate: { date }
+        )
+
+        let servers = scanner.scan(context: context(panes: [
+            PaneScanContext(paneID: paneA, workingDirectory: "/tmp/project", shellPID: 100)
+        ]))
+
+        XCTAssertEqual(servers.map(\.origin), ["http://localhost:4568", "http://localhost:4567"])
+        XCTAssertGreaterThan(try XCTUnwrap(servers.last?.updatedAt), try XCTUnwrap(servers.first?.updatedAt))
+    }
+
     private func context(panes: [PaneScanContext]) -> ServerScanContext {
         ServerScanContext(worklaneID: worklaneID, panes: panes)
     }

@@ -29,18 +29,6 @@ enum FocusedTerminalInterruptBridge {
 
 @MainActor
 final class RootViewController: NSViewController {
-    private struct PassiveServerDetectionContext: Sendable {
-        let worklaneID: WorklaneID
-        let scanner: ServerScanContext
-        let docker: DockerDiscoveryContext
-    }
-
-    private struct PassiveServerDetectionResult: Sendable {
-        let worklaneID: WorklaneID
-        let scannerServers: [DetectedServer]
-        let dockerServers: [DetectedServer]
-    }
-
     private final class LocalEventMonitor {
         private let token: Any
 
@@ -905,6 +893,9 @@ final class RootViewController: NSViewController {
             self?.worklaneStore.selectWorklaneAndFocusPane(worklaneID: worklaneID, paneID: paneID)
             self?.onMovePaneToNewWindowRequested?(paneID)
         }
+        sidebarView.onServerPortSelected = { [weak self] worklaneID, serverID in
+            self?.openSidebarServer(worklaneID: worklaneID, serverID: serverID)
+        }
         sidebarView.onWorklaneColorChanged = { [weak self] worklaneID, color in
             self?.worklaneStore.setColor(color, on: worklaneID)
         }
@@ -1614,6 +1605,14 @@ final class RootViewController: NSViewController {
 
     private func openServerFromPalette(serverID: String) {
         guard let server = activeServerContext.servers.first(where: { $0.id == serverID }) else {
+            return
+        }
+
+        _ = openServer(server)
+    }
+
+    private func openSidebarServer(worklaneID: WorklaneID, serverID: String) {
+        guard let server = worklaneStore.serverContext(for: worklaneID).servers.first(where: { $0.id == serverID }) else {
             return
         }
 
@@ -2343,6 +2342,7 @@ final class RootViewController: NSViewController {
             let server = rawURL.flatMap { worklaneStore.serverRegistry.server(matching: $0, in: target.worklaneID) }
                 ?? context.primaryServer
             if let server {
+                worklaneStore.rememberPrimaryServer(server)
                 _ = serverOpenService.open(
                     server: server,
                     browserID: browserID,
@@ -2352,6 +2352,10 @@ final class RootViewController: NSViewController {
             return serverResponse(for: target.worklaneID)
 
         case .watch:
+            return serverResponse(for: target.worklaneID)
+
+        case .watchClear:
+            worklaneStore.clearServers(worklaneID: target.worklaneID, paneID: target.paneID, source: .watch)
             return serverResponse(for: target.worklaneID)
         }
     }
@@ -2394,93 +2398,86 @@ final class RootViewController: NSViewController {
             return
         }
 
-        let contexts = passiveServerDetectionContexts()
-        guard !contexts.isEmpty else {
+        let snapshot = PassiveServerDetectionSnapshot(worklanes: worklaneStore.worklanes)
+        clearPassiveServersForWorklanesWithoutContexts(snapshot)
+        guard !snapshot.contexts.isEmpty else {
             return
         }
 
         let scanner = serverListenerScanner
         let dockerDiscovery = dockerServerDiscovery
-        passiveServerDetectionTask = Task { [weak self, contexts, scanner, dockerDiscovery] in
-            try? await Task.sleep(nanoseconds: 750_000_000)
+        passiveServerDetectionTask = Task { [weak self, snapshot, scanner, dockerDiscovery] in
+            try? await Task.sleep(nanoseconds: PassiveServerDetectionTiming.initialDelayNanoseconds)
             guard !Task.isCancelled else {
                 return
             }
 
-            let results = await Task.detached(priority: .utility) { [contexts, scanner, dockerDiscovery] in
-                contexts.map { context in
-                    PassiveServerDetectionResult(
-                        worklaneID: context.worklaneID,
-                        scannerServers: scanner.scan(context: context.scanner),
-                        dockerServers: dockerDiscovery.discover(context: context.docker)
-                    )
+            var contexts = snapshot.contexts
+            var dockerCadence = PassiveServerDetectionDockerCadence()
+            var resultTracker = PassiveServerDetectionResultTracker()
+
+            while !Task.isCancelled {
+                let shouldDiscoverDocker = dockerCadence.shouldDiscoverDocker()
+                let results = await Task.detached(priority: .utility) { [contexts, scanner, dockerDiscovery, shouldDiscoverDocker] in
+                    contexts.map { context in
+                        PassiveServerDetectionResult(
+                            worklaneID: context.worklaneID,
+                            scannerServers: scanner.scan(context: context.scanner),
+                            dockerServers: shouldDiscoverDocker ? dockerDiscovery.discover(context: context.docker) : []
+                        )
+                    }
+                }.value
+
+                guard !Task.isCancelled, let self else {
+                    return
                 }
-            }.value
 
-            guard !Task.isCancelled, let self else {
-                return
-            }
+                results.forEach { result in
+                    if resultTracker.shouldApplyScannerResult(
+                        worklaneID: result.worklaneID,
+                        servers: result.scannerServers
+                    ) {
+                        self.worklaneStore.replacePassiveServers(
+                            worklaneID: result.worklaneID,
+                            source: .scanner,
+                            servers: result.scannerServers
+                        )
+                    }
+                    if shouldDiscoverDocker,
+                       resultTracker.shouldApplyDockerResult(
+                           worklaneID: result.worklaneID,
+                           servers: result.dockerServers
+                       ) {
+                        self.worklaneStore.replacePassiveServers(
+                            worklaneID: result.worklaneID,
+                            source: .docker,
+                            servers: result.dockerServers
+                        )
+                    }
+                }
 
-            results.forEach { result in
-                self.worklaneStore.replacePassiveServers(
-                    worklaneID: result.worklaneID,
-                    source: .scanner,
-                    servers: result.scannerServers
-                )
-                self.worklaneStore.replacePassiveServers(
-                    worklaneID: result.worklaneID,
-                    source: .docker,
-                    servers: result.dockerServers
-                )
+                let nextSnapshot = PassiveServerDetectionSnapshot(worklanes: self.worklaneStore.worklanes)
+                self.clearPassiveServersForWorklanesWithoutContexts(nextSnapshot)
+                guard nextSnapshot.shouldContinuePolling, !nextSnapshot.contexts.isEmpty else {
+                    return
+                }
+
+                contexts = nextSnapshot.contexts
+                try? await Task.sleep(nanoseconds: PassiveServerDetectionTiming.runningPollIntervalNanoseconds)
             }
         }
     }
 
-    private func passiveServerDetectionContexts() -> [PassiveServerDetectionContext] {
-        worklaneStore.worklanes.compactMap { worklane in
-            let panes = worklane.paneStripState.panes.compactMap { pane -> (PaneScanContext, DockerPaneContext)? in
-                guard let shellContext = worklane.auxiliaryStateByPaneID[pane.id]?.shellContext,
-                      shellContext.scope == .local,
-                      let workingDirectory = shellContext.path else {
-                    return nil
-                }
-
-                return (
-                    PaneScanContext(
-                        paneID: pane.id,
-                        workingDirectory: workingDirectory,
-                        shellPID: nil
-                    ),
-                    DockerPaneContext(
-                        paneID: pane.id,
-                        workingDirectory: workingDirectory,
-                        recentCommandLines: []
-                    )
-                )
-            }
-
-            guard !panes.isEmpty else {
-                return nil
-            }
-
-            return PassiveServerDetectionContext(
-                worklaneID: worklane.id,
-                scanner: ServerScanContext(
-                    worklaneID: worklane.id,
-                    panes: panes.map(\.0)
-                ),
-                docker: DockerDiscoveryContext(
-                    worklaneID: worklane.id,
-                    focusedPaneID: worklane.paneStripState.focusedPaneID,
-                    panes: panes.map(\.1)
-                )
-            )
+    private func clearPassiveServersForWorklanesWithoutContexts(_ snapshot: PassiveServerDetectionSnapshot) {
+        snapshot.worklaneIDsWithoutContexts.forEach { worklaneID in
+            worklaneStore.clearPassiveServers(worklaneID: worklaneID)
         }
     }
 
     @discardableResult
     func openServer(_ server: DetectedServer, browserID: String? = nil) -> Bool {
-        serverOpenService.open(
+        worklaneStore.rememberPrimaryServer(server)
+        return serverOpenService.open(
             server: server,
             browserID: browserID,
             config: configStore.current.serverDetection

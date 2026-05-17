@@ -25,14 +25,19 @@ struct ServerListenerScanner: Sendable {
     }
 
     func scan(context: ServerScanContext) -> [DetectedServer] {
-        processInspector.listeningTCPSockets().compactMap { socket in
-            detectedServer(from: socket, context: context)
+        processInspector.listeningTCPSockets().enumerated().compactMap { index, socket in
+            detectedServer(
+                from: socket,
+                context: context,
+                updatedAt: currentDate().addingTimeInterval(Double(index) / 1_000_000)
+            )
         }
     }
 
     private func detectedServer(
         from socket: ListeningSocket,
-        context: ServerScanContext
+        context: ServerScanContext,
+        updatedAt: Date
     ) -> DetectedServer? {
         guard let candidate = try? ServerURLNormalizer.normalize("\(formattedHost(socket.localHost)):\(socket.port)") else {
             return nil
@@ -52,7 +57,7 @@ struct ServerListenerScanner: Sendable {
             source: .scanner,
             ports: [candidate.port],
             confidence: attribution.confidence,
-            updatedAt: currentDate()
+            updatedAt: updatedAt
         )
     }
 

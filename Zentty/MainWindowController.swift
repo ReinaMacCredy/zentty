@@ -1,5 +1,23 @@
 import AppKit
 
+enum ServerMenuOrdering {
+    static func sortedForDisplay(_ servers: [DetectedServer]) -> [DetectedServer] {
+        servers.sorted { lhs, rhs in
+            let displayComparison = lhs.display.localizedStandardCompare(rhs.display)
+            if displayComparison != .orderedSame {
+                return displayComparison == .orderedAscending
+            }
+
+            let originComparison = lhs.origin.localizedStandardCompare(rhs.origin)
+            if originComparison != .orderedSame {
+                return originComparison == .orderedAscending
+            }
+
+            return lhs.id.localizedStandardCompare(rhs.id) == .orderedAscending
+        }
+    }
+}
+
 enum WindowDragSuppressionTarget: Equatable {
     case globalSearchHUD
     case proxyIcon
@@ -135,7 +153,6 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     private enum ServerMenuContent {
         static let emptyStateTitle = "No detected servers"
         static let copyURLTitle = "Copy URL"
-        static let systemDefaultTitle = "Open in System Default Browser"
         static let settingsTitle = "Dev Server Settings…"
     }
 
@@ -1136,7 +1153,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
             item.isEnabled = false
             menu.addItem(item)
         } else {
-            context.servers.forEach { server in
+            ServerMenuOrdering.sortedForDisplay(context.servers).forEach { server in
                 let item = NSMenuItem(title: server.display, action: #selector(handleServerMenuItem(_:)), keyEquivalent: "")
                 item.target = self
                 item.representedObject = server
@@ -1156,18 +1173,6 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         }
 
         menu.addItem(.separator())
-        let systemItem = NSMenuItem(
-            title: ServerMenuContent.systemDefaultTitle,
-            action: #selector(handleServerSystemDefaultMenuItem(_:)),
-            keyEquivalent: ""
-        )
-        systemItem.target = self
-        if let primaryServer = context.primaryServer {
-            systemItem.representedObject = primaryServer
-        }
-        systemItem.isEnabled = context.primaryServer != nil
-        menu.addItem(systemItem)
-
         let preferredBrowserID = configStore.current.serverDetection.preferredBrowserID
         rootViewController.availableServerBrowsers.forEach { browser in
             let item = NSMenuItem(title: browser.displayName, action: #selector(handleServerBrowserMenuItem(_:)), keyEquivalent: "")
@@ -1210,15 +1215,6 @@ final class MainWindowController: NSObject, NSWindowDelegate {
 
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(server.url.absoluteString, forType: .string)
-    }
-
-    @objc
-    private func handleServerSystemDefaultMenuItem(_ sender: NSMenuItem) {
-        guard let server = sender.representedObject as? DetectedServer else {
-            return
-        }
-
-        _ = rootViewController.openServer(server, browserID: ServerBrowserTarget.systemDefaultID)
     }
 
     @objc

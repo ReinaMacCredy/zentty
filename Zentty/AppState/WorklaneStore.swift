@@ -312,6 +312,7 @@ final class WorklaneStore {
     let windowID: WindowID
     let runtimeIdentity: WorklaneRuntimeIdentity
     let serverRegistry: ServerRegistry
+    private var rememberedPrimaryServerOriginByWorklaneID: [WorklaneID: String] = [:]
     let focusHistoryController = PaneFocusHistoryController()
     private var isNavigatingHistory = false
 
@@ -431,11 +432,14 @@ final class WorklaneStore {
         let worklane = worklanes.first { $0.id == worklaneID }
         let focusedPaneID = worklane?.paneStripState.focusedPaneID
         let servers = serverRegistry.servers(in: worklaneID)
+        let rememberedPrimaryServer = rememberedPrimaryServerOriginByWorklaneID[worklaneID].flatMap { origin in
+            servers.first { $0.origin == origin }
+        }
 
         return WorklaneServerContext(
             worklaneID: worklaneID,
             focusedPaneID: focusedPaneID,
-            primaryServer: serverRegistry.primaryServer(
+            primaryServer: rememberedPrimaryServer ?? serverRegistry.primaryServer(
                 activeWorklaneID: worklaneID,
                 focusedPaneID: focusedPaneID
             ),
@@ -448,6 +452,15 @@ final class WorklaneStore {
         notifyServerDetectionChanged(worklaneID: server.worklaneID, paneID: server.paneID)
     }
 
+    func rememberPrimaryServer(_ server: DetectedServer) {
+        guard rememberedPrimaryServerOriginByWorklaneID[server.worklaneID] != server.origin else {
+            return
+        }
+
+        rememberedPrimaryServerOriginByWorklaneID[server.worklaneID] = server.origin
+        notifyServerDetectionChanged(worklaneID: server.worklaneID, paneID: server.paneID)
+    }
+
     func clearServers(worklaneID: WorklaneID, paneID: PaneID) {
         serverRegistry.clear(worklaneID: worklaneID, paneID: paneID)
         notifyServerDetectionChanged(worklaneID: worklaneID, paneID: paneID)
@@ -455,6 +468,17 @@ final class WorklaneStore {
 
     func clearServers(worklaneID: WorklaneID) {
         serverRegistry.clear(worklaneID: worklaneID)
+        notifyServerDetectionChanged(worklaneID: worklaneID, paneID: nil)
+    }
+
+    func clearServers(worklaneID: WorklaneID, paneID: PaneID, source: DetectedServerSource) {
+        serverRegistry.clearSource(source, worklaneID: worklaneID, paneID: paneID)
+        notifyServerDetectionChanged(worklaneID: worklaneID, paneID: paneID)
+    }
+
+    func clearPassiveServers(worklaneID: WorklaneID) {
+        serverRegistry.clearSource(.scanner, worklaneID: worklaneID, paneID: nil)
+        serverRegistry.clearSource(.docker, worklaneID: worklaneID, paneID: nil)
         notifyServerDetectionChanged(worklaneID: worklaneID, paneID: nil)
     }
 

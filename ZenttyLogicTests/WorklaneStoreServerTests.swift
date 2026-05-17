@@ -75,6 +75,61 @@ final class WorklaneStoreServerTests: XCTestCase {
         )
     }
 
+    func test_clearing_source_for_pane_preserves_other_sources_and_panes() throws {
+        let store = makeStore()
+        store.register(server: try server(origin: "http://localhost:3000", paneID: paneA, source: .manual, updatedAt: date(100)))
+        store.register(server: try server(origin: "http://localhost:5173", paneID: paneA, source: .watch, updatedAt: date(200)))
+        store.register(server: try server(origin: "http://localhost:8080", paneID: paneB, source: .watch, updatedAt: date(300)))
+        store.register(server: try server(origin: "http://localhost:4000", paneID: nil, source: .scanner, updatedAt: date(400)))
+
+        store.clearServers(worklaneID: worklaneID, paneID: paneA, source: .watch)
+
+        XCTAssertEqual(
+            Set(store.activeServerContext.servers.map(\.origin)),
+            Set([
+                "http://localhost:3000",
+                "http://localhost:8080",
+                "http://localhost:4000",
+            ])
+        )
+    }
+
+    func test_clearing_passive_sources_preserves_manual_and_watch_servers() throws {
+        let store = makeStore()
+        store.register(server: try server(origin: "http://localhost:3000", paneID: paneA, source: .manual, updatedAt: date(100)))
+        store.register(server: try server(origin: "http://localhost:5173", paneID: paneA, source: .watch, updatedAt: date(200)))
+        store.register(server: try server(origin: "http://localhost:8080", paneID: paneB, source: .scanner, updatedAt: date(300)))
+        store.register(server: try server(origin: "http://localhost:4000", paneID: nil, source: .docker, updatedAt: date(400)))
+
+        store.clearPassiveServers(worklaneID: worklaneID)
+
+        XCTAssertEqual(
+            Set(store.activeServerContext.servers.map(\.origin)),
+            Set([
+                "http://localhost:3000",
+                "http://localhost:5173",
+            ])
+        )
+    }
+
+    func test_remembered_server_becomes_primary_until_it_disappears() throws {
+        let store = makeStore()
+        let proxy = try server(origin: "http://localhost:4568", paneID: paneA, source: .scanner, updatedAt: date(200))
+        let app = try server(origin: "http://localhost:4567", paneID: paneA, source: .scanner, updatedAt: date(100))
+        store.register(server: proxy)
+        store.register(server: app)
+
+        XCTAssertEqual(store.activeServerContext.primaryServer?.origin, "http://localhost:4568")
+
+        store.rememberPrimaryServer(app)
+
+        XCTAssertEqual(store.activeServerContext.primaryServer?.origin, "http://localhost:4567")
+
+        store.clearServers(worklaneID: worklaneID, paneID: paneA, source: .scanner)
+
+        XCTAssertNil(store.activeServerContext.primaryServer)
+    }
+
 
     private func makeStore() -> WorklaneStore {
         let store = WorklaneStore()

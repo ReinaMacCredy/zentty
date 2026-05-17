@@ -58,6 +58,7 @@ final class SidebarView: NSView {
     var onForceSplitRightRequested: ((WorklaneID, PaneID) -> Void)?
     var onForceAddPaneRightRequested: ((WorklaneID, PaneID) -> Void)?
     var onMovePaneToNewWindowRequested: ((WorklaneID, PaneID) -> Void)?
+    var onServerPortSelected: ((WorklaneID, String) -> Void)?
     var onWorklaneColorChanged: ((WorklaneID, WorklaneColor?) -> Void)?
     var onWorklaneReorderCommitted: ((WorklaneID, Int) -> Bool)?
     var onNewWorklaneRequested: (() -> Void)?
@@ -464,6 +465,9 @@ final class SidebarView: NSView {
         }
         button.onMovePaneToNewWindowRequested = { [weak self] paneID in
             self?.onMovePaneToNewWindowRequested?(worklaneID, paneID)
+        }
+        button.onServerPortSelected = { [weak self] serverID in
+            self?.onServerPortSelected?(worklaneID, serverID)
         }
         button.onWorklaneColorChanged = { [weak self] id, color in
             self?.onWorklaneColorChanged?(id, color)
