@@ -292,6 +292,12 @@ final class RootViewController: NSViewController {
                 self.peekController.handleEscape()
             case .ctrlReleased:
                 self.peekController.handleCtrlReleased()
+            case .mouseDown(let locationInWindow):
+                self.handlePeekMouseDown(locationInWindow: locationInWindow)
+            case .mouseDragged, .mouseUp:
+                break
+            case .spatialSwipe(let direction):
+                self.peekController.handleSpatialSwipe(direction)
             }
         }
         appCanvasView.paneStripView.onZoomTransformChanged = { [weak self] in
@@ -313,6 +319,17 @@ final class RootViewController: NSViewController {
         peekView.onGeometryChanged = { [weak self] in
             self?.refreshPeekOverlay()
         }
+        peekView.onPaneClicked = { [weak self] reference in
+            self?.peekController.handleClick(at: reference)
+        }
+    }
+
+    private func handlePeekMouseDown(locationInWindow: CGPoint) {
+        let point = peekView.convert(locationInWindow, from: nil)
+        guard let reference = peekView.paneReference(at: point) else {
+            return
+        }
+        peekController.handleClick(at: reference)
     }
 
     convenience init(
@@ -3490,10 +3507,12 @@ extension RootViewController: WorklanePeekControllerDelegate {
         // Once armed, route subsequent Tab / Shift-Tab / Escape / Ctrl-release
         // through the local key monitor so the menu doesn't keep firing
         // selectNextWorklane on each subsequent tap.
+        peekKeyMonitor.targetWindow = view.window
         peekKeyMonitor.install()
     }
 
     func peekDidOpen(_ controller: WorklanePeekController) {
+        peekKeyMonitor.isPeeking = true
         let initialSelection: WorklaneStore.PaneReference? = {
             if case let .peeking(selection, _) = controller.phase {
                 return selection.current
@@ -3584,7 +3603,12 @@ extension RootViewController: WorklanePeekControllerDelegate {
         refreshPeekOverlay()
     }
 
+    func peekDidEnd(_ controller: WorklanePeekController) {
+        peekKeyMonitor.uninstall()
+    }
+
     func peekDidClose(_ controller: WorklanePeekController) {
+        peekKeyMonitor.isPeeking = false
         updatePeekSidebarFocusOverride(nil)
         // Pass the just-committed pane as diagnostic context; the zoom-in
         // itself lands on the pane strip's neutral horizontal origin.

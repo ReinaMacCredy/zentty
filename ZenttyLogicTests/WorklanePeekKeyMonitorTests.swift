@@ -74,4 +74,124 @@ final class WorklanePeekKeyMonitorTests: XCTestCase {
             .ctrlReleased
         )
     }
+
+    func test_mouse_down_is_emitted_and_consumed_while_monitor_is_installed() {
+        let monitor = makeInstalledMonitor()
+        defer { monitor.uninstall() }
+
+        let event = monitor.processMouseEvent(
+            .init(kind: .down, locationInWindow: CGPoint(x: 42, y: 24))
+        )
+
+        XCTAssertEqual(event, .mouseDown(locationInWindow: CGPoint(x: 42, y: 24)))
+    }
+
+    func test_mouse_drag_and_up_are_consumed_without_selecting_pane() {
+        let monitor = makeInstalledMonitor()
+        defer { monitor.uninstall() }
+
+        XCTAssertEqual(
+            monitor.processMouseEvent(.init(kind: .dragged, locationInWindow: .zero)),
+            .mouseDragged
+        )
+        XCTAssertEqual(
+            monitor.processMouseEvent(.init(kind: .up, locationInWindow: .zero)),
+            .mouseUp
+        )
+    }
+
+    func test_precise_scroll_emits_spatial_swipe_after_threshold() {
+        let monitor = makeInstalledMonitor()
+        defer { monitor.uninstall() }
+
+        let partial = MockPeekScrollEvent(
+            scrollingDeltaX: 20,
+            scrollingDeltaY: 0,
+            phase: .began
+        )
+        XCTAssertNil(monitor.processScrollEvent(partial.asNSEvent))
+
+        let threshold = MockPeekScrollEvent(
+            scrollingDeltaX: 45,
+            scrollingDeltaY: 0,
+            phase: .changed
+        )
+        XCTAssertEqual(monitor.processScrollEvent(threshold.asNSEvent), .spatialSwipe(.right))
+    }
+
+    func test_precise_scroll_requires_fresh_begin_after_triggered_gesture_ends() {
+        let monitor = makeInstalledMonitor()
+        defer { monitor.uninstall() }
+
+        XCTAssertEqual(
+            monitor.processScrollEvent(MockPeekScrollEvent(
+                scrollingDeltaX: 45,
+                scrollingDeltaY: 0,
+                phase: .began
+            ).asNSEvent),
+            .spatialSwipe(.right)
+        )
+        XCTAssertNil(monitor.processScrollEvent(MockPeekScrollEvent(
+            scrollingDeltaX: 0,
+            scrollingDeltaY: 0,
+            phase: .ended
+        ).asNSEvent))
+
+        XCTAssertNil(monitor.processScrollEvent(MockPeekScrollEvent(
+            scrollingDeltaX: 80,
+            scrollingDeltaY: 0,
+            phase: .changed
+        ).asNSEvent))
+    }
+
+    func test_processKeyDown_emits_arrow_only_while_ctrl_is_held_and_peeking() {
+        let monitor = WorklanePeekKeyMonitor()
+
+        XCTAssertEqual(
+            monitor.processKeyDown(.init(keyCode: 123, containsControl: true, containsShift: false, isPeeking: true)),
+            .spatialSwipe(.left)
+        )
+        XCTAssertEqual(
+            monitor.processKeyDown(.init(keyCode: 124, containsControl: true, containsShift: false, isPeeking: true)),
+            .spatialSwipe(.right)
+        )
+        XCTAssertEqual(
+            monitor.processKeyDown(.init(keyCode: 126, containsControl: true, containsShift: false, isPeeking: true)),
+            .spatialSwipe(.up)
+        )
+        XCTAssertEqual(
+            monitor.processKeyDown(.init(keyCode: 125, containsControl: true, containsShift: false, isPeeking: true)),
+            .spatialSwipe(.down)
+        )
+    }
+
+    func test_processKeyDown_passes_arrows_outside_peek_or_without_ctrl() {
+        let monitor = WorklanePeekKeyMonitor()
+
+        XCTAssertNil(monitor.processKeyDown(.init(keyCode: 123, containsControl: false, containsShift: false, isPeeking: true)))
+        XCTAssertNil(monitor.processKeyDown(.init(keyCode: 123, containsControl: true, containsShift: false, isPeeking: false)))
+    }
+}
+
+private struct MockPeekScrollEvent {
+    let scrollingDeltaX: CGFloat
+    let scrollingDeltaY: CGFloat
+    let phase: NSEvent.Phase
+    var momentumPhase: NSEvent.Phase = []
+
+    var asNSEvent: NSEvent {
+        let cgEvent = CGEvent(
+            scrollWheelEvent2Source: nil,
+            units: .pixel,
+            wheelCount: 2,
+            wheel1: Int32(scrollingDeltaY),
+            wheel2: Int32(scrollingDeltaX),
+            wheel3: 0
+        )!
+        cgEvent.setDoubleValueField(.scrollWheelEventPointDeltaAxis2, value: Double(scrollingDeltaX))
+        cgEvent.setDoubleValueField(.scrollWheelEventPointDeltaAxis1, value: Double(scrollingDeltaY))
+        cgEvent.setIntegerValueField(.scrollWheelEventScrollPhase, value: Int64(phase.rawValue))
+        cgEvent.setIntegerValueField(.scrollWheelEventMomentumPhase, value: Int64(momentumPhase.rawValue))
+        return NSEvent(cgEvent: cgEvent)!
+    }
 }

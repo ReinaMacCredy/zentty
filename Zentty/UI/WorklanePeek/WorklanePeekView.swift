@@ -133,6 +133,10 @@ final class WorklanePeekView: NSView {
     /// CAShapeLayer, so the owner needs to ask for a fresh highlight rect.
     var onGeometryChanged: (() -> Void)?
 
+    /// Called when the user clicks a visible pane while peek is open.
+    /// The owner decides whether the click should preview-select or commit.
+    var onPaneClicked: ((WorklaneStore.PaneReference) -> Void)?
+
     func detach() {
         TerminalViewportDiagnostics.shared.record(.peekViewDetach)
         cameraSpring.stop()
@@ -321,18 +325,61 @@ final class WorklanePeekView: NSView {
     /// Accounts for the current camera offset so the highlight tracks the
     /// pane's *visible* position after a pan.
     private func highlightRectFor(paneID: PaneID) -> CGRect? {
+        visiblePaneRectFor(paneID: paneID)?.insetBy(dx: highlightInset, dy: highlightInset)
+    }
+
+    func paneReference(at point: NSPoint) -> WorklaneStore.PaneReference? {
+        guard let session else { return nil }
+
+        if let anchor = anchorPaneStripView,
+           session.worklanes.indices.contains(session.originalActiveIndex) {
+            let activeWorklane = session.worklanes[session.originalActiveIndex]
+            for pane in activeWorklane.paneStripState.panes {
+                guard let rect = anchor.convertPaneFrame(pane.id, to: self)?
+                    .offsetBy(dx: 0, dy: cameraOffset),
+                    rect.contains(point)
+                else { continue }
+                return WorklaneStore.PaneReference(
+                    worklaneID: activeWorklane.id,
+                    paneID: pane.id
+                )
+            }
+        }
+
+        let sortedCarrierIndexes = laneCarriers.keys.sorted { lhs, rhs in
+            abs(lhs - centeredIndex) < abs(rhs - centeredIndex)
+        }
+        for index in sortedCarrierIndexes {
+            guard
+                let carrier = laneCarriers[index],
+                session.worklanes.indices.contains(index)
+            else { continue }
+
+            let adjustedPoint = CGPoint(x: point.x, y: point.y - cameraOffset)
+            let pointInCarrier = convert(adjustedPoint, to: carrier)
+            guard let paneID = carrier.paneID(at: pointInCarrier) else { continue }
+            return WorklaneStore.PaneReference(
+                worklaneID: session.worklanes[index].id,
+                paneID: paneID
+            )
+        }
+
+        return nil
+    }
+
+    private func visiblePaneRectFor(paneID: PaneID) -> CGRect? {
         if let anchor = anchorPaneStripView,
            let rect = anchor.convertPaneFrame(paneID, to: self) {
             // The anchor strip carries a layer translate matching cameraOffset
             // but the AppKit coordinate conversion above doesn't pick up
             // layer transforms. Add it manually.
-            return rect.offsetBy(dx: 0, dy: cameraOffset).insetBy(dx: highlightInset, dy: highlightInset)
+            return rect.offsetBy(dx: 0, dy: cameraOffset)
         }
         for carrier in laneCarriers.values {
             if let rectInCarrier = carrier.paneFrameInCarrier(paneID) {
                 let rect = convert(rectInCarrier, from: carrier)
                 // Same layer-transform compensation as the anchor strip.
-                return rect.offsetBy(dx: 0, dy: cameraOffset).insetBy(dx: highlightInset, dy: highlightInset)
+                return rect.offsetBy(dx: 0, dy: cameraOffset)
             }
         }
         return nil
@@ -491,4 +538,21 @@ final class WorklanePeekView: NSView {
         }
         return self
     }
+
+    override func mouseDown(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        if let reference = paneReference(at: point) {
+            onPaneClicked?(reference)
+        }
+    }
+
+    override func rightMouseDown(with event: NSEvent) {}
+    override func otherMouseDown(with event: NSEvent) {}
+    override func mouseDragged(with event: NSEvent) {}
+    override func rightMouseDragged(with event: NSEvent) {}
+    override func otherMouseDragged(with event: NSEvent) {}
+    override func mouseUp(with event: NSEvent) {}
+    override func rightMouseUp(with event: NSEvent) {}
+    override func otherMouseUp(with event: NSEvent) {}
+    override func scrollWheel(with event: NSEvent) {}
 }

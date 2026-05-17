@@ -1647,6 +1647,19 @@ final class PaneStripView: NSView {
         return viewportView.convert(frame, to: target)
     }
 
+    /// Resolve the pane currently under `point`, where `point` is expressed
+    /// in `coordinateSpaceView`'s coordinate system. Used by peek hit-testing
+    /// so pointer selection can reuse the strip's private pane-view map.
+    func paneID(at point: NSPoint, from coordinateSpaceView: NSView) -> PaneID? {
+        for paneID in currentState?.panes.map(\.id) ?? [] {
+            guard let frame = convertPaneFrame(paneID, to: coordinateSpaceView),
+                  frame.contains(point)
+            else { continue }
+            return paneID
+        }
+        return nil
+    }
+
     /// Convert the bounding rect of the column containing `paneID` into the
     /// coordinate system of `target`. The Worklane Peek uses this so the
     /// HUD can anchor to the column (stable across pane changes within a

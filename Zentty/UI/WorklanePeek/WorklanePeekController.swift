@@ -29,6 +29,7 @@ protocol WorklanePeekControllerDelegate: AnyObject {
         _ controller: WorklanePeekController,
         transition: WorklanePeekSelectionTransition
     )
+    func peekDidEnd(_ controller: WorklanePeekController)
     func peekDidClose(_ controller: WorklanePeekController)
 }
 
@@ -138,6 +139,7 @@ final class WorklanePeekController {
             cancelPendingHoldTimer()
             performInstantSwitch(direction: pendingDirection)
             phase = .idle
+            delegate?.peekDidEnd(self)
         case let .peeking(selection, _):
             commit(focusing: selection.current)
         }
@@ -154,16 +156,35 @@ final class WorklanePeekController {
             // Aborts the deferred step entirely.
             cancelPendingHoldTimer()
             phase = .idle
+            delegate?.peekDidEnd(self)
         case let .peeking(selection, _):
             commit(focusing: selection.original)
         }
     }
 
     /// Called by the overlay view when the user clicks a visible pane.
-    /// Commits at that pane and closes peek.
+    /// Preview-selects that pane. The selection is committed when Ctrl is
+    /// released, matching subsequent Ctrl+Tab steps.
     func handleClick(at reference: WorklaneStore.PaneReference) {
-        guard case .peeking = phase else { return }
-        commit(focusing: reference)
+        previewSelect(reference, transition: .animated)
+    }
+
+    @discardableResult
+    func handleSpatialNavigation(
+        target reference: WorklaneStore.PaneReference,
+        transition: WorklanePeekSelectionTransition
+    ) -> Bool {
+        previewSelect(reference, transition: transition)
+    }
+
+    func handleSpatialSwipe(_ direction: WorklanePeekSpatialDirection) {
+        guard case let .peeking(selection, _) = phase else { return }
+        guard let target = WorklanePeekSpatialNavigator.target(
+            from: selection.current,
+            direction: direction,
+            worklanes: worklaneAccess.worklanes
+        ) else { return }
+        previewSelect(target, transition: .animated)
     }
 
     // MARK: - Internals
@@ -186,6 +207,7 @@ final class WorklanePeekController {
     private func openPeek() {
         guard let origin = currentPaneReference() else {
             phase = .idle
+            delegate?.peekDidEnd(self)
             return
         }
         let traversal = WorklanePeekTraversal.from(worklanes: worklaneAccess.worklanes)
@@ -211,6 +233,23 @@ final class WorklanePeekController {
                 ? .hardCut : .animated
         phase = .peeking(updated, traversal: traversal)
         delegate?.peekDidUpdateSelection(self, transition: transition)
+    }
+
+    @discardableResult
+    private func previewSelect(
+        _ reference: WorklaneStore.PaneReference,
+        transition: WorklanePeekSelectionTransition
+    ) -> Bool {
+        guard case let .peeking(selection, traversal) = phase,
+              traversal.references.contains(reference),
+              reference != selection.current
+        else { return false }
+
+        var updated = selection
+        updated.current = reference
+        phase = .peeking(updated, traversal: traversal)
+        delegate?.peekDidUpdateSelection(self, transition: transition)
+        return true
     }
 
     private func commit(focusing reference: WorklaneStore.PaneReference) {

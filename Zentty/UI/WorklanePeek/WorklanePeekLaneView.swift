@@ -161,6 +161,10 @@ final class WorklanePeekLaneView: NSView {
         strip.convertPaneFrame(paneID, to: self)
     }
 
+    func paneID(at pointInCarrier: NSPoint) -> PaneID? {
+        strip.paneID(at: pointInCarrier, from: self)
+    }
+
     /// Whether the bound worklane currently contains a pane with this ID.
     /// Quick check used by the overlay to decide which carrier owns the
     /// highlighted pane after a camera pan.

@@ -11,6 +11,7 @@ tmp/
 .opencode
 build/
 .agent-bench-runs/
+.clawpatch/
 .factory
 .planning
 shaping/

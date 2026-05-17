@@ -77,6 +77,7 @@ final class WorklanePeekControllerTests: XCTestCase {
         var armed = 0
         var opened = 0
         var updates = 0
+        var ended = 0
         var closed = 0
         var transitions: [WorklanePeekSelectionTransition] = []
 
@@ -89,6 +90,7 @@ final class WorklanePeekControllerTests: XCTestCase {
             updates += 1
             transitions.append(transition)
         }
+        func peekDidEnd(_ controller: WorklanePeekController) { ended += 1 }
         func peekDidClose(_ controller: WorklanePeekController) { closed += 1 }
     }
 
@@ -173,6 +175,8 @@ final class WorklanePeekControllerTests: XCTestCase {
         XCTAssertEqual(harness.access.focusCalls.last?.worklaneID, WorklaneID("w1"))
         XCTAssertEqual(harness.access.focusCalls.last?.paneID, PaneID("b"))
         XCTAssertEqual(harness.controller.phase, .idle)
+        XCTAssertEqual(harness.delegate.ended, 1)
+        XCTAssertEqual(harness.delegate.closed, 0)
     }
 
     func test_quick_tap_release_at_end_of_worklane_crosses_into_next() {
@@ -222,6 +226,8 @@ final class WorklanePeekControllerTests: XCTestCase {
         XCTAssertEqual(harness.controller.phase, .idle)
         XCTAssertEqual(harness.access.focusCalls.count, 0, "no step should run on abort")
         XCTAssertFalse(harness.scheduler.hasPending)
+        XCTAssertEqual(harness.delegate.ended, 1)
+        XCTAssertEqual(harness.delegate.closed, 0)
     }
 
     // MARK: - Hold timer fires (armed → visualMode)
@@ -247,6 +253,17 @@ final class WorklanePeekControllerTests: XCTestCase {
         }
         XCTAssertEqual(selection.current, ref("w1", "a"))
         XCTAssertEqual(selection.original, ref("w1", "a"))
+    }
+
+    func test_hold_timer_failure_to_resolve_current_pane_ends_monitor_lifecycle() {
+        let harness = makeHarness(worklanes: [], active: "missing")
+
+        harness.controller.handleTab(forward: true)
+        harness.scheduler.fireAll()
+
+        XCTAssertEqual(harness.controller.phase, .idle)
+        XCTAssertEqual(harness.delegate.ended, 1)
+        XCTAssertEqual(harness.delegate.closed, 0)
     }
 
     // MARK: - Second tap commits deferred + opens visual + advances once
@@ -400,7 +417,7 @@ final class WorklanePeekControllerTests: XCTestCase {
 
     // MARK: - Click
 
-    func test_click_in_peek_commits_at_clicked_pane() {
+    func test_click_in_peek_preview_selects_clicked_pane_without_committing() {
         let harness = makeHarness(
             worklanes: [
                 makeWorklane("w1", panes: ["a", "b"], focused: "a"),
@@ -413,7 +430,31 @@ final class WorklanePeekControllerTests: XCTestCase {
 
         harness.controller.handleClick(at: ref("w1", "b"))
 
+        XCTAssertEqual(harness.access.focusCalls.count, 0)
+        XCTAssertEqual(harness.delegate.closed, 0)
+        XCTAssertEqual(harness.delegate.transitions, [.animated])
+        guard case let .peeking(selection, _) = harness.controller.phase else {
+            return XCTFail("expected peeking phase")
+        }
+        XCTAssertEqual(selection.current, ref("w1", "b"))
+    }
+
+    func test_ctrl_release_after_click_commits_preview_selected_pane() {
+        let harness = makeHarness(
+            worklanes: [
+                makeWorklane("w1", panes: ["a", "b"], focused: "a"),
+                makeWorklane("w2", panes: ["c"], focused: "c"),
+            ],
+            active: "w1"
+        )
+        harness.controller.handleTab(forward: true)
+        harness.scheduler.fireAll()
+
+        harness.controller.handleClick(at: ref("w1", "b"))
+        harness.controller.handleCtrlReleased()
+
         XCTAssertEqual(harness.controller.phase, .idle)
+        XCTAssertEqual(harness.access.focusCalls.count, 1)
         XCTAssertEqual(harness.access.focusCalls.last?.worklaneID, WorklaneID("w1"))
         XCTAssertEqual(harness.access.focusCalls.last?.paneID, PaneID("b"))
     }
@@ -461,6 +502,135 @@ final class WorklanePeekControllerTests: XCTestCase {
             return XCTFail("expected visualMode phase after hold")
         }
         XCTAssertEqual(selection.current, ref("only", "a"))
+    }
+
+    // MARK: - Spatial swipe navigation
+
+    func test_spatial_swipe_right_moves_to_focused_pane_in_next_column() {
+        let harness = makeHarness(
+            worklanes: [
+                WorklaneState(
+                    id: WorklaneID("w1"),
+                    title: "w1",
+                    paneStripState: PaneStripState(
+                        columns: [
+                            PaneColumnState(
+                                id: PaneColumnID("left"),
+                                panes: [makePane("a")],
+                                width: 400,
+                                focusedPaneID: PaneID("a")
+                            ),
+                            PaneColumnState(
+                                id: PaneColumnID("right"),
+                                panes: [makePane("b"), makePane("c")],
+                                width: 400,
+                                focusedPaneID: PaneID("c"),
+                                lastFocusedPaneID: PaneID("c")
+                            ),
+                        ],
+                        focusedColumnID: PaneColumnID("left")
+                    )
+                ),
+            ],
+            active: "w1"
+        )
+        harness.controller.handleTab(forward: true)
+        harness.scheduler.fireAll()
+
+        harness.controller.handleSpatialSwipe(.right)
+
+        guard case let .peeking(selection, _) = harness.controller.phase else {
+            return XCTFail("expected peeking phase")
+        }
+        XCTAssertEqual(selection.current, ref("w1", "c"))
+        XCTAssertEqual(harness.access.focusCalls.count, 0)
+    }
+
+    func test_spatial_swipe_down_moves_within_vertical_column_before_worklane() {
+        let harness = makeHarness(
+            worklanes: [
+                WorklaneState(
+                    id: WorklaneID("w1"),
+                    title: "w1",
+                    paneStripState: PaneStripState(
+                        columns: [
+                            PaneColumnState(
+                                id: PaneColumnID("stack"),
+                                panes: [makePane("top"), makePane("middle"), makePane("bottom")],
+                                width: 400,
+                                focusedPaneID: PaneID("top"),
+                                lastFocusedPaneID: PaneID("top")
+                            ),
+                        ],
+                        focusedColumnID: PaneColumnID("stack")
+                    )
+                ),
+                makeWorklane("w2", panes: ["other"], focused: "other"),
+            ],
+            active: "w1"
+        )
+        harness.controller.handleTab(forward: true)
+        harness.scheduler.fireAll()
+
+        harness.controller.handleSpatialSwipe(.down)
+
+        guard case let .peeking(selection, _) = harness.controller.phase else {
+            return XCTFail("expected peeking phase")
+        }
+        XCTAssertEqual(selection.current, ref("w1", "middle"))
+    }
+
+    func test_spatial_swipe_down_at_bottom_moves_to_next_worklane_focused_pane() {
+        let harness = makeHarness(
+            worklanes: [
+                WorklaneState(
+                    id: WorklaneID("w1"),
+                    title: "w1",
+                    paneStripState: PaneStripState(
+                        columns: [
+                            PaneColumnState(
+                                id: PaneColumnID("stack"),
+                                panes: [makePane("top"), makePane("bottom")],
+                                width: 400,
+                                focusedPaneID: PaneID("bottom"),
+                                lastFocusedPaneID: PaneID("bottom")
+                            ),
+                        ],
+                        focusedColumnID: PaneColumnID("stack")
+                    )
+                ),
+                makeWorklane("w2", panes: ["other"], focused: "other"),
+            ],
+            active: "w1"
+        )
+        harness.controller.handleTab(forward: true)
+        harness.scheduler.fireAll()
+
+        harness.controller.handleSpatialSwipe(.down)
+
+        guard case let .peeking(selection, _) = harness.controller.phase else {
+            return XCTFail("expected peeking phase")
+        }
+        XCTAssertEqual(selection.current, ref("w2", "other"))
+    }
+
+    func test_spatial_swipe_at_outer_edge_does_not_wrap() {
+        let harness = makeHarness(
+            worklanes: [
+                makeWorklane("w1", panes: ["only"], focused: "only"),
+            ],
+            active: "w1"
+        )
+        harness.controller.handleTab(forward: true)
+        harness.scheduler.fireAll()
+
+        harness.controller.handleSpatialSwipe(.up)
+
+        guard case let .peeking(selection, _) = harness.controller.phase else {
+            return XCTFail("expected peeking phase")
+        }
+        XCTAssertEqual(selection.current, ref("w1", "only"))
+        XCTAssertEqual(harness.delegate.updates, 0)
     }
 
     // MARK: - Hold-timer cancellation

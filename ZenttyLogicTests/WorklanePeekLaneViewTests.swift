@@ -396,6 +396,51 @@ final class WorklanePeekLaneViewTests: AppKitTestCase {
         XCTAssertEqual(rightFrame.maxX, carrier.bounds.maxX, accuracy: 3.0)
     }
 
+    func test_peek_view_resolves_neighbor_pane_reference_at_point() throws {
+        let peekView = WorklanePeekView(frame: CGRect(x: 0, y: 0, width: 1200, height: 720))
+        peekView.placeHUDStably(targetZoomScale: PaneStripView.zoomScale)
+        let registry = PaneRuntimeRegistry { paneID in
+            WorklanePeekLaneTerminalAdapterSpy(paneID: paneID)
+        }
+        let worklanes = [
+            makeWorklane(
+                id: WorklaneID("active"),
+                panes: [PaneState(id: PaneID("active"), title: "active", width: 1200)],
+                focusedPaneID: PaneID("active")
+            ),
+            makeWorklane(
+                id: WorklaneID("neighbor"),
+                panes: [PaneState(id: PaneID("target"), title: "target", width: 1200)],
+                focusedPaneID: PaneID("target")
+            ),
+        ]
+        addTeardownBlock {
+            MainActor.assumeIsolated {
+                peekView.detach()
+            }
+        }
+
+        peekView.configureNeighborLanes(
+            worklanes: worklanes,
+            activeIndex: 0,
+            canvasSize: CGSize(width: 1200, height: 720),
+            zoomScale: PaneStripView.zoomScale,
+            runtimeRegistry: registry,
+            theme: ZenttyTheme.fallback(for: nil)
+        )
+        let carrier = try XCTUnwrap(carrier(in: peekView, containing: PaneID("target")))
+        let frameInCarrier = try XCTUnwrap(carrier.paneFrameInCarrier(PaneID("target")))
+        let targetPoint = peekView.convert(
+            CGPoint(x: frameInCarrier.midX, y: frameInCarrier.midY),
+            from: carrier
+        )
+
+        XCTAssertEqual(
+            peekView.paneReference(at: targetPoint),
+            WorklaneStore.PaneReference(worklaneID: WorklaneID("neighbor"), paneID: PaneID("target"))
+        )
+    }
+
     private func makeCarrier() -> WorklanePeekLaneView {
         let registry = PaneRuntimeRegistry { paneID in
             WorklanePeekLaneTerminalAdapterSpy(paneID: paneID)
