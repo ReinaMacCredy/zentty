@@ -1211,14 +1211,12 @@ extension WorklaneStore {
                 }
 
                 changedPaneIDs.insert(paneID)
-                if status.state == .starting || status.state == .running || status.requiresHumanAttention {
-                    worklane.auxiliaryStateByPaneID[paneID]?.agentStatus = nil
-                    worklane.auxiliaryStateByPaneID[paneID]?.terminalProgress = nil
-                } else {
-                    var nextStatus = status
-                    nextStatus.trackedPID = nil
-                    worklane.auxiliaryStateByPaneID[paneID]?.agentStatus = nextStatus
-                }
+                // PID is dead → clear the badge regardless of state. The
+                // reducer-state branch above takes the same line; this
+                // fallback only fires when no reducer session exists, so
+                // there is no visibility window to honour.
+                worklane.auxiliaryStateByPaneID[paneID]?.agentStatus = nil
+                worklane.auxiliaryStateByPaneID[paneID]?.terminalProgress = nil
                 recomputePresentation(for: paneID, in: &worklane)
             }
 

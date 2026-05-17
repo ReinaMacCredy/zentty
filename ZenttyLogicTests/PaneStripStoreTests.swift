@@ -8797,6 +8797,43 @@ final class PaneStripStoreTests: XCTestCase {
         XCTAssertEqual(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus?.state, .unresolvedStop)
     }
 
+    func test_clear_stale_agent_sessions_clears_idle_status_when_pid_is_dead_legacy_path() throws {
+        // Exercises the legacy direct-status path in clearStaleAgentSessions
+        // (hit when agentReducerState.sessionsByID is empty). Previously a
+        // dead-PID + .idle session was preserved with trackedPID nulled,
+        // which let "Idle" linger on the sidebar after Grok/Amp exited on
+        // Ctrl+C without firing SessionEnd. We now clear the status.
+        let store = WorklaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", "sleep 0.1"]
+        try process.run()
+        let deadPID = process.processIdentifier
+        process.waitUntilExit()
+
+        var worklane = try XCTUnwrap(store.activeWorklane)
+        worklane.auxiliaryStateByPaneID[paneID, default: PaneAuxiliaryState()].agentStatus =
+            PaneAgentStatus(
+                tool: .grok,
+                state: .idle,
+                text: nil,
+                artifactLink: nil,
+                updatedAt: Date(),
+                source: .explicit,
+                origin: .explicitHook,
+                confidence: .explicit,
+                trackedPID: deadPID,
+                hasObservedRunning: true,
+                sessionID: "session-grok"
+            )
+        store.activeWorklane = worklane
+
+        store.clearStaleAgentSessions()
+
+        XCTAssertNil(store.activeWorklane?.auxiliaryStateByPaneID[paneID]?.agentStatus)
+    }
+
     func test_clear_stale_agent_sessions_persists_reducer_cleanup_even_when_visible_status_is_unchanged() throws {
         let store = WorklaneStore()
         let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)

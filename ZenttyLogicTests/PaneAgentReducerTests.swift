@@ -1064,7 +1064,13 @@ final class PaneAgentReducerTests: XCTestCase {
         XCTAssertEqual(status?.taskProgress, PaneAgentTaskProgress(doneCount: 1, totalCount: 3))
     }
 
-    func test_sweep_preserves_non_opencode_idle_session_when_process_exits() {
+    func test_sweep_removes_idle_session_when_process_exits_regardless_of_tool() {
+        // Universal version of test_sweep_removes_exited_idle_opencode_session.
+        // Originally only OpenCode cleared the badge on dead-PID-while-idle;
+        // every other tool kept the badge alive for the full
+        // idleVisibilityWindow (~120s). For Grok and Amp that path is the
+        // common case (no SessionEnd hook on Ctrl+C), so the rule now
+        // applies to every tool.
         let startedAt = Date(timeIntervalSince1970: 100)
         var reducerState = PaneAgentReducerState()
 
@@ -1122,11 +1128,172 @@ final class PaneAgentReducerTests: XCTestCase {
 
         reducerState.sweep(now: startedAt.addingTimeInterval(3), isProcessAlive: { _ in false })
 
+        XCTAssertNil(reducerState.reducedStatus(now: startedAt.addingTimeInterval(3)))
+        XCTAssertTrue(reducerState.sessionsByID.isEmpty)
+    }
+
+    func test_sweep_removes_idle_grok_session_on_ctrl_c() {
+        // Regression: Grok 0.1.211 does not fire SessionEnd on Ctrl+C, so the
+        // only signal that the agent is gone is the polling sweep noticing
+        // the PID is dead. With state already at .idle (from the last Stop
+        // hook), the badge must clear immediately — not after 120s.
+        let startedAt = Date(timeIntervalSince1970: 100)
+        var reducerState = PaneAgentReducerState()
+
+        reducerState.apply(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-shell"),
+                signalKind: .pid,
+                state: nil,
+                pid: 9001,
+                pidEvent: .attach,
+                origin: .explicitHook,
+                toolName: "Grok",
+                text: nil,
+                sessionID: "session-grok",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            ),
+            now: startedAt
+        )
+        reducerState.apply(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-shell"),
+                state: .idle,
+                origin: .explicitHook,
+                toolName: "Grok",
+                text: nil,
+                confidence: .explicit,
+                sessionID: "session-grok",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            ),
+            now: startedAt.addingTimeInterval(1)
+        )
+
+        reducerState.sweep(now: startedAt.addingTimeInterval(2), isProcessAlive: { _ in false })
+
+        XCTAssertNil(reducerState.reducedStatus(now: startedAt.addingTimeInterval(2)))
+        XCTAssertTrue(reducerState.sessionsByID.isEmpty)
+    }
+
+    func test_sweep_removes_idle_amp_session_on_ctrl_c() {
+        // Regression: Amp emits agent.idle via its plugin but doesn't emit
+        // any teardown event when killed via SIGINT. Same expectation as
+        // Grok: dead PID + .idle → badge cleared on the next polling tick.
+        let startedAt = Date(timeIntervalSince1970: 100)
+        var reducerState = PaneAgentReducerState()
+
+        reducerState.apply(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-shell"),
+                signalKind: .pid,
+                state: nil,
+                pid: 9002,
+                pidEvent: .attach,
+                origin: .explicitHook,
+                toolName: "Amp",
+                text: nil,
+                sessionID: "session-amp",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            ),
+            now: startedAt
+        )
+        reducerState.apply(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-shell"),
+                state: .idle,
+                origin: .explicitHook,
+                toolName: "Amp",
+                text: nil,
+                confidence: .explicit,
+                sessionID: "session-amp",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            ),
+            now: startedAt.addingTimeInterval(1)
+        )
+
+        reducerState.sweep(now: startedAt.addingTimeInterval(2), isProcessAlive: { _ in false })
+
+        XCTAssertNil(reducerState.reducedStatus(now: startedAt.addingTimeInterval(2)))
+        XCTAssertTrue(reducerState.sessionsByID.isEmpty)
+    }
+
+    func test_sweep_keeps_idle_session_when_process_is_alive_regardless_of_tool() {
+        // Inverse pin: a normal "agent finished its turn, prompt waiting"
+        // case (idle + alive PID) must remain visible so the user sees
+        // "Idle" for the full idleVisibilityWindow. The dead-PID fix must
+        // not regress this.
+        let startedAt = Date(timeIntervalSince1970: 100)
+        var reducerState = PaneAgentReducerState()
+
+        reducerState.apply(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-shell"),
+                signalKind: .pid,
+                state: nil,
+                pid: 9003,
+                pidEvent: .attach,
+                origin: .explicitHook,
+                toolName: "Grok",
+                text: nil,
+                sessionID: "session-grok",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            ),
+            now: startedAt
+        )
+        reducerState.apply(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-shell"),
+                state: .running,
+                origin: .explicitHook,
+                toolName: "Grok",
+                text: nil,
+                confidence: .explicit,
+                sessionID: "session-grok",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            ),
+            now: startedAt.addingTimeInterval(1)
+        )
+        reducerState.apply(
+            AgentStatusPayload(
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-shell"),
+                state: .idle,
+                origin: .explicitHook,
+                toolName: "Grok",
+                text: nil,
+                confidence: .explicit,
+                sessionID: "session-grok",
+                artifactKind: nil,
+                artifactLabel: nil,
+                artifactURL: nil
+            ),
+            now: startedAt.addingTimeInterval(2)
+        )
+
+        reducerState.sweep(now: startedAt.addingTimeInterval(3), isProcessAlive: { _ in true })
+
         let status = reducerState.reducedStatus(now: startedAt.addingTimeInterval(3))
         XCTAssertEqual(status?.state, .idle)
-        XCTAssertEqual(status?.tool, .codex)
-        XCTAssertNil(status?.trackedPID)
-        XCTAssertEqual(status?.taskProgress, PaneAgentTaskProgress(doneCount: 1, totalCount: 3))
+        XCTAssertEqual(status?.tool, .grok)
+        XCTAssertEqual(status?.trackedPID, 9003)
     }
 
     func test_dead_pid_without_completion_becomes_unresolved_stop() {
