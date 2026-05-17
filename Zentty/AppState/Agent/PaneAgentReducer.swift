@@ -71,9 +71,12 @@ struct PaneAgentReducerState: Equatable, Sendable {
 
             if let trackedPID = session.trackedPID, !isProcessAlive(trackedPID) {
                 session.trackedPID = nil
-                if session.tool == .openCode,
-                   session.state == .idle,
-                   session.source == .explicit {
+
+                // PID is dead while state is already .idle: nothing more
+                // can happen in this pane, so drop the session instead of
+                // waiting out `idleVisibilityWindow`. Resume capability is
+                // held by SessionRestoreStore, not the sidebar badge.
+                if session.state == .idle {
                     sessionsByID.removeValue(forKey: sessionID)
                     continue
                 }
