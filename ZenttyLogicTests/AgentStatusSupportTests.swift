@@ -416,7 +416,7 @@ final class AgentStatusSupportTests: XCTestCase {
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: sharedWrapperURL.path)
 
         let bundle = try XCTUnwrap(Bundle(url: bundleRoot))
-        let realBinURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let realBinURL = try makeTemporaryDirectory(named: "enabled-wrappers-real-bin")
         try FileManager.default.createDirectory(at: realBinURL, withIntermediateDirectories: true)
         // Real binaries Zentty's wrappers expect on PATH. Note cursor resolves to `cursor-agent`,
         // not `cursor` (which is the Cursor IDE launcher).
@@ -478,7 +478,7 @@ final class AgentStatusSupportTests: XCTestCase {
         try "#!/bin/sh\n".write(to: sharedWrapperURL, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: sharedWrapperURL.path)
 
-        let realBinURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let realBinURL = try makeTemporaryDirectory(named: "cursor-ide-only-real-bin")
         try FileManager.default.createDirectory(at: realBinURL, withIntermediateDirectories: true)
         // Only `cursor` (the IDE launcher) exists — `cursor-agent` (the CLI) is absent.
         let cursorIDE = realBinURL.appendingPathComponent("cursor", isDirectory: false)
@@ -518,7 +518,7 @@ final class AgentStatusSupportTests: XCTestCase {
         try "#!/bin/sh\n".write(to: sharedWrapperURL, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: sharedWrapperURL.path)
 
-        let realBinURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let realBinURL = try makeTemporaryDirectory(named: "kimi-cli-only-real-bin")
         try FileManager.default.createDirectory(at: realBinURL, withIntermediateDirectories: true)
         // Only `kimi-cli` exists — `kimi` is absent.
         let kimiCli = realBinURL.appendingPathComponent("kimi-cli", isDirectory: false)
@@ -6460,6 +6460,49 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(recorder.requests.first?.body, "zentty — Input required.")
     }
 
+    func test_notification_coordinator_logs_unclassified_needs_input_without_public_message_text() throws {
+        let recorder = WorklaneAttentionNotificationRecorder()
+        var logRecords: [WorklaneAttentionUnclassifiedNeedsInputLogRecord] = []
+        let coordinator = WorklaneAttentionNotificationCoordinator(
+            center: recorder,
+            notificationStore: NotificationStore(),
+            unclassifiedNeedsInputLogger: { logRecords.append($0) }
+        )
+        let paneID = PaneID("worklane-main-shell")
+        let worklaneID = WorklaneID("worklane-main")
+        let sensitiveText = "Use token sk-live-private-value to continue?"
+
+        coordinator.update(
+            windowID: WindowID("window-main"),
+            worklanes: [
+                makeNeedsInputWorklane(
+                    worklaneID: worklaneID,
+                    paneID: paneID,
+                    tool: .codex,
+                    cwd: "/Users/peter/Development/Personal/zentty",
+                    repoRoot: "/Users/peter/Development/Personal/zentty",
+                    rememberedTitle: "Codex",
+                    interactionKind: .genericInput,
+                    explicitText: sensitiveText,
+                    desktopNotificationText: nil
+                ),
+            ],
+            activeWorklaneID: worklaneID,
+            windowIsKey: false
+        )
+
+        let record = try XCTUnwrap(logRecords.first)
+        XCTAssertEqual(logRecords.count, 1)
+        XCTAssertEqual(record.classification, .genericInput)
+        XCTAssertEqual(record.messageLength, sensitiveText.count)
+        XCTAssertEqual(record.messageHash.count, 64)
+        XCTAssertFalse(record.publicDescription.contains(sensitiveText))
+        XCTAssertFalse(record.publicDescription.contains("sk-live-private-value"))
+        XCTAssertTrue(record.publicDescription.contains("classification=generic-input"))
+        XCTAssertTrue(record.publicDescription.contains("messageHash=\(record.messageHash)"))
+        XCTAssertTrue(record.publicDescription.contains("messageLength=\(sensitiveText.count)"))
+    }
+
     func test_notification_coordinator_uses_gemini_action_required_as_approval_notification() {
         let recorder = WorklaneAttentionNotificationRecorder()
         let coordinator = WorklaneAttentionNotificationCoordinator(center: recorder, notificationStore: NotificationStore())
@@ -7574,9 +7617,7 @@ final class AgentStatusSupportTests: XCTestCase {
     }
 
     private func makeClaudeHookSessionStore() throws -> ClaudeHookSessionStore {
-        let directoryURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        let directoryURL = try makeTemporaryDirectory(named: "claude-hook-session-store")
         return ClaudeHookSessionStore(stateURL: directoryURL.appendingPathComponent("claude-hook-sessions.json"))
     }
 
@@ -7801,8 +7842,7 @@ final class AgentStatusSupportTests: XCTestCase {
     }
 
     private func makeTemporaryBundleRoot(named name: String) throws -> URL {
-        let rootURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let rootURL = try makeTemporaryDirectory(named: name)
             .appendingPathComponent("\(name).app", isDirectory: true)
         let contentsURL = rootURL.appendingPathComponent("Contents", isDirectory: true)
         let macOSURL = contentsURL.appendingPathComponent("MacOS", isDirectory: true)
