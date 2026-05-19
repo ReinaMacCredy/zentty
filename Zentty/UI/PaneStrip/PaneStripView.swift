@@ -2347,6 +2347,18 @@ final class PaneStripView: NSView {
         dragCoordinator.endDrag(at: cursorInStrip)
     }
 
+    func movePaneDragForTesting(cursorInStrip: CGPoint) {
+        dragCoordinator.updateCursor(cursorInStrip)
+    }
+
+    func satisfySplitDwellForTesting() {
+        dragCoordinator.satisfySplitDwellForTesting()
+    }
+
+    var splitDragOverlayForTesting: PaneDragSplitOverlayView? {
+        dragCoordinator.splitOverlayForTesting
+    }
+
     var dragPreviewBackgroundColorForTesting: NSColor? {
         let hostView = dragOverlayView ?? viewportView
         guard let container = hostView.subviews.reversed().first(where: { $0 is PaneDragFloatingContainer })

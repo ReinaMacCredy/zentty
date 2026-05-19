@@ -6,6 +6,7 @@ final class CommandPaletteController {
     private var panel: CommandPalettePanel?
     private var hostingView: NSHostingView<CommandPaletteView>?
     private var glassSurface: GlassSurfaceView?
+    private weak var backdropView: CommandPaletteBackdropView?
     private weak var parentWindow: NSWindow?
     private var clickMonitor: Any?
     private var recentCommands = RecentCommandsTracker()
@@ -26,6 +27,7 @@ final class CommandPaletteController {
     // Availability depends on focused-pane state for pane-local search commands.
     func show(
         in window: NSWindow,
+        backdropView: CommandPaletteBackdropView,
         theme: ZenttyTheme,
         shortcutManager: ShortcutManager,
         availabilityContext: CommandAvailabilityContext,
@@ -173,6 +175,9 @@ final class CommandPaletteController {
         glass.frame = containerView.bounds
         hosting.frame = containerView.bounds
 
+        backdropView.apply(theme: theme, animated: false)
+        backdropView.setVisible(true, animated: true)
+
         newPanel.alphaValue = 0
         window.addChildWindow(newPanel, ordered: .above)
         newPanel.makeKeyAndOrderFront(nil)
@@ -186,21 +191,33 @@ final class CommandPaletteController {
         self.panel = newPanel
         self.hostingView = hosting
         self.glassSurface = glass
+        self.backdropView = backdropView
         self.parentWindow = window
         installDismissMonitor()
     }
 
     func close() {
-        guard let panel, let parentWindow else { return }
+        guard let panel else { return }
+
+        let backdrop = backdropView
+        let parentWindow = parentWindow
 
         self.panel = nil
         self.hostingView = nil
         self.glassSurface = nil
+        self.backdropView = nil
         self.parentWindow = nil
 
         if let clickMonitor {
             NSEvent.removeMonitor(clickMonitor)
             self.clickMonitor = nil
+        }
+
+        backdrop?.setVisible(false, animated: true)
+
+        guard let parentWindow else {
+            panel.orderOut(nil)
+            return
         }
 
         NSAnimationContext.runAnimationGroup({ context in
@@ -217,6 +234,7 @@ final class CommandPaletteController {
 
     func updateTheme(_ theme: ZenttyTheme) {
         glassSurface?.apply(theme: theme, animated: true)
+        backdropView?.apply(theme: theme, animated: true)
     }
 
     private func executeItem(_ itemID: CommandPaletteItemID) {

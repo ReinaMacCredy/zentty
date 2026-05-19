@@ -3701,6 +3701,67 @@ final class PaneStripViewTests: AppKitTestCase {
     }
 
     @MainActor
+    func test_split_drag_overlay_visible_above_adjacent_single_pane_column() throws {
+        let paneStripView = makePaneStripView(width: 1200, height: 720)
+        let window = hostInVisibleWindow(paneStripView)
+        defer { window.contentView = NSView() }
+
+        let state = PaneStripState(
+            columns: [
+                makeColumn("left", paneIDs: ["top", "bottom"], width: 420),
+                makeColumn("right", paneIDs: ["solo"], width: 420),
+            ],
+            focusedColumnID: PaneColumnID("left")
+        )
+        paneStripView.dragOverlayView = paneStripView
+        paneStripView.render(state)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        let topPane = try XCTUnwrap(
+            paneStripView.descendantPaneViews().first(where: { $0.titleText == "top" })
+        )
+        let soloPane = try XCTUnwrap(
+            paneStripView.descendantPaneViews().first(where: { $0.titleText == "solo" })
+        )
+        let viewport = try XCTUnwrap(topPane.superview)
+
+        let dragStart = paneStripView.convert(
+            CGPoint(x: topPane.frame.midX, y: topPane.frame.maxY - (PaneContainerView.dragZoneHeight / 2)),
+            from: viewport
+        )
+        paneStripView.beginPaneDragForTesting(paneID: PaneID("top"), cursorInStrip: dragStart)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        let splitCursorInViewport = CGPoint(
+            x: soloPane.frame.minX + soloPane.frame.width * 0.12,
+            y: soloPane.frame.midY
+        )
+        let splitCursorInStrip = paneStripView.convert(splitCursorInViewport, from: viewport)
+
+        paneStripView.movePaneDragForTesting(cursorInStrip: splitCursorInStrip)
+        paneStripView.satisfySplitDwellForTesting()
+        paneStripView.layoutSubtreeIfNeeded()
+
+        let overlay = try XCTUnwrap(paneStripView.splitDragOverlayForTesting)
+        XCTAssertGreaterThan(overlay.alphaValue, 0.01)
+        XCTAssertEqual(overlay.layer?.zPosition, 11)
+
+        let expectedHalfWidth = soloPane.frame.width / 2
+        XCTAssertEqual(overlay.frame.minX, soloPane.frame.minX, accuracy: 1)
+        XCTAssertEqual(overlay.frame.width, expectedHalfWidth, accuracy: 1)
+        XCTAssertEqual(overlay.frame.minY, soloPane.frame.minY, accuracy: 1)
+        XCTAssertEqual(overlay.frame.height, soloPane.frame.height, accuracy: 1)
+
+        let soloIndex = viewport.subviews.firstIndex(of: soloPane)
+        let overlayIndex = viewport.subviews.firstIndex(of: overlay)
+        XCTAssertNotNil(soloIndex)
+        XCTAssertNotNil(overlayIndex)
+        XCTAssertGreaterThan(overlayIndex!, soloIndex!)
+
+        paneStripView.endPaneDragForTesting(cursorInStrip: splitCursorInStrip)
+    }
+
+    @MainActor
     func test_peek_zoom_out_skipped_during_active_drag() {
         // The drag-zoom path owns the zoom while a pane is being dragged.
         // Visual ctrl+tab must not stomp over it. (Defensive — controller

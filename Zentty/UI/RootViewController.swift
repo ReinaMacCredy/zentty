@@ -109,6 +109,7 @@ final class RootViewController: NSViewController {
         return store
     }()
     private lazy var appCanvasView = AppCanvasView(runtimeRegistry: runtimeRegistry)
+    private let commandPaletteBackdropView = CommandPaletteBackdropView()
     private let peekView = WorklanePeekView()
     private let peekKeyMonitor = WorklanePeekKeyMonitor()
     private let peekController: WorklanePeekController
@@ -457,7 +458,9 @@ final class RootViewController: NSViewController {
         sidebarHoverRailView.translatesAutoresizingMaskIntoConstraints = false
         peekView.translatesAutoresizingMaskIntoConstraints = false
         peekView.isHidden = true
+        commandPaletteBackdropView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(appCanvasView)
+        view.addSubview(commandPaletteBackdropView)
         view.addSubview(peekView)
         view.addSubview(windowChromeView)
         view.addSubview(sidebarHoverRailView)
@@ -510,6 +513,11 @@ final class RootViewController: NSViewController {
             dragOverlayView.leadingAnchor.constraint(equalTo: appCanvasView.leadingAnchor),
             dragOverlayView.trailingAnchor.constraint(equalTo: appCanvasView.trailingAnchor),
             dragOverlayView.bottomAnchor.constraint(equalTo: appCanvasView.bottomAnchor),
+
+            commandPaletteBackdropView.topAnchor.constraint(equalTo: appCanvasView.topAnchor),
+            commandPaletteBackdropView.leadingAnchor.constraint(equalTo: appCanvasView.leadingAnchor),
+            commandPaletteBackdropView.trailingAnchor.constraint(equalTo: appCanvasView.trailingAnchor),
+            commandPaletteBackdropView.bottomAnchor.constraint(equalTo: appCanvasView.bottomAnchor),
 
             // Worklane Peek overlay matches canvas frame too — it sits above
             // the panes but below the chrome and sidebar.
@@ -1807,6 +1815,7 @@ final class RootViewController: NSViewController {
 
         commandPaletteController.show(
             in: window,
+            backdropView: commandPaletteBackdropView,
             theme: currentTheme,
             shortcutManager: shortcutManager,
             availabilityContext: availabilityContext,
@@ -2303,6 +2312,9 @@ final class RootViewController: NSViewController {
         updatePaneNavigationButtonState()
         windowChromeView.apply(theme: theme, animated: animated)
         appCanvasView.apply(theme: theme, animated: animated)
+        if commandPaletteController.isShown {
+            commandPaletteController.updateTheme(theme)
+        }
         applySidebarMotionState(
             sidebarMotionCoordinator.currentMotionState,
             animated: false,

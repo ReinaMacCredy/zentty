@@ -192,6 +192,7 @@
 		6EE8E68B18266DDCC31CD766 /* AppKitTestCase.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48846247312C42A929369E20 /* AppKitTestCase.swift */; };
 		701C39983F9037EC0FCFFEE4 /* AgentIPCDiscoveryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38C15EEBB2B6060FDC3C8A05 /* AgentIPCDiscoveryTests.swift */; };
 		70376AF5E484DF3488252AF0 /* GenericProgressReducer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93E9CA26FCDC9E619509598B /* GenericProgressReducer.swift */; };
+		71A0F88C4E10E1934E39BBEE /* CommandPaletteBackdropTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B012FD12A48B0C31EE3634C /* CommandPaletteBackdropTests.swift */; };
 		720727A2DA0A0EA0C32EC86E /* ClaudeHookSessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C344F4EE24498B605D2794B3 /* ClaudeHookSessionStore.swift */; };
 		727FCBEA281EEB8A67E1D89D /* ThirdPartyLicenseCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08406A303FAF5F5CC9447272 /* ThirdPartyLicenseCatalog.swift */; };
 		731E192A944AF30FB531F314 /* PaneSearchHUDView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48BB45FB1B15B96A8C195343 /* PaneSearchHUDView.swift */; };
@@ -271,6 +272,7 @@
 		9BD4648D8C7E94B57381C0E2 /* BookmarkSaveSheetController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E2D835F21D93B42A98AB467 /* BookmarkSaveSheetController.swift */; };
 		9C885D2B4DAD71748F42EDE8 /* ClosedPaneCWDResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8ED6DB175BCF8A6E62E5BAAF /* ClosedPaneCWDResolverTests.swift */; };
 		9CB149F28C20B2BDC60BC46E /* ServerOpenService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A69A77914C4BDFB2D9C46C3F /* ServerOpenService.swift */; };
+		9D6D9337A2705767B3702D5C /* CommandPaletteBackdropView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B0B5D2DF92EADEE1AFC60BA /* CommandPaletteBackdropView.swift */; };
 		9D7CF3435362B15C9801875B /* PaneFocusHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54894343178398AA618315E4 /* PaneFocusHistory.swift */; };
 		9DD40EDD3E3E8C67BB115B53 /* TaskManagerModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7DDB5C51065221110FF22C3 /* TaskManagerModels.swift */; };
 		9EF24FD6CCCD76CD8AD4F0BE /* HookCanonicalReEmitter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C0FDE2EFAFDF416D3D66490 /* HookCanonicalReEmitter.swift */; };
@@ -489,6 +491,7 @@
 		087C2ACC1BD5F24FD8F5A39F /* ServerOutputURLDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerOutputURLDetector.swift; sourceTree = "<group>"; };
 		08CB7FE3B87F05DE3D6B4426 /* ThemeCatalogService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemeCatalogService.swift; sourceTree = "<group>"; };
 		0985A47CE1D3B2023DCD7265 /* WorklaneStoreColorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorklaneStoreColorTests.swift; sourceTree = "<group>"; };
+		0B0B5D2DF92EADEE1AFC60BA /* CommandPaletteBackdropView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteBackdropView.swift; sourceTree = "<group>"; };
 		0B77CE7C6471C7FFD211BFDF /* MoveToWorklaneMenuBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MoveToWorklaneMenuBuilder.swift; sourceTree = "<group>"; };
 		0B7DFA52E9F279C81A803C23 /* WorklaneStoreClosedPaneRestoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorklaneStoreClosedPaneRestoreTests.swift; sourceTree = "<group>"; };
 		0BCFF1E41DE71CCD9D4E0AAA /* SidebarWorklaneRowChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarWorklaneRowChrome.swift; sourceTree = "<group>"; };
@@ -518,6 +521,7 @@
 		19801FEA1E31AE1665776372 /* OpenWithCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenWithCatalog.swift; sourceTree = "<group>"; };
 		1AB93DE6432DD894D0CA2C72 /* SidebarBookmarksButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarBookmarksButton.swift; sourceTree = "<group>"; };
 		1AE59622A5FC54739F5CC7AA /* ZenttyCLIDiscoveryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZenttyCLIDiscoveryTests.swift; sourceTree = "<group>"; };
+		1B012FD12A48B0C31EE3634C /* CommandPaletteBackdropTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteBackdropTests.swift; sourceTree = "<group>"; };
 		1B5FBD6A49E1AC7F9DB7BB3C /* LicensesWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LicensesWindowController.swift; sourceTree = "<group>"; };
 		1BCA77C435DCC7E4F338789C /* DroidTaskStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DroidTaskStore.swift; sourceTree = "<group>"; };
 		1CF5DDE2F06EB5CBE4C2E0B9 /* WorklaneState+Testing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WorklaneState+Testing.swift"; sourceTree = "<group>"; };
@@ -1117,6 +1121,7 @@
 			isa = PBXGroup;
 			children = (
 				45E5788E143BDA3D1DF37882 /* CommandAvailabilityResolver.swift */,
+				0B0B5D2DF92EADEE1AFC60BA /* CommandPaletteBackdropView.swift */,
 				2C966AC83B20D437AA8281B3 /* CommandPaletteController.swift */,
 				2A52BCC7DF27C885882E1630 /* CommandPaletteItem.swift */,
 				7DCA45568C0DF115CFA41141 /* CommandPalettePanel.swift */,
@@ -1550,6 +1555,7 @@
 				555A3E876B04160BA692FCFB /* ClosedPaneRestoreCommandResolverTests.swift */,
 				8C76A528123220C3D01AA0AE /* ClosedPaneStackTests.swift */,
 				3CD1D64075C9C26B40FA2C70 /* CodexTranscriptQuestionExtractorTests.swift */,
+				1B012FD12A48B0C31EE3634C /* CommandPaletteBackdropTests.swift */,
 				E6D7092CD7460BABDBD68C6E /* CommandPaletteTaskRunnerTests.swift */,
 				3DB6DE0A6A550780FF124F3D /* CommandPaletteWorklaneColorTests.swift */,
 				359071C23827A5E0F2CD2B92 /* DockerServerDiscoveryTests.swift */,
@@ -1922,6 +1928,7 @@
 				E445F2D11B56410F2C85C6F4 /* ClosedPaneRestoreCommandResolverTests.swift in Sources */,
 				35CFAC4877B509D64DF620DE /* ClosedPaneStackTests.swift in Sources */,
 				76A6CE9CE58B91230135D169 /* CodexTranscriptQuestionExtractorTests.swift in Sources */,
+				71A0F88C4E10E1934E39BBEE /* CommandPaletteBackdropTests.swift in Sources */,
 				173791FED7615617FAF34B05 /* CommandPaletteTaskRunnerTests.swift in Sources */,
 				E65DC3627B94384EE63626ED /* CommandPaletteWorklaneColorTests.swift in Sources */,
 				A9C59E3E7F7283D0FE87F832 /* DockerServerDiscoveryTests.swift in Sources */,
@@ -2085,6 +2092,7 @@
 				956645D7FA3810989313C3A7 /* CodexTitlePromotionReducer.swift in Sources */,
 				D6BBD9630859447254C3D903 /* CodexTranscriptQuestionExtractor.swift in Sources */,
 				661F1B3E5187816B392E2100 /* CommandAvailabilityResolver.swift in Sources */,
+				9D6D9337A2705767B3702D5C /* CommandPaletteBackdropView.swift in Sources */,
 				D6A5B756DD47B6E634574F47 /* CommandPaletteController.swift in Sources */,
 				9977740E789BA5C77113EBE4 /* CommandPaletteItem.swift in Sources */,
 				30B9ACBE47351D6E5EF639C5 /* CommandPalettePanel.swift in Sources */,
