@@ -438,11 +438,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        destination.acceptCrossWindowPane(
+        guard destination.acceptCrossWindowPane(
             payload: extracted.payload,
             runtime: extracted.runtime,
             targetWorklaneID: request.destinationWorklaneID
-        )
+        ) else {
+            return
+        }
 
         if extracted.payload.sourceWindowShouldClose {
             source.closeWindowBypassingConfirmation()

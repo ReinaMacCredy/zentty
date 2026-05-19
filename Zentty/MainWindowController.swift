@@ -895,14 +895,17 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         guard store.worklanes.contains(where: { $0.id == targetWorklaneID }) else {
             return false
         }
-        if let runtime {
-            runtimeRegistry.adoptRuntime(runtime, for: payload.pane.id)
-        }
-        return store.insertExtractedPane(
+        guard store.insertExtractedPane(
             payload,
             intoWorklane: targetWorklaneID,
             singleColumnWidth: store.layoutContext.singlePaneWidth
-        )
+        ) else {
+            return false
+        }
+        if let runtime {
+            runtimeRegistry.adoptRuntime(runtime, for: payload.pane.id)
+        }
+        return true
     }
 
     func splitOutPaneForNewWindow(
