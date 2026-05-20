@@ -352,6 +352,93 @@ final class LibghosttySurfaceScrollHostViewTests: AppKitTestCase {
 
         XCTAssertEqual(harness.surface.smoothScrollingEnabledUpdates, [false, true, false])
     }
+
+    func test_smooth_scrolling_enables_native_vertical_elasticity() throws {
+        let harness = makeScrollHostHarness(smoothScrollingEnabled: false)
+        let scrollView = try scrollView(from: harness.hostView)
+
+        XCTAssertEqual(scrollView.verticalScrollElasticity, .none)
+        XCTAssertEqual(scrollView.horizontalScrollElasticity, .none)
+
+        harness.hostView.smoothScrollingEnabled = true
+
+        XCTAssertEqual(scrollView.verticalScrollElasticity, .allowed)
+        XCTAssertEqual(scrollView.horizontalScrollElasticity, .none)
+    }
+
+    func test_surface_scroll_falls_through_to_native_scroll_when_smooth_enabled() throws {
+        let harness = makeScrollHostHarness(smoothScrollingEnabled: true)
+        harness.hostView.applyScrollbarUpdate(.init(total: 200, offset: 0, len: 10))
+
+        harness.surfaceView.scrollWheel(with: try makeScrollEvent(deltaY: 8, precise: true))
+
+        XCTAssertTrue(harness.surface.sentScrollOffsets.isEmpty)
+        XCTAssertEqual(harness.surface.sentScrollEvents.count, 0)
+    }
+
+    func test_terminal_input_scroll_is_sent_to_surface_even_when_smooth_enabled() throws {
+        let harness = makeScrollHostHarness(smoothScrollingEnabled: true)
+        harness.surface.mouseScrollIsTerminalInput = true
+        harness.hostView.applyScrollbarUpdate(.init(total: 200, offset: 0, len: 10))
+
+        harness.surfaceView.scrollWheel(with: try makeScrollEvent(deltaY: 8, precise: true))
+
+        XCTAssertTrue(harness.surface.sentScrollOffsets.isEmpty)
+        XCTAssertEqual(harness.surface.sentScrollEvents.count, 1)
+    }
+
+    func test_scroll_is_sent_to_surface_when_smooth_scrolling_is_disabled() throws {
+        let harness = makeScrollHostHarness(smoothScrollingEnabled: false)
+        harness.hostView.applyScrollbarUpdate(.init(total: 200, offset: 0, len: 10))
+
+        harness.surfaceView.scrollWheel(with: try makeScrollEvent(deltaY: 8, precise: true))
+
+        XCTAssertTrue(harness.surface.sentScrollOffsets.isEmpty)
+        XCTAssertEqual(harness.surface.sentScrollEvents.count, 1)
+    }
+
+    func test_smooth_live_scroll_sends_negative_top_elastic_offset() throws {
+        let harness = makeScrollHostHarness(smoothScrollingEnabled: true)
+        harness.hostView.applyScrollbarUpdate(.init(total: 200, offset: 0, len: 10))
+        let scrollView = try scrollView(from: harness.hostView)
+        let topOrigin = scrollView.contentView.bounds.origin.y
+
+        NotificationCenter.default.post(name: NSScrollView.willStartLiveScrollNotification, object: scrollView)
+        scrollView.contentView.scroll(to: CGPoint(x: 0, y: topOrigin + 8))
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+        NotificationCenter.default.post(name: NSScrollView.didLiveScrollNotification, object: scrollView)
+
+        XCTAssertLessThan(try XCTUnwrap(harness.surface.sentScrollOffsets.last), 0)
+    }
+
+    func test_smooth_live_scroll_sends_above_bottom_elastic_offset() throws {
+        let harness = makeScrollHostHarness(smoothScrollingEnabled: true)
+        harness.hostView.applyScrollbarUpdate(.init(total: 200, offset: 190, len: 10))
+        let scrollView = try scrollView(from: harness.hostView)
+
+        NotificationCenter.default.post(name: NSScrollView.willStartLiveScrollNotification, object: scrollView)
+        scrollView.contentView.scroll(to: CGPoint(x: 0, y: -8))
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+        NotificationCenter.default.post(name: NSScrollView.didLiveScrollNotification, object: scrollView)
+
+        XCTAssertGreaterThan(try XCTUnwrap(harness.surface.sentScrollOffsets.last), 190)
+    }
+
+    func test_pane_scroll_routing_wins_before_native_scroll() throws {
+        let harness = makeScrollHostHarness(smoothScrollingEnabled: true)
+        var routedCount = 0
+        harness.hostView.onScrollWheel = { _ in
+            routedCount += 1
+            return true
+        }
+        harness.hostView.applyScrollbarUpdate(.init(total: 200, offset: 0, len: 10))
+
+        harness.surfaceView.scrollWheel(with: try makeScrollEvent(deltaY: 8, precise: true))
+
+        XCTAssertEqual(routedCount, 1)
+        XCTAssertTrue(harness.surface.sentScrollOffsets.isEmpty)
+        XCTAssertEqual(harness.surface.sentScrollEvents.count, 0)
+    }
 }
 
 @MainActor
@@ -389,11 +476,13 @@ private final class ScrollHostSurfaceSpy: LibghosttySurfaceControlling {
     }
 
     var hasScrollback = true
+    var mouseScrollIsTerminalInput = false
     var cellWidth: CGFloat = 8
     var cellHeight: CGFloat = 16
     var searchDidChange: ((TerminalSearchEvent) -> Void)?
     private(set) var mouseButtons: [MouseButtonEvent] = []
     private(set) var sentMousePositions: [(position: CGPoint, modifiers: NSEvent.ModifierFlags)] = []
+    private(set) var sentScrollEvents: [(x: Double, y: Double, precision: Bool, momentum: NSEvent.Phase)] = []
     private(set) var sentScrollOffsets: [Double] = []
     private(set) var smoothScrollingEnabledUpdates: [Bool] = []
     private(set) var bindingActions: [String] = []
@@ -405,7 +494,9 @@ private final class ScrollHostSurfaceSpy: LibghosttySurfaceControlling {
     func setOcclusionVisible(_ isVisible: Bool) {}
     func refresh() {}
     func sendKey(event: NSEvent, action: TerminalKeyAction, text: String?, composing: Bool) -> Bool { true }
-    func sendMouseScroll(x: Double, y: Double, precision: Bool, momentum: NSEvent.Phase) {}
+    func sendMouseScroll(x: Double, y: Double, precision: Bool, momentum: NSEvent.Phase) {
+        sentScrollEvents.append((x, y, precision, momentum))
+    }
     func setSmoothScrollingEnabled(_ enabled: Bool) {
         smoothScrollingEnabledUpdates.append(enabled)
         events.append(.setSmoothScrollingEnabled(enabled))
@@ -466,4 +557,55 @@ private func makeMouseEvent(
             pressure: 1
         )
     )
+}
+
+private func makeScrollEvent(
+    deltaX: CGFloat = 0,
+    deltaY: CGFloat = 0,
+    precise: Bool,
+    phase: NSEvent.Phase = .changed,
+    momentumPhase: NSEvent.Phase = []
+) throws -> NSEvent {
+    MockScrollEvent(
+        scrollingDeltaX: deltaX,
+        scrollingDeltaY: deltaY,
+        hasPreciseScrollingDeltas: precise,
+        phase: phase,
+        momentumPhase: momentumPhase
+    )
+}
+
+private final class MockScrollEvent: NSEvent {
+    private let mockedScrollingDeltaX: CGFloat
+    private let mockedScrollingDeltaY: CGFloat
+    private let mockedHasPreciseScrollingDeltas: Bool
+    private let mockedPhase: NSEvent.Phase
+    private let mockedMomentumPhase: NSEvent.Phase
+
+    init(
+        scrollingDeltaX: CGFloat,
+        scrollingDeltaY: CGFloat,
+        hasPreciseScrollingDeltas: Bool,
+        phase: NSEvent.Phase,
+        momentumPhase: NSEvent.Phase
+    ) {
+        self.mockedScrollingDeltaX = scrollingDeltaX
+        self.mockedScrollingDeltaY = scrollingDeltaY
+        self.mockedHasPreciseScrollingDeltas = hasPreciseScrollingDeltas
+        self.mockedPhase = phase
+        self.mockedMomentumPhase = momentumPhase
+        super.init()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var type: NSEvent.EventType { .scrollWheel }
+    override var scrollingDeltaX: CGFloat { mockedScrollingDeltaX }
+    override var scrollingDeltaY: CGFloat { mockedScrollingDeltaY }
+    override var hasPreciseScrollingDeltas: Bool { mockedHasPreciseScrollingDeltas }
+    override var phase: NSEvent.Phase { mockedPhase }
+    override var momentumPhase: NSEvent.Phase { mockedMomentumPhase }
 }

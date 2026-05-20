@@ -56,7 +56,11 @@ private final class LibghosttyScrollView: NSScrollView {
         if window?.firstResponder !== surfaceView {
             window?.makeFirstResponder(surfaceView)
         }
-        surfaceView.scrollWheel(with: event)
+        if surfaceView.consumeScrollWheelForTerminalInputIfNeeded(event) {
+            return
+        }
+
+        super.scrollWheel(with: event)
     }
 
     override func rightMouseDown(with event: NSEvent) {
@@ -132,6 +136,7 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
     private let documentView: NSView
     private let surfaceView: LibghosttyView
     private var isLiveScrolling = false
+    private var needsLiveScrollReconciliation = false
     private var pendingExplicitWheelScroll = false
     private var allowExplicitScrollbarSync = false
     private var userScrolledAwayFromBottom = false
@@ -143,6 +148,11 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
     private var selectionAutoscrollTimer: Timer?
     private var lastSelectionAutoscrollTickTime: TimeInterval?
     private static let scrollToBottomThreshold: CGFloat = 5.0
+
+    var onScrollWheel: ((NSEvent) -> Bool)? {
+        get { surfaceView.onScrollWheel }
+        set { surfaceView.onScrollWheel = newValue }
+    }
 
     var onFocusDidChange: ((Bool) -> Void)? {
         get { surfaceView.onFocusDidChange }
@@ -161,11 +171,6 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
         overlayHostView
     }
 
-    var onScrollWheel: ((NSEvent) -> Bool)? {
-        get { surfaceView.onScrollWheel }
-        set { surfaceView.onScrollWheel = newValue }
-    }
-
     var smoothScrollingEnabled = AppConfig.Panes.default.smoothScrollingEnabled {
         didSet {
             guard oldValue != smoothScrollingEnabled else {
@@ -174,6 +179,7 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
             if !smoothScrollingEnabled {
                 snapCurrentScrollToRowAndNotifySurfaceIfNeeded()
             }
+            updateScrollElasticity()
             surfaceView.setSmoothScrollingEnabled(smoothScrollingEnabled)
         }
     }
@@ -207,6 +213,7 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
         scrollView.drawsBackground = false
         scrollView.contentView.clipsToBounds = false
         scrollView.surfaceView = surfaceView
+        updateScrollElasticity()
         surfaceView.onExplicitWheelScroll = { [weak self] in
             self?.pendingExplicitWheelScroll = true
         }
@@ -346,6 +353,9 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
                 pendingExplicitWheelScroll = false
             }
             scrollbarUpdate = update
+            if isLiveScrolling {
+                needsLiveScrollReconciliation = true
+            }
             selectionAutoscrollController.setViewportHeight(scrollView.contentView.bounds.height)
             selectionAutoscrollController.setScrollbarUpdate(update)
             recordScrollHostSync { synchronizeScrollView() }
@@ -377,7 +387,7 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
 
     @objc
     private func handleDidEndLiveScrollNotification(_ notification: Notification) {
-        isLiveScrolling = false
+        handleEndLiveScroll()
     }
 
     @objc
@@ -411,6 +421,23 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
         selectionAutoscrollTimer?.invalidate()
         selectionAutoscrollTimer = nil
         lastSelectionAutoscrollTickTime = nil
+    }
+
+    private func updateScrollElasticity() {
+        scrollView.verticalScrollElasticity = smoothScrollingEnabled ? .allowed : .none
+        scrollView.horizontalScrollElasticity = .none
+    }
+
+    private func handleEndLiveScroll() {
+        isLiveScrolling = false
+        guard needsLiveScrollReconciliation else {
+            return
+        }
+
+        needsLiveScrollReconciliation = false
+        DispatchQueue.main.async { [weak self] in
+            self?.handleLiveScroll(force: true)
+        }
     }
 
     private func handleSelectionAutoscrollTick() {
@@ -481,6 +508,50 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
         return CGPoint(x: 0, y: y)
     }
 
+    private func currentLiveRowOffset() -> Double? {
+        let cellHeight = surfaceView.terminalCellHeight
+        guard cellHeight > 0 else {
+            return nil
+        }
+
+        let visibleRect = scrollView.contentView.documentVisibleRect
+        let scrollOffset = documentView.frame.height - visibleRect.origin.y - visibleRect.height
+        return Double(scrollOffset / cellHeight)
+    }
+
+    private func maxLiveRowOffset() -> Double? {
+        let cellHeight = surfaceView.terminalCellHeight
+        guard cellHeight > 0 else {
+            return nil
+        }
+
+        let maxOffset = max(0, documentView.frame.height - scrollView.contentView.bounds.height)
+        return Double(maxOffset / cellHeight)
+    }
+
+    private func adjustedLiveRowOffset(_ rowOffset: Double, previousMaxOffset: Double) -> Double {
+        guard let newMaxOffset = maxLiveRowOffset() else {
+            return rowOffset
+        }
+
+        if rowOffset > previousMaxOffset {
+            return newMaxOffset + (rowOffset - previousMaxOffset)
+        }
+
+        return rowOffset
+    }
+
+    private func scroll(toLiveRowOffset rowOffset: Double) {
+        let cellHeight = surfaceView.terminalCellHeight
+        guard cellHeight > 0 else {
+            return
+        }
+
+        let viewportHeight = scrollView.contentView.bounds.height
+        let maxY = max(0, documentView.frame.height - viewportHeight)
+        scrollView.contentView.scroll(to: CGPoint(x: 0, y: maxY - (CGFloat(rowOffset) * cellHeight)))
+    }
+
     private func synchronizeCoreSurface() {
         guard scrollView.contentSize.width > 0, surfaceView.frame.height > 0 else {
             return
@@ -526,6 +597,8 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
     private func synchronizeScrollView() -> ScrollHostSyncMetrics {
         var didChangeGeometry = false
         let previousDocumentHeight = documentView.frame.height
+        let liveRowOffset = isLiveScrolling && smoothScrollingEnabled ? currentLiveRowOffset() : nil
+        let liveMaxRowOffset = isLiveScrolling && smoothScrollingEnabled ? maxLiveRowOffset() : nil
         let targetDocumentHeight = documentHeight()
         var scrollbarTotalRows: UInt64?
         var scrollbarOffsetRows: Double?
@@ -539,7 +612,12 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
             didChangeGeometry = true
         }
 
-        if !isLiveScrolling {
+        if isLiveScrolling, smoothScrollingEnabled,
+           let liveRowOffset,
+           let liveMaxRowOffset {
+            scroll(toLiveRowOffset: adjustedLiveRowOffset(liveRowOffset, previousMaxOffset: liveMaxRowOffset))
+            didChangeGeometry = true
+        } else if !isLiveScrolling {
             let cellHeight = surfaceView.terminalCellHeight
             if cellHeight > 0, let scrollbarUpdate {
                 scrollbarTotalRows = scrollbarUpdate.total
@@ -620,25 +698,36 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
         updateUserScrolledAwayFromBottomState()
     }
 
-    private func handleLiveScroll() {
+    private func handleLiveScroll(force: Bool = false) {
         let cellHeight = surfaceView.terminalCellHeight
         guard cellHeight > 0 else {
             return
         }
 
         let visibleRect = scrollView.contentView.documentVisibleRect
-        let scrollOffset = scrollOffsetFromBottom(for: visibleRect)
-        updateUserScrolledAwayFromBottomState(visibleRect: visibleRect)
+        let rawScrollOffset = documentView.frame.height - visibleRect.origin.y - visibleRect.height
+        let clampedScrollOffset = max(0, rawScrollOffset)
+        if smoothScrollingEnabled {
+            updateUserScrolledAwayFromBottomState(liveRowOffset: Double(rawScrollOffset / cellHeight))
+        } else {
+            updateUserScrolledAwayFromBottomState(visibleRect: visibleRect)
+        }
 
-        let rawOffset = clampedLiveScrollOffset(forScrollOffset: scrollOffset, cellHeight: cellHeight)
-        let offset = normalizedScrollOffset(rawOffset)
+        let offset: Double
+        if smoothScrollingEnabled {
+            offset = Double(rawScrollOffset / cellHeight)
+        } else {
+            offset = normalizedScrollOffset(
+                clampedLiveScrollOffset(forScrollOffset: clampedScrollOffset, cellHeight: cellHeight)
+            )
+        }
         snapLiveScrollToRowIfNeeded(offset: offset, cellHeight: cellHeight)
-        guard lastSentOffset.map({ abs($0 - offset) >= 0.01 }) ?? true else {
+        guard force || lastSentOffset.map({ abs($0 - offset) >= 0.01 }) ?? true else {
             return
         }
 
         lastSentOffset = offset
-        lastSentRow = Int(offset.rounded(.down))
+        lastSentRow = Int(max(0, offset).rounded(.down))
         diagnostics.recordScrollToRowAction(paneID: paneID)
         surfaceView.scroll(toOffset: offset)
     }
@@ -674,6 +763,16 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
     private func updateUserScrolledAwayFromBottomState(visibleRect: NSRect? = nil) {
         let visibleRect = visibleRect ?? scrollView.contentView.documentVisibleRect
         userScrolledAwayFromBottom = scrollOffsetFromBottom(for: visibleRect) > Self.scrollToBottomThreshold
+    }
+
+    private func updateUserScrolledAwayFromBottomState(liveRowOffset: Double) {
+        guard let scrollbarUpdate else {
+            userScrolledAwayFromBottom = liveRowOffset > 0
+            return
+        }
+
+        let maxOffset = max(0, Double(scrollbarUpdate.total) - Double(scrollbarUpdate.len))
+        userScrolledAwayFromBottom = maxOffset - min(liveRowOffset, maxOffset) > 0.01
     }
 
     private func documentHeight() -> CGFloat {
@@ -1008,16 +1107,27 @@ final class LibghosttyView: NSView, TerminalFocusReporting, TerminalViewportDiag
     }
 
     override func scrollWheel(with event: NSEvent) {
-        guard !isPointInsideSuppressedMouseRegion(convert(event.locationInWindow, from: nil)) else {
+        if consumeScrollWheelForTerminalInputIfNeeded(event) {
             return
+        } else {
+            super.scrollWheel(with: event)
+        }
+    }
+
+    fileprivate func consumeScrollWheelForTerminalInputIfNeeded(_ event: NSEvent) -> Bool {
+        guard !isPointInsideSuppressedMouseRegion(convert(event.locationInWindow, from: nil)) else {
+            return true
         }
         if onScrollWheel?(event) == true {
-            return
+            return true
         }
 
         guard let surfaceController else {
-            super.scrollWheel(with: event)
-            return
+            return false
+        }
+
+        if smoothScrollingEnabled && !surfaceController.mouseScrollIsTerminalInput {
+            return false
         }
 
         onExplicitWheelScroll?()
@@ -1027,6 +1137,7 @@ final class LibghosttyView: NSView, TerminalFocusReporting, TerminalViewportDiag
             precision: event.hasPreciseScrollingDeltas,
             momentum: event.momentumPhase
         )
+        return true
     }
 
     override func keyDown(with event: NSEvent) {

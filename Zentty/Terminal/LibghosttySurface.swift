@@ -143,6 +143,11 @@ final class LibghosttySurface: LibghosttySurfaceControlling, LibghosttySurfaceTe
         return ghostty_surface_mouse_captured(surface)
     }
 
+    var mouseScrollIsTerminalInput: Bool {
+        guard let surface else { return false }
+        return ghostty_surface_mouse_scroll_is_terminal_input(surface)
+    }
+
     var cellWidth: CGFloat {
         guard let surface else { return 0 }
         let size = ghostty_surface_size(surface)

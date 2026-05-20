@@ -420,7 +420,7 @@ final class PaneLayoutSettingsSectionViewController: SettingsScrollableSectionVi
 
         let smoothScrollingRow = makeSwitchRow(
             title: "Smooth terminal scrolling",
-            subtitle: "Scroll freely between terminal rows instead of snapping to each line.",
+            subtitle: "Scroll freely between rows with a subtle bounce at the top and bottom.",
             toggle: smoothScrollingSwitch,
             action: #selector(handleSmoothScrollingChanged(_:))
         )

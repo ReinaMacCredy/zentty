@@ -39,6 +39,7 @@ enum TerminalKeyAction: Equatable {
 protocol LibghosttySurfaceControlling: AnyObject {
     var hasScrollback: Bool { get }
     var mouseCaptured: Bool { get }
+    var mouseScrollIsTerminalInput: Bool { get }
     var cellWidth: CGFloat { get }
     var cellHeight: CGFloat { get }
     var searchDidChange: ((TerminalSearchEvent) -> Void)? { get set }
@@ -67,6 +68,7 @@ protocol LibghosttySurfaceControlling: AnyObject {
 
 extension LibghosttySurfaceControlling {
     var mouseCaptured: Bool { false }
+    var mouseScrollIsTerminalInput: Bool { mouseCaptured }
     func cancelPromptInput() {}
     func setSmoothScrollingEnabled(_ enabled: Bool) {}
     func scroll(toOffset offset: Double) {
