@@ -601,6 +601,22 @@ final class LibghosttyAdapterTests: AppKitTestCase {
         XCTAssertEqual(payload, .scrollbar(total: 120, offset: 35, len: 18))
     }
 
+    func test_copy_action_payload_copies_cell_size_values() {
+        let action = ghostty_action_s(
+            tag: GHOSTTY_ACTION_CELL_SIZE,
+            action: ghostty_action_u(
+                cell_size: ghostty_action_cell_size_s(
+                    width: 9,
+                    height: 18
+                )
+            )
+        )
+
+        let payload = copyLibghosttySurfaceActionPayload(from: action)
+
+        XCTAssertEqual(payload, .cellSize(width: 9, height: 18))
+    }
+
     func test_copy_action_payload_copies_desktop_notification_values() {
         let duplicatedTitle = strdup("Codex")
         let duplicatedBody = strdup("Needs your input")

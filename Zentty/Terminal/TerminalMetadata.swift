@@ -1324,6 +1324,8 @@ final class TerminalDiagnostics: @unchecked Sendable {
             return "ordered"
         case .scrollbar:
             return "scrollbar"
+        case .cellSize:
+            return "cellSize"
         case .mouseShape:
             return "mouseShape"
         }

@@ -13,6 +13,7 @@ enum LibghosttySurfaceActionPayload: Equatable {
     case searchTotal(Int)
     case searchSelected(Int)
     case scrollbar(total: UInt64, offset: Double, len: UInt64)
+    case cellSize(width: UInt32, height: UInt32)
     case openURL(String)
     case mouseShape(ghostty_action_mouse_shape_e)
 }
@@ -73,6 +74,9 @@ func copyLibghosttySurfaceActionPayload(from action: ghostty_action_s) -> Libgho
     case GHOSTTY_ACTION_SCROLLBAR:
         let s = action.action.scrollbar
         return .scrollbar(total: s.total, offset: Double(s.offset), len: s.len)
+    case GHOSTTY_ACTION_CELL_SIZE:
+        let s = action.action.cell_size
+        return .cellSize(width: s.width, height: s.height)
     case GHOSTTY_ACTION_OPEN_URL:
         let openURL = action.action.open_url
         guard let urlPointer = openURL.url, openURL.len > 0 else {
