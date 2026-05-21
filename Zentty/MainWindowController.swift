@@ -882,7 +882,8 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         return (payload, runtime)
     }
 
-    /// Adopts the runtime and inserts the pane into the destination worklane.
+    /// Inserts the pane into the destination worklane, adopts the runtime, then
+    /// publishes the structural changes.
     /// Returns `true` on success. On failure (target worklane gone), neither the
     /// runtime nor the pane state is added — the caller still owns the runtime.
     @discardableResult
@@ -895,16 +896,23 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         guard store.worklanes.contains(where: { $0.id == targetWorklaneID }) else {
             return false
         }
-        guard store.insertExtractedPane(
-            payload,
-            intoWorklane: targetWorklaneID,
-            singleColumnWidth: store.layoutContext.singlePaneWidth
-        ) else {
+
+        var didInsert = false
+        store.batchUpdate {
+            didInsert = store.insertExtractedPane(
+                payload,
+                intoWorklane: targetWorklaneID,
+                singleColumnWidth: store.layoutContext.singlePaneWidth
+            )
+        }
+        guard didInsert else {
             return false
         }
         if let runtime {
             runtimeRegistry.adoptRuntime(runtime, for: payload.pane.id)
         }
+        store.notify(.paneStructure(targetWorklaneID))
+        store.notify(.activeWorklaneChanged)
         return true
     }
 

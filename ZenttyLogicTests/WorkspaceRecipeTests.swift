@@ -133,6 +133,98 @@ final class WorkspaceRecipeTests: XCTestCase {
         )
     }
 
+    @MainActor
+    func test_export_and_import_after_last_pane_transfer_preserves_identical_panes() throws {
+        let layoutContext = PaneLayoutContext(
+            displayClass: .largeDisplay,
+            preset: .balanced,
+            viewportWidth: 1280,
+            leadingVisibleInset: 0,
+            sizing: .balanced
+        )
+        let sourceWorklaneID = WorklaneID("source")
+        let targetWorklaneID = WorklaneID("target")
+        let sourcePaneID = PaneID("source-pane")
+        let targetPaneID = PaneID("target-pane")
+        let sharedDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ZenttyTests.WorkspaceRecipe.Transfer.\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: sharedDirectory, withIntermediateDirectories: true)
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: sharedDirectory)
+        }
+        let sharedCWD = sharedDirectory.path
+        let sharedRequest = TerminalSessionRequest(
+            workingDirectory: sharedCWD,
+            command: "codex",
+            surfaceContext: .window
+        )
+        let sharedAuxiliary = PaneAuxiliaryState(
+            presentation: PanePresentationState(
+                cwd: sharedCWD,
+                rememberedTitle: "codex"
+            )
+        )
+        let store = WorklaneStore(
+            worklanes: [
+                WorklaneState(
+                    id: sourceWorklaneID,
+                    title: "SOURCE",
+                    paneStripState: PaneStripState(
+                        panes: [PaneState(id: sourcePaneID, title: "codex", sessionRequest: sharedRequest)],
+                        focusedPaneID: sourcePaneID
+                    ),
+                    auxiliaryStateByPaneID: [sourcePaneID: sharedAuxiliary]
+                ),
+                WorklaneState(
+                    id: targetWorklaneID,
+                    title: "TARGET",
+                    paneStripState: PaneStripState(
+                        panes: [PaneState(id: targetPaneID, title: "codex", sessionRequest: sharedRequest)],
+                        focusedPaneID: targetPaneID
+                    ),
+                    auxiliaryStateByPaneID: [targetPaneID: sharedAuxiliary]
+                ),
+            ],
+            layoutContext: layoutContext,
+            activeWorklaneID: sourceWorklaneID
+        )
+
+        store.transferPaneToWorklane(
+            paneID: sourcePaneID,
+            targetWorklaneID: targetWorklaneID,
+            singleColumnWidth: layoutContext.singlePaneWidth
+        )
+        let window = WorkspaceRecipeExporter.makeWindow(
+            windowID: WindowID("window-main"),
+            worklanes: store.worklanes,
+            activeWorklaneID: store.activeWorklaneID
+        )
+        let restored = WorkspaceRecipeImporter.makeWorklanes(
+            from: window,
+            windowID: WindowID("window-main"),
+            layoutContext: layoutContext,
+            processEnvironment: ["HOME": "/Users/peter", "USER": "peter"]
+        )
+
+        XCTAssertEqual(window.worklanes.flatMap { $0.columns.flatMap { $0.panes.map(\.id) } }, [
+            targetPaneID.rawValue,
+            sourcePaneID.rawValue,
+        ])
+        XCTAssertEqual(restored.activeWorklaneID, targetWorklaneID)
+        XCTAssertEqual(restored.worklanes.map(\.id), [targetWorklaneID])
+
+        let restoredWorklane = try XCTUnwrap(restored.worklanes.first)
+        XCTAssertEqual(restoredWorklane.paneStripState.panes.map(\.id), [targetPaneID, sourcePaneID])
+        XCTAssertEqual(
+            restoredWorklane.paneStripState.panes.map(\.sessionRequest.workingDirectory),
+            [sharedCWD, sharedCWD]
+        )
+        XCTAssertEqual(
+            restoredWorklane.auxiliaryStateByPaneID.values.compactMap(\.presentation.rememberedTitle).sorted(),
+            ["codex", "codex"]
+        )
+    }
+
     func test_import_falls_back_when_saved_working_directory_is_missing() throws {
         let missingPath = "/path/that/does/not/exist/\(UUID().uuidString)"
         let window = WorkspaceRecipe.Window(

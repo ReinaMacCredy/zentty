@@ -332,6 +332,74 @@ final class MainWindowControllerTests: XCTestCase {
         XCTAssertFalse(controller.window.isVisible)
     }
 
+    func test_transfer_last_pane_to_identical_worklane_keeps_source_and_target_panes() throws {
+        let controller = makeController()
+        controller.showWindow(nil)
+        waitForLayout()
+
+        let sourceWorklaneID = WorklaneID("source")
+        let targetWorklaneID = WorklaneID("target")
+        let sourcePaneID = PaneID("source-pane")
+        let targetPaneID = PaneID("target-pane")
+        let sharedCWD = "/tmp/shared-project"
+        let sharedRequest = TerminalSessionRequest(
+            workingDirectory: sharedCWD,
+            command: "codex",
+            surfaceContext: .window
+        )
+        let sharedShellContext = PaneShellContext(
+            scope: .local,
+            path: sharedCWD,
+            home: "/tmp",
+            user: "peter",
+            host: "mac"
+        )
+        let auxiliaryState = PaneAuxiliaryState(
+            raw: PaneRawState(
+                shellContext: sharedShellContext,
+                hasCommandHistory: true
+            )
+        )
+        let root = controller.rootViewControllerForTesting
+        root.replaceWorklanes([
+            WorklaneState(
+                id: sourceWorklaneID,
+                title: "SOURCE",
+                paneStripState: PaneStripState(
+                    panes: [PaneState(id: sourcePaneID, title: "codex", sessionRequest: sharedRequest)],
+                    focusedPaneID: sourcePaneID
+                ),
+                auxiliaryStateByPaneID: [sourcePaneID: auxiliaryState]
+            ),
+            WorklaneState(
+                id: targetWorklaneID,
+                title: "TARGET",
+                paneStripState: PaneStripState(
+                    panes: [PaneState(id: targetPaneID, title: "codex", sessionRequest: sharedRequest)],
+                    focusedPaneID: targetPaneID
+                ),
+                auxiliaryStateByPaneID: [targetPaneID: auxiliaryState]
+            ),
+        ], activeWorklaneID: targetWorklaneID)
+        waitForLayout("worklanes replaced", delay: 0.05)
+
+        controller.transferPaneToWorklaneInThisWindow(
+            paneID: sourcePaneID,
+            targetWorklaneID: targetWorklaneID
+        )
+        waitForLayout("pane transfer settled", delay: 0.05)
+
+        XCTAssertEqual(root.activeWorklaneIDForTesting, targetWorklaneID)
+        XCTAssertEqual(root.worklaneStore.worklanes.map(\.id), [targetWorklaneID])
+
+        let targetWorklane = try XCTUnwrap(root.worklaneStore.worklanes.first)
+        XCTAssertEqual(targetWorklane.paneStripState.panes.map(\.id), [targetPaneID, sourcePaneID])
+        XCTAssertEqual(targetWorklane.paneStripState.focusedPaneID, sourcePaneID)
+
+        let renderedPaneIDs = Set(root.appCanvasViewForTesting.descendantPaneViews().map(\.paneID))
+        XCTAssertEqual(renderedPaneIDs, [targetPaneID, sourcePaneID])
+    }
+
     func test_close_focused_pane_closes_window_without_followup_window_confirmation() throws {
         let configStore = AppConfigStore(
             fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.MainWindowController.CloseFocusedPane")

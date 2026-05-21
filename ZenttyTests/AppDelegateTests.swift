@@ -584,6 +584,103 @@ final class AppDelegateTests: XCTestCase {
         )
     }
 
+    func test_move_last_pane_to_existing_worklane_closes_source_window_without_closing_moved_pane() throws {
+        NSApp.mainMenu = nil
+
+        let adapterStore = CloseEmittingAdapterStore()
+        let delegate = AppDelegate(
+            runtimeRegistryFactory: {
+                PaneRuntimeRegistry(adapterFactory: { paneID in
+                    adapterStore.makeAdapter(for: paneID)
+                })
+            }
+        )
+        delegate.applicationDidFinishLaunching(Notification(name: NSApplication.didFinishLaunchingNotification))
+        delegate.newWindow(nil)
+        waitForAppWindows("windows opened")
+
+        let controllers = delegate.windowControllersForTesting
+        XCTAssertEqual(controllers.count, 2)
+
+        let destination = controllers[0]
+        let source = controllers[1]
+        let targetWorklaneID = WorklaneID("target")
+        let otherWorklaneID = WorklaneID("other")
+        let sourceWorklaneID = WorklaneID("source")
+        let existingPaneID = PaneID("existing-pane")
+        let movedPaneID = PaneID("moved-pane")
+        let otherPaneID = PaneID("other-pane")
+        let sharedCWD = "/tmp/shared-project"
+        let sharedRequest = TerminalSessionRequest(
+            workingDirectory: sharedCWD,
+            command: "codex",
+            surfaceContext: .window
+        )
+
+        destination.rootViewControllerForTesting.replaceWorklanes([
+            WorklaneState(
+                id: targetWorklaneID,
+                title: "TARGET",
+                paneStripState: PaneStripState(
+                    panes: [PaneState(id: existingPaneID, title: "codex", sessionRequest: sharedRequest)],
+                    focusedPaneID: existingPaneID
+                )
+            ),
+            WorklaneState(
+                id: otherWorklaneID,
+                title: "OTHER",
+                paneStripState: PaneStripState(
+                    panes: [PaneState(id: otherPaneID, title: "shell")],
+                    focusedPaneID: otherPaneID
+                )
+            ),
+        ], activeWorklaneID: targetWorklaneID)
+        source.rootViewControllerForTesting.replaceWorklanes([
+            WorklaneState(
+                id: sourceWorklaneID,
+                title: "SOURCE",
+                paneStripState: PaneStripState(
+                    panes: [PaneState(id: movedPaneID, title: "codex", sessionRequest: sharedRequest)],
+                    focusedPaneID: movedPaneID
+                )
+            )
+        ], activeWorklaneID: sourceWorklaneID)
+        waitForAppWindows("worklanes replaced", delay: 0.05)
+
+        XCTAssertTrue(adapterStore.createdPaneIDs.contains(movedPaneID))
+        adapterStore.paneIDThatEmitsSurfaceClosedOnClose = movedPaneID
+
+        let item = NSMenuItem()
+        item.representedObject = MovePaneToWorklaneRequest(
+            sourcePaneID: movedPaneID,
+            destinationWindowID: destination.windowIDForTesting,
+            destinationWorklaneID: targetWorklaneID
+        )
+        source.movePaneToWorklane(item)
+        waitForAppWindows("pane transfer settled")
+
+        XCTAssertEqual(delegate.windowControllerCount, 1)
+        let remainingDestination = try XCTUnwrap(
+            delegate.windowControllersForTesting.first { $0.windowIDForTesting == destination.windowIDForTesting }
+        )
+        XCTAssertEqual(remainingDestination.rootViewControllerForTesting.activeWorklaneIDForTesting, targetWorklaneID)
+
+        let targetWorklane = try XCTUnwrap(
+            remainingDestination.rootViewControllerForTesting.worklaneStore.worklanes
+                .first { $0.id == targetWorklaneID }
+        )
+        XCTAssertEqual(targetWorklane.paneStripState.panes.map(\.id), [existingPaneID, movedPaneID])
+        XCTAssertEqual(targetWorklane.paneStripState.focusedPaneID, movedPaneID)
+
+        let exportedTarget = try XCTUnwrap(
+            remainingDestination.workspaceRecipeWindow.worklanes.first { $0.id == targetWorklaneID.rawValue }
+        )
+        XCTAssertEqual(
+            exportedTarget.columns.flatMap(\.panes).map(\.id),
+            [existingPaneID.rawValue, movedPaneID.rawValue]
+        )
+    }
+
     func test_notification_navigation_targets_exact_origin_window_when_worklane_is_duplicated() throws {
         NSApp.mainMenu = nil
 
@@ -752,6 +849,52 @@ private extension AppDelegateTests {
         }
         wait(for: [expectation], timeout: 2.0)
     }
+}
+
+@MainActor
+private final class CloseEmittingAdapterStore {
+    var paneIDThatEmitsSurfaceClosedOnClose: PaneID?
+    private(set) var createdPaneIDs: [PaneID] = []
+
+    func makeAdapter(for paneID: PaneID) -> any TerminalAdapter {
+        createdPaneIDs.append(paneID)
+        return CloseEmittingTerminalAdapter(
+            emitsSurfaceClosedOnClose: paneID == paneIDThatEmitsSurfaceClosedOnClose
+        )
+    }
+}
+
+@MainActor
+private final class CloseEmittingTerminalAdapter: TerminalAdapter {
+    private let terminalView = TerminalSurfaceMockView()
+    private let emitsSurfaceClosedOnClose: Bool
+
+    var hasScrollback = false
+    var cellWidth: CGFloat = 0
+    var cellHeight: CGFloat = 0
+    var metadataDidChange: ((TerminalMetadata) -> Void)?
+    var eventDidOccur: ((TerminalEvent) -> Void)?
+
+    init(emitsSurfaceClosedOnClose: Bool) {
+        self.emitsSurfaceClosedOnClose = emitsSurfaceClosedOnClose
+    }
+
+    func makeTerminalView() -> NSView {
+        terminalView
+    }
+
+    func startSession(using request: TerminalSessionRequest) throws {
+        metadataDidChange?(TerminalMetadata(currentWorkingDirectory: request.workingDirectory))
+    }
+
+    func close() {
+        if emitsSurfaceClosedOnClose {
+            eventDidOccur?(.surfaceClosed)
+        }
+    }
+
+    func sendText(_ text: String) {}
+    func setSurfaceActivity(_ activity: TerminalSurfaceActivity) {}
 }
 
 private extension NSView {

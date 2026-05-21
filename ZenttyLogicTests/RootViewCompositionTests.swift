@@ -376,6 +376,95 @@ final class RootViewCompositionTests: AppKitTestCase {
         XCTAssertEqual(toast.frame.midX, canvasView.bounds.midX, accuracy: 0.5)
     }
 
+    func test_transfer_last_pane_to_identical_worklane_renders_both_panes() throws {
+        let controller = makeController(
+            initialLayoutContext: PaneLayoutContext(
+                displayClass: .largeDisplay,
+                preset: .balanced,
+                viewportWidth: 1280,
+                leadingVisibleInset: 0,
+                sizing: .balanced
+            )
+        )
+        controller.loadViewIfNeeded()
+        controller.view.frame = NSRect(x: 0, y: 0, width: 1280, height: 840)
+        controller.view.layoutSubtreeIfNeeded()
+
+        let sourceWorklaneID = WorklaneID("source")
+        let targetWorklaneID = WorklaneID("target")
+        let sourcePaneID = PaneID("source-pane")
+        let targetPaneID = PaneID("target-pane")
+        let sharedCWD = "/tmp/shared-project"
+        let sharedRequest = TerminalSessionRequest(
+            workingDirectory: sharedCWD,
+            command: "codex",
+            surfaceContext: .window
+        )
+        let sharedShellContext = PaneShellContext(
+            scope: .local,
+            path: sharedCWD,
+            home: "/tmp",
+            user: "peter",
+            host: "mac"
+        )
+
+        controller.replaceWorklanes([
+            WorklaneState(
+                id: sourceWorklaneID,
+                title: "SOURCE",
+                paneStripState: PaneStripState(
+                    panes: [
+                        PaneState(id: sourcePaneID, title: "codex", sessionRequest: sharedRequest)
+                    ],
+                    focusedPaneID: sourcePaneID
+                ),
+                auxiliaryStateByPaneID: [
+                    sourcePaneID: PaneAuxiliaryState(
+                        raw: PaneRawState(
+                            shellContext: sharedShellContext,
+                            hasCommandHistory: true
+                        )
+                    )
+                ]
+            ),
+            WorklaneState(
+                id: targetWorklaneID,
+                title: "TARGET",
+                paneStripState: PaneStripState(
+                    panes: [
+                        PaneState(id: targetPaneID, title: "codex", sessionRequest: sharedRequest)
+                    ],
+                    focusedPaneID: targetPaneID
+                ),
+                auxiliaryStateByPaneID: [
+                    targetPaneID: PaneAuxiliaryState(
+                        raw: PaneRawState(
+                            shellContext: sharedShellContext,
+                            hasCommandHistory: true
+                        )
+                    )
+                ]
+            ),
+        ], activeWorklaneID: sourceWorklaneID)
+
+        controller.worklaneStore.transferPaneToWorklane(
+            paneID: sourcePaneID,
+            targetWorklaneID: targetWorklaneID,
+            singleColumnWidth: controller.worklaneStore.layoutContext.singlePaneWidth
+        )
+        controller.view.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(controller.activeWorklaneIDForTesting, targetWorklaneID)
+        XCTAssertEqual(controller.worklaneStore.worklanes.map(\.id), [targetWorklaneID])
+
+        let targetWorklane = try XCTUnwrap(controller.worklaneStore.worklanes.first)
+        XCTAssertEqual(targetWorklane.paneStripState.panes.map(\.id), [targetPaneID, sourcePaneID])
+        XCTAssertEqual(targetWorklane.paneStripState.focusedPaneID, sourcePaneID)
+
+        let renderedPaneIDs = Set(controller.appCanvasViewForTesting.descendantPaneViews().map(\.paneID))
+        XCTAssertEqual(renderedPaneIDs, [targetPaneID, sourcePaneID])
+    }
+
     func test_global_search_uses_sidebar_row_instead_of_floating_hud() throws {
         let controller = makeController()
         controller.loadViewIfNeeded()
