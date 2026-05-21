@@ -22,6 +22,13 @@ private protocol LibghosttyScrollbarHandling: AnyObject {
     func applyScrollbarUpdate(_ update: LibghosttySurfaceScrollbarUpdate)
 }
 
+private enum TerminalBindingAction {
+    static let copyToClipboard = "copy_to_clipboard"
+    static let pasteFromClipboard = "paste_from_clipboard"
+    static let selectAll = "select_all"
+    static let scrollToBottom = "scroll_to_bottom"
+}
+
 protocol TerminalScrollFrameSampling: AnyObject, Sendable {
     var onFrame: (() -> Void)? { get set }
 
@@ -234,6 +241,8 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
     }
 
     private struct BackingMetricsTransition {
+        // AppKit reports backing changes before Ghostty emits fresh cell_size
+        // metrics, so bottom restoration waits for point-space cell metrics.
         var wasBottomPinned: Bool
         var receivedCellSize = false
     }
@@ -262,6 +271,7 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
     private var selectionAutoscrollTimer: Timer?
     private var lastSelectionAutoscrollTickTime: TimeInterval?
     private static let scrollToBottomThreshold: CGFloat = 5.0
+    private static let smoothElasticOverscrollMultiplier = 1.15
     private static let smoothScrollStableFrameLimit = 3
 
     var onScrollWheel: ((NSEvent) -> Bool)? {
@@ -344,7 +354,7 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
             self?.selectionAutoscrollController.setMouseLocation(location)
         }
         surfaceView.onBackingPropertiesDidChange = { [weak self] in
-            self?.scheduleBackingMetricsReconciliation()
+            self?.beginBackingMetricsReconciliation()
         }
         surfaceView.onCellSizeDidChange = { [weak self] in
             self?.handleTerminalCellSizeDidChange()
@@ -649,7 +659,7 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
         return max(60, min(240, framesPerSecond))
     }
 
-    private func scheduleBackingMetricsReconciliation() {
+    private func beginBackingMetricsReconciliation() {
         guard smoothScrollingEnabled else {
             return
         }
@@ -694,7 +704,7 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
         if shouldRestoreBottom {
             userScrolledAwayFromBottom = false
             allowExplicitScrollbarSync = true
-            _ = surfaceView.performBindingAction("scroll_to_bottom")
+            _ = surfaceView.performBindingAction(TerminalBindingAction.scrollToBottom)
         }
 
         needsLayout = true
@@ -814,6 +824,22 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
         return Double(maxOffset / cellHeight)
     }
 
+    private func elasticLiveRowOffset(_ rowOffset: Double) -> Double {
+        guard let maxOffset = maxLiveRowOffset() else {
+            return rowOffset
+        }
+
+        if rowOffset < 0 {
+            return rowOffset * Self.smoothElasticOverscrollMultiplier
+        }
+
+        if rowOffset > maxOffset {
+            return maxOffset + ((rowOffset - maxOffset) * Self.smoothElasticOverscrollMultiplier)
+        }
+
+        return rowOffset
+    }
+
     private func isPinnedToScrollbarBottom() -> Bool {
         let cellHeight = terminalCellHeightPoints
         guard cellHeight > 0,
@@ -824,6 +850,11 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
 
         let maxOffset = max(0, Double(scrollbarUpdate.total) - Double(scrollbarUpdate.len))
         let bottomSnapRows = Double(Self.scrollToBottomThreshold / cellHeight)
+        if !userScrolledAwayFromBottom,
+           rowsBelowViewport(for: scrollbarUpdate) <= bottomSnapRows {
+            return true
+        }
+
         return maxOffset - min(currentRowOffset, maxOffset) <= bottomSnapRows
     }
 
@@ -1000,12 +1031,22 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
         }
         synchronizeSurfaceView()
         if programmaticScrollUpdateDepth == 0,
-           backingMetricsTransition?.wasBottomPinned != true || isLiveScrolling {
+           shouldRecordUserScrollChange() {
             updateUserScrolledAwayFromBottomState()
         }
     }
 
+    private func shouldRecordUserScrollChange() -> Bool {
+        if smoothScrollingEnabled {
+            return isLiveScrolling
+        }
+
+        return backingMetricsTransition?.wasBottomPinned != true || isLiveScrolling
+    }
+
     private func performProgrammaticScrollUpdate(_ body: () -> Void) {
+        // Internal scroll synchronization also emits bounds-change notifications;
+        // those must not be treated as user intent to leave the bottom.
         programmaticScrollUpdateDepth += 1
         defer {
             programmaticScrollUpdateDepth -= 1
@@ -1030,7 +1071,7 @@ final class LibghosttySurfaceScrollHostView: NSView, TerminalViewportSyncControl
 
         let offset: Double
         if smoothScrollingEnabled {
-            offset = Double(rawScrollOffset / cellHeight)
+            offset = elasticLiveRowOffset(Double(rawScrollOffset / cellHeight))
         } else {
             offset = normalizedScrollOffset(
                 clampedLiveScrollOffset(forScrollOffset: clampedScrollOffset, cellHeight: cellHeight)
@@ -1153,12 +1194,6 @@ final class LibghosttyView: NSView, TerminalFocusReporting, TerminalViewportDiag
         let size: CGSize
         let scale: CGFloat
         let displayID: UInt32?
-    }
-
-    private enum BindingAction {
-        static let copyToClipboard = "copy_to_clipboard"
-        static let pasteFromClipboard = "paste_from_clipboard"
-        static let selectAll = "select_all"
     }
 
     private static let terminalCommandSelectors: [Selector] = [
@@ -1625,14 +1660,14 @@ final class LibghosttyView: NSView, TerminalFocusReporting, TerminalViewportDiag
     @IBAction func copy(_ sender: Any?) {
         if CleanCopyPipeline.shouldCleanTerminalCopyAction() {
             CleanCopyPipeline.suppressCallbackCleaning = true
-            _ = surfaceController?.performBindingAction(BindingAction.copyToClipboard)
+            _ = surfaceController?.performBindingAction(TerminalBindingAction.copyToClipboard)
             CleanCopyPipeline.suppressCallbackCleaning = false
             let result = CleanCopyPipeline.cleanPasteboardInPlace(.general)
             if result?.wasModified == true {
                 NotificationCenter.default.post(name: .cleanCopyDidModifyPasteboard, object: nil)
             }
         } else {
-            _ = surfaceController?.performBindingAction(BindingAction.copyToClipboard)
+            _ = surfaceController?.performBindingAction(TerminalBindingAction.copyToClipboard)
         }
     }
 
@@ -1707,11 +1742,11 @@ final class LibghosttyView: NSView, TerminalFocusReporting, TerminalViewportDiag
     }
 
     @IBAction func paste(_ sender: Any?) {
-        _ = surfaceController?.performBindingAction(BindingAction.pasteFromClipboard)
+        _ = surfaceController?.performBindingAction(TerminalBindingAction.pasteFromClipboard)
     }
 
     @IBAction override func selectAll(_ sender: Any?) {
-        _ = surfaceController?.performBindingAction(BindingAction.selectAll)
+        _ = surfaceController?.performBindingAction(TerminalBindingAction.selectAll)
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {

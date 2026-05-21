@@ -438,7 +438,7 @@ final class LibghosttySurfaceScrollHostViewTests: AppKitTestCase {
         scrollView.reflectScrolledClipView(scrollView.contentView)
         NotificationCenter.default.post(name: NSScrollView.didLiveScrollNotification, object: scrollView)
 
-        XCTAssertLessThan(try XCTUnwrap(harness.surface.sentScrollOffsets.last), 0)
+        XCTAssertEqual(try XCTUnwrap(harness.surface.sentScrollOffsets.last), -0.575, accuracy: 0.001)
     }
 
     func test_smooth_live_scroll_sends_above_bottom_elastic_offset() throws {
@@ -451,7 +451,7 @@ final class LibghosttySurfaceScrollHostViewTests: AppKitTestCase {
         scrollView.reflectScrolledClipView(scrollView.contentView)
         NotificationCenter.default.post(name: NSScrollView.didLiveScrollNotification, object: scrollView)
 
-        XCTAssertGreaterThan(try XCTUnwrap(harness.surface.sentScrollOffsets.last), 190)
+        XCTAssertEqual(try XCTUnwrap(harness.surface.sentScrollOffsets.last), 190.575, accuracy: 0.001)
     }
 
     func test_smooth_backing_metrics_change_reanchors_bottom_from_scrollbar() throws {
@@ -536,6 +536,56 @@ final class LibghosttySurfaceScrollHostViewTests: AppKitTestCase {
         XCTAssertEqual(scrollView.contentView.bounds.origin.y, 0, accuracy: 0.01)
     }
 
+    func test_smooth_backing_cell_size_cycle_preserves_bottom_pin() throws {
+        let harness = makeScrollHostHarness(
+            smoothScrollingEnabled: true,
+            backingScale: 1,
+            cellHeight: 16
+        )
+        harness.hostView.applyScrollbarUpdate(.init(total: 200, offset: 190, len: 10))
+        let scrollView = try scrollView(from: harness.hostView)
+        XCTAssertEqual(scrollView.contentView.bounds.origin.y, 0, accuracy: 0.01)
+
+        harness.surfaceView.layer?.contentsScale = 2
+        harness.surfaceView.viewDidChangeBackingProperties()
+        harness.surfaceView.applyCellSizeUpdate(width: 16, height: 32)
+        harness.hostView.applyScrollbarUpdate(.init(total: 200, offset: 190, len: 10))
+        XCTAssertEqual(scrollView.contentView.bounds.origin.y, 0, accuracy: 0.01)
+
+        harness.surfaceView.layer?.contentsScale = 1
+        harness.surfaceView.viewDidChangeBackingProperties()
+        harness.surfaceView.applyCellSizeUpdate(width: 8, height: 16)
+        harness.hostView.applyScrollbarUpdate(.init(total: 200, offset: 190, len: 10))
+
+        XCTAssertTrue(harness.surface.bindingActions.contains("scroll_to_bottom"))
+        XCTAssertEqual(scrollView.contentView.bounds.origin.y, 0, accuracy: 0.01)
+        XCTAssertEqual(harness.surfaceView.frame.origin.y, 0, accuracy: 0.01)
+    }
+
+    func test_smooth_backing_change_preserves_bottom_pin_after_appkit_prepositions_clip_view() throws {
+        let harness = makeScrollHostHarness(
+            smoothScrollingEnabled: true,
+            backingScale: 1,
+            cellHeight: 16
+        )
+        harness.hostView.applyScrollbarUpdate(.init(total: 200, offset: 190, len: 10))
+        let scrollView = try scrollView(from: harness.hostView)
+        XCTAssertEqual(scrollView.contentView.bounds.origin.y, 0, accuracy: 0.01)
+
+        scrollView.contentView.scroll(to: CGPoint(x: 0, y: 800))
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+        NotificationCenter.default.post(name: NSView.boundsDidChangeNotification, object: scrollView.contentView)
+
+        harness.surfaceView.layer?.contentsScale = 2
+        harness.surfaceView.viewDidChangeBackingProperties()
+        harness.surfaceView.applyCellSizeUpdate(width: 16, height: 32)
+        harness.hostView.applyScrollbarUpdate(.init(total: 200, offset: 190, len: 10))
+
+        XCTAssertTrue(harness.surface.bindingActions.contains("scroll_to_bottom"))
+        XCTAssertEqual(scrollView.contentView.bounds.origin.y, 0, accuracy: 0.01)
+        XCTAssertEqual(harness.surfaceView.frame.origin.y, 0, accuracy: 0.01)
+    }
+
     func test_smooth_backing_cell_size_update_does_not_force_bottom_when_scrolled_away() throws {
         let harness = makeScrollHostHarness(
             smoothScrollingEnabled: true,
@@ -544,9 +594,12 @@ final class LibghosttySurfaceScrollHostViewTests: AppKitTestCase {
         )
         harness.hostView.applyScrollbarUpdate(.init(total: 200, offset: 190, len: 10))
         let scrollView = try scrollView(from: harness.hostView)
+
+        NotificationCenter.default.post(name: NSScrollView.willStartLiveScrollNotification, object: scrollView)
         scrollView.contentView.scroll(to: CGPoint(x: 0, y: 160))
         scrollView.reflectScrolledClipView(scrollView.contentView)
         NotificationCenter.default.post(name: NSView.boundsDidChangeNotification, object: scrollView.contentView)
+        NotificationCenter.default.post(name: NSScrollView.didLiveScrollNotification, object: scrollView)
 
         harness.surfaceView.layer?.contentsScale = 1
         harness.surfaceView.viewDidChangeBackingProperties()
