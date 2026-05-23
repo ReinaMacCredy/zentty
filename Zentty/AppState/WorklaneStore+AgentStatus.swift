@@ -527,11 +527,18 @@ extension WorklaneStore {
                 auxiliaryState.raw.lastRunCommand = Self.trimmedShellCommand(payload.shellCommand)
                 auxiliaryState.raw.restoredRerunnableCommand = nil
                 auxiliaryState.presentation.lastActivityTitle = nil
-                if auxiliaryState.raw.restoredAgentRestoreDraft != nil {
+                if let restoredDraft = auxiliaryState.raw.restoredAgentRestoreDraft {
                     if auxiliaryState.raw.restoredAgentAutoResumePending {
                         auxiliaryState.raw.restoredAgentAutoResumePending = false
-                    } else {
+                    } else if Self.shouldClearRestoredAgentRestoreDraftOnCommandRunning(
+                        restoredDraft: restoredDraft,
+                        payload: payload,
+                        pane: worklane.paneStripState.panes.first { $0.id == payload.paneID },
+                        auxiliaryState: auxiliaryState
+                    ) {
                         auxiliaryState.raw.restoredAgentRestoreDraft = nil
+                        auxiliaryState.raw.restoredAgentAutoResumePending = false
+                    } else {
                         auxiliaryState.raw.restoredAgentAutoResumePending = false
                     }
                 } else {
@@ -1685,6 +1692,37 @@ extension WorklaneStore {
         }
 
         return errno == EPERM
+    }
+
+    private static func shouldClearRestoredAgentRestoreDraftOnCommandRunning(
+        restoredDraft: PaneRestoreDraft,
+        payload: AgentStatusPayload,
+        pane: PaneState?,
+        auxiliaryState: PaneAuxiliaryState
+    ) -> Bool {
+        guard AgentTool.resolve(named: restoredDraft.toolName) == .codex else {
+            return true
+        }
+
+        if let pane,
+           SessionRestoreDraftExporter.makeLivePaneDraft(
+               paneID: payload.paneID,
+               pane: pane,
+               auxiliary: auxiliaryState,
+               isProcessAlive: Self.isProcessAlive(pid:)
+           ) != nil {
+            return true
+        }
+
+        if AgentTool.resolve(named: payload.toolName) == .codex {
+            return false
+        }
+
+        if trimmedShellCommand(payload.shellCommand) == AgentResumeCommandBuilder.command(for: restoredDraft) {
+            return false
+        }
+
+        return true
     }
 
     private static func trimmedShellCommand(_ value: String?) -> String? {

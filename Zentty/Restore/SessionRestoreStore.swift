@@ -316,7 +316,7 @@ enum SessionRestoreDraftExporter {
         return restoredDraft
     }
 
-    private static func makeLivePaneDraft(
+    static func makeLivePaneDraft(
         paneID: PaneID,
         pane: PaneState,
         auxiliary: PaneAuxiliaryState,

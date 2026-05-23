@@ -1531,6 +1531,73 @@ final class WorkspaceRecipeTests: XCTestCase {
         )
     }
 
+    func test_exporter_keeps_restored_codex_restore_draft_without_live_identity_after_resume_command() {
+        let paneID = PaneID("pane-agent")
+        let restoredDraft = PaneRestoreDraft(
+            paneID: "pane-agent",
+            kind: .agentResume,
+            toolName: "Codex",
+            sessionID: "019e4548-2fab-7542-9d5b-378a5da96fa5",
+            workingDirectory: "/tmp/old-project",
+            trackedPID: 4242
+        )
+        let worklane = WorklaneState(
+            id: WorklaneID("main"),
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [
+                    PaneState(
+                        id: paneID,
+                        title: "Codex",
+                        sessionRequest: TerminalSessionRequest(
+                            workingDirectory: "/tmp/project",
+                            command: "codex resume 019e4548-2fab-7542-9d5b-378a5da96fa5"
+                        )
+                    )
+                ],
+                focusedPaneID: paneID
+            ),
+            nextPaneNumber: 2,
+            auxiliaryStateByPaneID: [
+                paneID: PaneAuxiliaryState(
+                    raw: PaneRawState(
+                        shellContext: PaneShellContext(
+                            scope: .local,
+                            path: "/tmp/project",
+                            home: "/Users/peter",
+                            user: "peter",
+                            host: nil
+                        ),
+                        shellActivityState: .commandRunning,
+                        lastRunCommand: "codex resume 019e4548-2fab-7542-9d5b-378a5da96fa5",
+                        restoredAgentRestoreDraft: restoredDraft
+                    ),
+                    presentation: PanePresentationState(cwd: "/tmp/project")
+                )
+            ]
+        )
+
+        let drafts = SessionRestoreDraftExporter.makeWindowDrafts(
+            windowID: WindowID("window-main"),
+            worklanes: [worklane],
+            isProcessAlive: { _ in false }
+        )
+
+        XCTAssertEqual(
+            drafts?.paneDrafts,
+            [
+                PaneRestoreDraft(
+                    paneID: "pane-agent",
+                    kind: .agentResume,
+                    toolName: "Codex",
+                    sessionID: "019e4548-2fab-7542-9d5b-378a5da96fa5",
+                    workingDirectory: "/tmp/project",
+                    trackedPID: 4242
+                )
+            ]
+        )
+    }
+
     func test_exporter_persists_idle_codex_restore_draft_after_visible_status_expires() {
         let paneID = PaneID("pane-agent")
         let startedAt = Date(timeIntervalSince1970: 100)
