@@ -159,12 +159,61 @@ final class MenuBarStatusIconRendererTests: XCTestCase {
         )
     }
 
-    func test_antigravity_agent_icon_uses_generated_fallback() {
+    func test_antigravity_agent_icon_reuses_gemini_bundled_asset() {
         XCTAssertEqual(
             MenuBarStatusIconRenderer.agentIconSource(for: .agy),
-            .generatedFallback
+            .bundledAsset,
+            "Antigravity should reuse the Gemini mark, not a generated fallback"
         )
         XCTAssertNotNil(MenuBarStatusIconRenderer.agentIconTemplateImage(for: .agy))
+    }
+
+    func test_agent_icon_draw_rect_preserves_aspect_ratio_for_portrait_marks() {
+        let canvas = MenuBarStatusIconRenderer.agentIconSide
+
+        // OpenCode's 240x300 portrait viewBox must stay a portrait rectangle,
+        // not be squished into a square.
+        let openCode = MenuBarStatusIconRenderer.agentIconDrawRect(
+            naturalSize: NSSize(width: 240, height: 300),
+            scale: MenuBarStatusIconRenderer.agentIconScale(for: .openCode),
+            canvasSide: canvas
+        )
+        XCTAssertLessThan(openCode.width, openCode.height)
+        XCTAssertEqual(openCode.height, canvas, accuracy: 0.001)
+
+        // OpenCode is squeezed even narrower than its native 0.8 aspect.
+        XCTAssertLessThan(MenuBarStatusIconRenderer.agentIconWidthScale(for: .openCode), 1)
+        XCTAssertEqual(MenuBarStatusIconRenderer.agentIconWidthScale(for: .claudeCode), 1, accuracy: 0.0001)
+
+        // Square marks at scale 1 fill the canvas exactly.
+        let square = MenuBarStatusIconRenderer.agentIconDrawRect(
+            naturalSize: NSSize(width: 24, height: 24),
+            scale: 1,
+            canvasSide: canvas
+        )
+        XCTAssertEqual(square.width, canvas, accuracy: 0.001)
+        XCTAssertEqual(square.height, canvas, accuracy: 0.001)
+    }
+
+    func test_per_agent_icon_scale_shrinks_claude_and_grows_droid() {
+        XCTAssertEqual(MenuBarStatusIconRenderer.agentIconScale(for: .claudeCode), 0.85, accuracy: 0.0001)
+        XCTAssertEqual(MenuBarStatusIconRenderer.agentIconScale(for: .droid), 1.25, accuracy: 0.0001)
+        XCTAssertEqual(MenuBarStatusIconRenderer.agentIconScale(for: .kimi), 0.8, accuracy: 0.0001)
+        XCTAssertEqual(MenuBarStatusIconRenderer.agentIconScale(for: .codex), 1, accuracy: 0.0001)
+
+        let canvas = MenuBarStatusIconRenderer.agentIconSide
+        let claude = MenuBarStatusIconRenderer.agentIconDrawRect(
+            naturalSize: NSSize(width: 24, height: 24),
+            scale: MenuBarStatusIconRenderer.agentIconScale(for: .claudeCode),
+            canvasSide: canvas
+        )
+        let droid = MenuBarStatusIconRenderer.agentIconDrawRect(
+            naturalSize: NSSize(width: 508, height: 508),
+            scale: MenuBarStatusIconRenderer.agentIconScale(for: .droid),
+            canvasSide: canvas
+        )
+        XCTAssertLessThan(claude.width, canvas)
+        XCTAssertGreaterThan(droid.width, claude.width)
     }
 
     func test_required_menu_bar_asset_names_are_present_in_bundle_or_source_catalog() {

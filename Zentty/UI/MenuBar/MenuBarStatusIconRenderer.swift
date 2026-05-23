@@ -45,10 +45,87 @@ enum MenuBarStatusIconRenderer {
     }
 
     static func agentIconTemplateImage(for agentTool: AgentTool) -> NSImage? {
-        let image = resolvedAgentIconImage(for: agentTool)
-        image.size = NSSize(width: agentIconSide, height: agentIconSide)
-        image.isTemplate = true
-        return image
+        let glyph = resolvedAgentIconImage(for: agentTool)
+        // Apply an optional per-agent horizontal squeeze (e.g. a narrower
+        // OpenCode rectangle) to the fit size before aspect-fitting.
+        let fitSize = NSSize(
+            width: glyph.size.width * agentIconWidthScale(for: agentTool),
+            height: glyph.size.height
+        )
+        let drawRect = agentIconDrawRect(
+            naturalSize: fitSize,
+            scale: agentIconScale(for: agentTool),
+            canvasSide: agentIconSide
+        )
+
+        // Bake the glyph into a square canvas at its natural aspect ratio and
+        // per-agent scale (with transparent padding). Keeping the canvas square
+        // preserves the row icon size contract while letting non-square marks
+        // (e.g. OpenCode's portrait logo) render without being stretched.
+        let template = NSImage(size: NSSize(width: agentIconSide, height: agentIconSide))
+        template.lockFocus()
+        glyph.draw(
+            in: drawRect,
+            from: NSRect(origin: .zero, size: glyph.size),
+            operation: .sourceOver,
+            fraction: 1
+        )
+        template.unlockFocus()
+        template.isTemplate = true
+        return template
+    }
+
+    /// Per-agent visual scale within the icon canvas. Logos differ in how much
+    /// of their viewBox the mark occupies, so a few are nudged for optical
+    /// balance against the rest of the set.
+    static func agentIconScale(for agentTool: AgentTool) -> CGFloat {
+        switch agentTool {
+        case .claudeCode:
+            return 0.85
+        case .droid:
+            return 1.25
+        case .kimi:
+            return 0.8
+        default:
+            return 1
+        }
+    }
+
+    /// Per-agent horizontal squeeze applied before aspect-fitting. Lets a mark
+    /// render as a narrower rectangle (OpenCode) without editing its viewBox.
+    static func agentIconWidthScale(for agentTool: AgentTool) -> CGFloat {
+        switch agentTool {
+        case .openCode:
+            return 0.75
+        default:
+            return 1
+        }
+    }
+
+    /// Aspect-fits `naturalSize` into a `canvasSide * scale` box, centered in the
+    /// canvas. Square marks at scale 1 fill the canvas exactly; portrait/landscape
+    /// marks keep their aspect ratio instead of being squished to a square.
+    static func agentIconDrawRect(
+        naturalSize: NSSize,
+        scale: CGFloat,
+        canvasSide: CGFloat
+    ) -> NSRect {
+        let box = canvasSide * scale
+        var width = box
+        var height = box
+        if naturalSize.width > 0, naturalSize.height > 0 {
+            if naturalSize.width >= naturalSize.height {
+                height = box * (naturalSize.height / naturalSize.width)
+            } else {
+                width = box * (naturalSize.width / naturalSize.height)
+            }
+        }
+        return NSRect(
+            x: (canvasSide - width) / 2,
+            y: (canvasSide - height) / 2,
+            width: width,
+            height: height
+        )
     }
 
     static func agentIconImage(
@@ -383,7 +460,8 @@ enum MenuBarStatusIconRenderer {
         case .grok:
             return "AgentIconGrok"
         case .agy:
-            return nil
+            // Antigravity reuses the Gemini mark (Antigravity is Google's agent).
+            return "AgentIconGemini"
         case .custom:
             return nil
         }
