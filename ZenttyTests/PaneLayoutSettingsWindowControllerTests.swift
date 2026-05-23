@@ -18,7 +18,7 @@ final class SettingsWindowControllerTests: XCTestCase {
         super.tearDown()
     }
 
-    func test_settings_window_uses_toolbar_tab_shell_and_shows_requested_panes_section() throws {
+    func test_settings_window_uses_sidebar_split_shell_and_shows_requested_panes_section() throws {
         let store = AppConfigStore(
             fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
         )
@@ -36,14 +36,22 @@ final class SettingsWindowControllerTests: XCTestCase {
         contentController.loadViewIfNeeded()
         waitForLayout()
 
-        let tabController = try XCTUnwrap(controller.window?.contentViewController as? NSTabViewController)
+        // SettingsViewController is itself the window's split-view controller
+        // (required for the full-height sidebar), so assert on it directly.
+        let splitController: NSSplitViewController = contentController
+        XCTAssertEqual(splitController.splitViewItems.count, 2)
+        XCTAssertFalse(splitController.splitViewItems.first?.canCollapse == true)
+        XCTAssertTrue(splitController.splitViewItems.first?.allowsFullHeightLayout == true)
 
-        XCTAssertEqual(tabController.tabStyle, .toolbar)
-        XCTAssertNotNil(controller.window?.toolbar)
-        XCTAssertFalse(controller.window?.styleMask.contains(.resizable) == true)
+        let visibleContentView = try XCTUnwrap(controller.window?.contentView)
+        XCTAssertNotNil(visibleContentView.firstDescendant(ofType: NSTableView.self))
+        XCTAssertTrue(controller.window?.styleMask.contains(.resizable) == true)
         XCTAssertEqual(
             contentController.sectionTitles,
-            ["General", "Appearance", "Shortcuts", "Open With", "Dev Servers", "Panes", "Agents"]
+            [
+                "General", "Appearance", "Shortcuts", "Notifications", "Updates & Privacy",
+                "Panes", "Open With", "Dev Servers", "Agents",
+            ]
         )
         XCTAssertEqual(contentController.selectedSection, .paneLayout)
         XCTAssertEqual(controller.window?.title, "Panes")
@@ -271,11 +279,7 @@ final class SettingsWindowControllerTests: XCTestCase {
         let contentController = try XCTUnwrap(
             controller.window?.contentViewController as? SettingsViewController
         )
-        let tabController = try XCTUnwrap(
-            controller.window?.contentViewController as? NSTabViewController
-        )
-
-        tabController.tabView.selectTabViewItem(at: 1)
+        contentController.select(section: .appearance)
         waitForLayout("appearance selected from general", delay: 0.2)
 
         XCTAssertEqual(contentController.selectedSection, .appearance)
@@ -309,31 +313,6 @@ final class SettingsWindowControllerTests: XCTestCase {
         XCTAssertNotNil(visibleContentView.firstDescendant(ofType: NSSearchField.self))
         XCTAssertNotNil(visibleContentView.firstDescendant(ofType: NSTableView.self))
         XCTAssertTrue(visibleContentView.containsDescendant(named: "ThemePreviewPanel"))
-    }
-
-    func test_settings_window_toolbar_icons_include_bottom_padding_for_label_spacing() throws {
-        let store = AppConfigStore(
-            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
-        )
-        let controller = SettingsWindowController(
-            configStore: store,
-            initialSection: .paneLayout
-        )
-        addTeardownBlock { controller.window?.close() }
-
-        let tabController = try XCTUnwrap(controller.window?.contentViewController as? NSTabViewController)
-
-        for (index, section) in SettingsSection.allCases.enumerated() {
-            let tabItem = tabController.tabViewItems[index]
-            let image = try XCTUnwrap(tabItem.image)
-            let unpaddedImage = try XCTUnwrap(unpaddedToolbarImage(for: section))
-
-            XCTAssertGreaterThanOrEqual(
-                image.size.height,
-                unpaddedImage.size.height + 4,
-                "Expected \(section.title) toolbar icon to reserve label spacing"
-            )
-        }
     }
 
     func test_settings_window_can_switch_to_agents_section_and_read_agent_team_setting() throws {
@@ -481,7 +460,7 @@ final class SettingsWindowControllerTests: XCTestCase {
         XCTAssertFalse(agentsController.isAgentTeamsSwitchOn)
     }
 
-    func test_settings_window_auto_sizes_selected_pane_without_exceeding_screen_cap() throws {
+    func test_settings_window_size_is_stable_across_section_switch() throws {
         let store = AppConfigStore(
             fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
         )
@@ -495,7 +474,6 @@ final class SettingsWindowControllerTests: XCTestCase {
         waitForLayout()
 
         let initialFrame = try XCTUnwrap(controller.window?.frame)
-        let maxAllowedHeight = ((controller.window?.screen?.visibleFrame.height ?? NSScreen.main?.visibleFrame.height) ?? 0) * (2.0 / 3.0)
 
         controller.show(section: .shortcuts, sender: nil)
         waitForLayout("shortcuts settled", delay: 0.2)
@@ -503,9 +481,133 @@ final class SettingsWindowControllerTests: XCTestCase {
         let shortcutsFrame = try XCTUnwrap(controller.window?.frame)
 
         XCTAssertEqual(shortcutsFrame.width, initialFrame.width, accuracy: 1.0)
-        XCTAssertLessThanOrEqual(initialFrame.height, maxAllowedHeight + 2.0)
-        XCTAssertLessThanOrEqual(shortcutsFrame.height, maxAllowedHeight + 2.0)
-        XCTAssertEqual(shortcutsFrame.maxY, initialFrame.maxY, accuracy: 2.0)
+        XCTAssertEqual(shortcutsFrame.height, initialFrame.height, accuracy: 1.0)
+    }
+
+    func test_settings_window_has_back_forward_navigation_control() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
+        )
+        let controller = SettingsWindowController(configStore: store, initialSection: .general)
+        addTeardownBlock { controller.window?.close() }
+
+        controller.show(section: .general, sender: nil)
+        waitForLayout()
+
+        let segmented = try XCTUnwrap(controller.navigationSegmentedControlForTesting)
+        XCTAssertEqual(segmented.segmentCount, 2)
+
+        let identifiers = controller.navigationToolbarItemIdentifiersForTesting.map(\.rawValue)
+        XCTAssertTrue(identifiers.contains("be.zenjoy.Zentty.settings.backForward"))
+        XCTAssertTrue(identifiers.contains("be.zenjoy.Zentty.settings.sidebarTrackingSeparator"))
+    }
+
+    func test_back_and_forward_replay_visited_sections() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
+        )
+        let controller = SettingsWindowController(configStore: store, initialSection: .general)
+        addTeardownBlock { controller.window?.close() }
+
+        controller.show(section: .general, sender: nil)
+        waitForLayout()
+
+        let contentController = try XCTUnwrap(
+            controller.window?.contentViewController as? SettingsViewController
+        )
+        contentController.select(section: .appearance)
+        contentController.select(section: .shortcuts)
+        waitForLayout()
+
+        contentController.goBack()
+        XCTAssertEqual(contentController.selectedSection, .appearance)
+        contentController.goBack()
+        XCTAssertEqual(contentController.selectedSection, .general)
+        XCTAssertFalse(contentController.canGoBack)
+        XCTAssertTrue(contentController.canGoForward)
+
+        contentController.goForward()
+        XCTAssertEqual(contentController.selectedSection, .appearance)
+
+        // The detail content follows the replayed section.
+        XCTAssertTrue(
+            contentController.currentSectionViewController is AppearanceSettingsSectionViewController
+        )
+    }
+
+    func test_back_key_equivalent_allows_caps_lock_but_not_shift() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
+        )
+        let controller = SettingsWindowController(configStore: store, initialSection: .general)
+        addTeardownBlock { controller.window?.close() }
+
+        controller.show(section: .general, sender: nil)
+        waitForLayout()
+
+        let contentController = try XCTUnwrap(
+            controller.window?.contentViewController as? SettingsViewController
+        )
+        contentController.select(section: .appearance)
+
+        let shiftedBack = try XCTUnwrap(settingsNavigationKeyEvent("[", modifiers: [.command, .shift]))
+        XCTAssertFalse(contentController.handlePerformKeyEquivalent(shiftedBack))
+        XCTAssertEqual(contentController.selectedSection, .appearance)
+
+        let capsLockBack = try XCTUnwrap(settingsNavigationKeyEvent("[", modifiers: [.command, .capsLock]))
+        XCTAssertTrue(contentController.handlePerformKeyEquivalent(capsLockBack))
+        XCTAssertEqual(contentController.selectedSection, .general)
+    }
+
+    func test_navigating_after_going_back_truncates_forward_history() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
+        )
+        let controller = SettingsWindowController(configStore: store, initialSection: .general)
+        addTeardownBlock { controller.window?.close() }
+
+        controller.show(section: .general, sender: nil)
+        waitForLayout()
+
+        let contentController = try XCTUnwrap(
+            controller.window?.contentViewController as? SettingsViewController
+        )
+        contentController.select(section: .appearance)
+        contentController.select(section: .shortcuts)
+        contentController.goBack() // back to appearance
+
+        contentController.select(section: .notifications)
+
+        XCTAssertEqual(contentController.selectedSection, .notifications)
+        XCTAssertFalse(contentController.canGoForward)
+        XCTAssertTrue(contentController.canGoBack)
+    }
+
+    func test_navigation_control_enabled_state_tracks_history_ends() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
+        )
+        let controller = SettingsWindowController(configStore: store, initialSection: .general)
+        addTeardownBlock { controller.window?.close() }
+
+        controller.show(section: .general, sender: nil)
+        waitForLayout()
+
+        let segmented = try XCTUnwrap(controller.navigationSegmentedControlForTesting)
+        let contentController = try XCTUnwrap(
+            controller.window?.contentViewController as? SettingsViewController
+        )
+
+        XCTAssertFalse(segmented.isEnabled(forSegment: 0))
+        XCTAssertFalse(segmented.isEnabled(forSegment: 1))
+
+        contentController.select(section: .appearance)
+        XCTAssertTrue(segmented.isEnabled(forSegment: 0))
+        XCTAssertFalse(segmented.isEnabled(forSegment: 1))
+
+        contentController.goBack()
+        XCTAssertFalse(segmented.isEnabled(forSegment: 0))
+        XCTAssertTrue(segmented.isEnabled(forSegment: 1))
     }
 
     func test_shortcuts_pane_uses_internal_browser_scroller() throws {
@@ -531,6 +633,9 @@ final class SettingsWindowControllerTests: XCTestCase {
         XCTAssertTrue(shortcutsController.isSearchFieldFullyVisibleForTesting)
         XCTAssertTrue(shortcutsController.isFirstCategoryHeaderFullyVisibleForTesting)
         XCTAssertTrue(shortcutsController.browserHasVerticalScrollerForTesting)
+        XCTAssertFalse(
+            try XCTUnwrap(shortcutsController.view.firstDescendant(ofType: NSTableView.self)).floatsGroupRows
+        )
         XCTAssertTrue(shortcutsController.visibleCommandTitles.contains("Toggle Sidebar"))
         XCTAssertTrue(shortcutsController.visibleCommandTitles.contains("Reset Pane Layout"))
     }
@@ -548,13 +653,15 @@ final class SettingsWindowControllerTests: XCTestCase {
         controller.show(section: .shortcuts, sender: nil)
         waitForLayout()
 
-        let windowContentView = try XCTUnwrap(controller.window?.contentView)
         let contentController = try XCTUnwrap(
             controller.window?.contentViewController as? SettingsViewController
         )
         let shortcutsController = try XCTUnwrap(
             contentController.currentSectionViewController as? ShortcutsSettingsSectionViewController
         )
+        // Measure insets relative to the section's own pane (the detail split
+        // item), not the window — the sidebar offsets window coordinates.
+        let windowContentView: NSView = shortcutsController.view
         shortcutsController.selectCommandForTesting(.navigateBack)
         waitForLayout()
 
@@ -722,13 +829,12 @@ final class SettingsWindowControllerTests: XCTestCase {
         XCTAssertTrue(shortcutsController.selectedRowUsesEmphasizedTextColorForTesting)
     }
 
-    func test_settings_window_applies_injected_appearance() throws {
+    func test_settings_window_follows_system_appearance() throws {
         let store = AppConfigStore(
             fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
         )
         let controller = SettingsWindowController(
             configStore: store,
-            appearance: NSAppearance(named: .darkAqua),
             initialSection: .general
         )
         addTeardownBlock { controller.window?.close() }
@@ -736,33 +842,9 @@ final class SettingsWindowControllerTests: XCTestCase {
         controller.showWindowForHostedTesting(nil)
         waitForLayout()
 
-        XCTAssertEqual(
-            controller.window?.appearance?.bestMatch(from: [.darkAqua, .aqua]),
-            .darkAqua
-        )
-    }
-
-    func test_settings_window_applyAppearance_updates_window_appearance() throws {
-        let store = AppConfigStore(
-            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
-        )
-        let controller = SettingsWindowController(
-            configStore: store,
-            appearance: NSAppearance(named: .aqua),
-            initialSection: .shortcuts
-        )
-        addTeardownBlock { controller.window?.close() }
-
-        controller.showWindowForHostedTesting(nil)
-        waitForLayout()
-
-        controller.applyAppearance(NSAppearance(named: .darkAqua))
-        waitForLayout("appearance update settled", delay: 0.05)
-
-        XCTAssertEqual(
-            controller.window?.appearance?.bestMatch(from: [.darkAqua, .aqua]),
-            .darkAqua
-        )
+        // Settings follows the macOS system light/dark, so it must not pin its
+        // own appearance to the terminal theme.
+        XCTAssertNil(controller.window?.appearance)
     }
 
     func test_shortcuts_pane_search_flattens_results() throws {
@@ -1009,60 +1091,6 @@ final class SettingsWindowControllerTests: XCTestCase {
         waitForLayout("shortcuts restored", delay: 0.2)
 
         XCTAssertEqual(shortcutsController.selectedCommandTitleForTesting, "Focus Right Pane")
-    }
-
-    func test_settings_window_avoids_stock_directional_transition_between_sections() throws {
-        let store = AppConfigStore(
-            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
-        )
-        let controller = SettingsWindowController(
-            configStore: store,
-            initialSection: .paneLayout
-        )
-        addTeardownBlock { controller.window?.close() }
-
-        controller.show(section: .shortcuts, sender: nil)
-        waitForLayout()
-
-        let contentController = try XCTUnwrap(
-            controller.window?.contentViewController as? SettingsViewController
-        )
-        let usesDirectionalSlide = contentController.transitionOptions.contains(.slideLeft)
-            || contentController.transitionOptions.contains(.slideRight)
-            || contentController.transitionOptions.contains(.slideUp)
-            || contentController.transitionOptions.contains(.slideDown)
-
-        XCTAssertFalse(usesDirectionalSlide)
-        XCTAssertEqual(contentController.transitionOptions, [])
-    }
-
-    func test_shortcuts_pane_suppresses_scroller_during_transition_then_restores_it() throws {
-        let store = AppConfigStore(
-            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
-        )
-        let controller = SettingsWindowController(
-            configStore: store,
-            initialSection: .paneLayout
-        )
-        addTeardownBlock { controller.window?.close() }
-
-        controller.showWindowForHostedTesting(nil)
-        waitForLayout()
-
-        let contentController = try XCTUnwrap(
-            controller.window?.contentViewController as? SettingsViewController
-        )
-
-        controller.show(section: .shortcuts, sender: nil)
-
-        let shortcutsController = try XCTUnwrap(
-            contentController.currentSectionViewController as? ShortcutsSettingsSectionViewController
-        )
-        XCTAssertTrue(shortcutsController.isScrollerSuppressedForTesting)
-
-        waitForLayout("shortcuts transition settled", delay: 0.35)
-
-        XCTAssertFalse(shortcutsController.isScrollerSuppressedForTesting)
     }
 
     func test_settings_window_can_switch_to_open_with_section_and_read_config() throws {
@@ -1334,7 +1362,37 @@ final class SettingsWindowControllerTests: XCTestCase {
         XCTAssertEqual(store.current.openWith.enabledTargetIDs, ["finder", "custom:zed-preview"])
     }
 
-    func test_settings_window_can_switch_to_general_section_and_shows_notification_controls() throws {
+    func test_notifications_section_shows_sound_controls() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
+        )
+        let controller = SettingsWindowController(
+            configStore: store,
+            initialSection: .paneLayout
+        )
+        addTeardownBlock { controller.window?.close() }
+
+        controller.show(section: .notifications, sender: nil)
+
+        let contentController = try XCTUnwrap(
+            controller.window?.contentViewController as? SettingsViewController
+        )
+        contentController.loadViewIfNeeded()
+        waitForLayout()
+
+        XCTAssertEqual(contentController.selectedSection, .notifications)
+        XCTAssertEqual(controller.window?.title, "Notifications")
+
+        let notificationsController = try XCTUnwrap(
+            contentController.currentSectionViewController as? NotificationsSettingsSectionViewController
+        )
+        XCTAssertEqual(notificationsController.selectedSoundName, "")
+        XCTAssertTrue(notificationsController.availableSoundNames.contains(""))
+        XCTAssertTrue(notificationsController.availableSoundNames.contains("Glass"))
+        XCTAssertTrue(notificationsController.availableSoundNames.contains("Ping"))
+    }
+
+    func test_updates_privacy_section_shows_error_reporting_enabled_when_available() throws {
         let store = AppConfigStore(
             fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
         )
@@ -1351,7 +1409,7 @@ final class SettingsWindowControllerTests: XCTestCase {
         )
         addTeardownBlock { controller.window?.close() }
 
-        controller.show(section: .general, sender: nil)
+        controller.show(section: .updatesPrivacy, sender: nil)
 
         let contentController = try XCTUnwrap(
             controller.window?.contentViewController as? SettingsViewController
@@ -1359,22 +1417,18 @@ final class SettingsWindowControllerTests: XCTestCase {
         contentController.loadViewIfNeeded()
         waitForLayout()
 
-        XCTAssertEqual(contentController.selectedSection, .general)
-        XCTAssertEqual(controller.window?.title, "General")
+        XCTAssertEqual(contentController.selectedSection, .updatesPrivacy)
+        XCTAssertEqual(controller.window?.title, "Updates & Privacy")
 
-        let generalController = try XCTUnwrap(
-            contentController.currentSectionViewController as? GeneralSettingsSectionViewController
+        let updatesController = try XCTUnwrap(
+            contentController.currentSectionViewController as? UpdatesPrivacySettingsSectionViewController
         )
-        XCTAssertEqual(generalController.selectedSoundName, "")
-        XCTAssertTrue(generalController.availableSoundNames.contains(""))
-        XCTAssertTrue(generalController.availableSoundNames.contains("Glass"))
-        XCTAssertTrue(generalController.availableSoundNames.contains("Ping"))
-        XCTAssertTrue(generalController.isErrorReportingSwitchOn)
-        XCTAssertTrue(generalController.isErrorReportingControlEnabled)
-        XCTAssertTrue(generalController.isErrorReportingAvailabilityHidden)
+        XCTAssertTrue(updatesController.isErrorReportingSwitchOn)
+        XCTAssertTrue(updatesController.isErrorReportingControlEnabled)
+        XCTAssertTrue(updatesController.isErrorReportingAvailabilityHidden)
     }
 
-    func test_general_section_persists_sound_name_to_config() throws {
+    func test_notifications_section_persists_sound_name_to_config() throws {
         let store = AppConfigStore(
             fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
         )
@@ -1384,11 +1438,11 @@ final class SettingsWindowControllerTests: XCTestCase {
 
         let controller = SettingsWindowController(
             configStore: store,
-            initialSection: .general
+            initialSection: .notifications
         )
         addTeardownBlock { controller.window?.close() }
 
-        controller.show(section: .general, sender: nil)
+        controller.show(section: .notifications, sender: nil)
 
         let contentController = try XCTUnwrap(
             controller.window?.contentViewController as? SettingsViewController
@@ -1396,23 +1450,23 @@ final class SettingsWindowControllerTests: XCTestCase {
         contentController.loadViewIfNeeded()
         waitForLayout()
 
-        let generalController = try XCTUnwrap(
-            contentController.currentSectionViewController as? GeneralSettingsSectionViewController
+        let notificationsController = try XCTUnwrap(
+            contentController.currentSectionViewController as? NotificationsSettingsSectionViewController
         )
-        XCTAssertEqual(generalController.selectedSoundName, "Glass")
+        XCTAssertEqual(notificationsController.selectedSoundName, "Glass")
     }
 
-    func test_general_section_defaults_update_channel_to_stable() throws {
+    func test_updates_privacy_section_defaults_update_channel_to_stable() throws {
         let store = AppConfigStore(
             fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
         )
         let controller = SettingsWindowController(
             configStore: store,
-            initialSection: .general
+            initialSection: .updatesPrivacy
         )
         addTeardownBlock { controller.window?.close() }
 
-        controller.show(section: .general, sender: nil)
+        controller.show(section: .updatesPrivacy, sender: nil)
 
         let contentController = try XCTUnwrap(
             controller.window?.contentViewController as? SettingsViewController
@@ -1420,27 +1474,26 @@ final class SettingsWindowControllerTests: XCTestCase {
         contentController.loadViewIfNeeded()
         waitForLayout()
 
-        let generalController = try XCTUnwrap(
-            contentController.currentSectionViewController as? GeneralSettingsSectionViewController
+        let updatesController = try XCTUnwrap(
+            contentController.currentSectionViewController as? UpdatesPrivacySettingsSectionViewController
         )
 
-        XCTAssertEqual(generalController.availableUpdateChannels, [.stable, .beta])
-        XCTAssertEqual(generalController.selectedUpdateChannel, .stable)
-        XCTAssertTrue(generalController.isRestoreWorkspaceSwitchOn)
+        XCTAssertEqual(updatesController.availableUpdateChannels, [.stable, .beta])
+        XCTAssertEqual(updatesController.selectedUpdateChannel, .stable)
     }
 
-    func test_general_section_persists_update_channel_to_config() throws {
+    func test_updates_privacy_section_persists_update_channel_to_config() throws {
         let store = AppConfigStore(
             fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
         )
 
         let controller = SettingsWindowController(
             configStore: store,
-            initialSection: .general
+            initialSection: .updatesPrivacy
         )
         addTeardownBlock { controller.window?.close() }
 
-        controller.show(section: .general, sender: nil)
+        controller.show(section: .updatesPrivacy, sender: nil)
 
         let contentController = try XCTUnwrap(
             controller.window?.contentViewController as? SettingsViewController
@@ -1448,14 +1501,14 @@ final class SettingsWindowControllerTests: XCTestCase {
         contentController.loadViewIfNeeded()
         waitForLayout()
 
-        let generalController = try XCTUnwrap(
-            contentController.currentSectionViewController as? GeneralSettingsSectionViewController
+        let updatesController = try XCTUnwrap(
+            contentController.currentSectionViewController as? UpdatesPrivacySettingsSectionViewController
         )
 
-        generalController.setUpdateChannelForTesting(.beta)
+        updatesController.setUpdateChannelForTesting(.beta)
 
         XCTAssertEqual(store.current.updates.channel, .beta)
-        XCTAssertEqual(generalController.selectedUpdateChannel, .beta)
+        XCTAssertEqual(updatesController.selectedUpdateChannel, .beta)
     }
 
     func test_general_section_persists_restore_workspace_preference_to_config() throws {
@@ -1481,13 +1534,15 @@ final class SettingsWindowControllerTests: XCTestCase {
             contentController.currentSectionViewController as? GeneralSettingsSectionViewController
         )
 
+        XCTAssertTrue(generalController.isRestoreWorkspaceSwitchOn)
+
         generalController.setRestoreWorkspaceEnabledForTesting(false)
 
         XCTAssertFalse(store.current.restore.restoreWorkspaceOnLaunch)
         XCTAssertFalse(generalController.isRestoreWorkspaceSwitchOn)
     }
 
-    func test_general_section_confirms_error_reporting_change_before_persisting() throws {
+    func test_updates_privacy_section_confirms_error_reporting_change_before_persisting() throws {
         let store = AppConfigStore(
             fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
         )
@@ -1506,11 +1561,11 @@ final class SettingsWindowControllerTests: XCTestCase {
                 completion(.restartLater)
             },
             runtimeErrorReportingEnabled: true,
-            initialSection: .general
+            initialSection: .updatesPrivacy
         )
         addTeardownBlock { controller.window?.close() }
 
-        controller.show(section: .general, sender: nil)
+        controller.show(section: .updatesPrivacy, sender: nil)
 
         let contentController = try XCTUnwrap(
             controller.window?.contentViewController as? SettingsViewController
@@ -1518,19 +1573,19 @@ final class SettingsWindowControllerTests: XCTestCase {
         contentController.loadViewIfNeeded()
         waitForLayout()
 
-        let generalController = try XCTUnwrap(
-            contentController.currentSectionViewController as? GeneralSettingsSectionViewController
+        let updatesController = try XCTUnwrap(
+            contentController.currentSectionViewController as? UpdatesPrivacySettingsSectionViewController
         )
 
-        generalController.setErrorReportingEnabledForTesting(false)
+        updatesController.setErrorReportingEnabledForTesting(false)
 
         XCTAssertEqual(requestedValue, false)
         XCTAssertFalse(store.current.errorReporting.enabled)
-        XCTAssertFalse(generalController.isErrorReportingSwitchOn)
-        XCTAssertEqual(generalController.errorReportingRestartMessage, "Restart Zentty to apply this change.")
+        XCTAssertFalse(updatesController.isErrorReportingSwitchOn)
+        XCTAssertEqual(updatesController.errorReportingRestartMessage, "Restart Zentty to apply this change.")
     }
 
-    func test_general_section_cancels_error_reporting_change_without_persisting() throws {
+    func test_updates_privacy_section_cancels_error_reporting_change_without_persisting() throws {
         let store = AppConfigStore(
             fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
         )
@@ -1547,11 +1602,11 @@ final class SettingsWindowControllerTests: XCTestCase {
                 completion(.cancel)
             },
             runtimeErrorReportingEnabled: true,
-            initialSection: .general
+            initialSection: .updatesPrivacy
         )
         addTeardownBlock { controller.window?.close() }
 
-        controller.show(section: .general, sender: nil)
+        controller.show(section: .updatesPrivacy, sender: nil)
 
         let contentController = try XCTUnwrap(
             controller.window?.contentViewController as? SettingsViewController
@@ -1559,29 +1614,29 @@ final class SettingsWindowControllerTests: XCTestCase {
         contentController.loadViewIfNeeded()
         waitForLayout()
 
-        let generalController = try XCTUnwrap(
-            contentController.currentSectionViewController as? GeneralSettingsSectionViewController
+        let updatesController = try XCTUnwrap(
+            contentController.currentSectionViewController as? UpdatesPrivacySettingsSectionViewController
         )
 
-        generalController.setErrorReportingEnabledForTesting(false)
+        updatesController.setErrorReportingEnabledForTesting(false)
 
         XCTAssertTrue(store.current.errorReporting.enabled)
-        XCTAssertTrue(generalController.isErrorReportingSwitchOn)
-        XCTAssertNil(generalController.errorReportingRestartMessage)
+        XCTAssertTrue(updatesController.isErrorReportingSwitchOn)
+        XCTAssertNil(updatesController.errorReportingRestartMessage)
     }
 
-    func test_general_section_disables_error_reporting_controls_when_dsn_is_unavailable() throws {
+    func test_updates_privacy_section_disables_error_reporting_controls_when_dsn_is_unavailable() throws {
         let store = AppConfigStore(
             fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
         )
         let controller = SettingsWindowController(
             configStore: store,
             errorReportingBundleConfigurationProvider: { nil },
-            initialSection: .general
+            initialSection: .updatesPrivacy
         )
         addTeardownBlock { controller.window?.close() }
 
-        controller.show(section: .general, sender: nil)
+        controller.show(section: .updatesPrivacy, sender: nil)
 
         let contentController = try XCTUnwrap(
             controller.window?.contentViewController as? SettingsViewController
@@ -1589,20 +1644,20 @@ final class SettingsWindowControllerTests: XCTestCase {
         contentController.loadViewIfNeeded()
         waitForLayout()
 
-        let generalController = try XCTUnwrap(
-            contentController.currentSectionViewController as? GeneralSettingsSectionViewController
+        let updatesController = try XCTUnwrap(
+            contentController.currentSectionViewController as? UpdatesPrivacySettingsSectionViewController
         )
 
-        XCTAssertFalse(generalController.isErrorReportingControlEnabled)
-        XCTAssertFalse(generalController.isErrorReportingAvailabilityHidden)
-        XCTAssertEqual(generalController.errorReportingAvailabilityText, "Unavailable")
+        XCTAssertFalse(updatesController.isErrorReportingControlEnabled)
+        XCTAssertFalse(updatesController.isErrorReportingAvailabilityHidden)
+        XCTAssertEqual(updatesController.errorReportingAvailabilityText, "Unavailable")
         XCTAssertEqual(
-            generalController.errorReportingStatusMessage,
+            updatesController.errorReportingStatusMessage,
             "Error reporting is unavailable in this build."
         )
     }
 
-    func test_general_section_restart_now_persists_and_requests_restart() throws {
+    func test_updates_privacy_section_restart_now_persists_and_requests_restart() throws {
         let store = AppConfigStore(
             fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
         )
@@ -1623,11 +1678,11 @@ final class SettingsWindowControllerTests: XCTestCase {
                 restartRequested = true
             },
             runtimeErrorReportingEnabled: true,
-            initialSection: .general
+            initialSection: .updatesPrivacy
         )
         addTeardownBlock { controller.window?.close() }
 
-        controller.show(section: .general, sender: nil)
+        controller.show(section: .updatesPrivacy, sender: nil)
 
         let contentController = try XCTUnwrap(
             controller.window?.contentViewController as? SettingsViewController
@@ -1635,11 +1690,11 @@ final class SettingsWindowControllerTests: XCTestCase {
         contentController.loadViewIfNeeded()
         waitForLayout()
 
-        let generalController = try XCTUnwrap(
-            contentController.currentSectionViewController as? GeneralSettingsSectionViewController
+        let updatesController = try XCTUnwrap(
+            contentController.currentSectionViewController as? UpdatesPrivacySettingsSectionViewController
         )
 
-        generalController.setErrorReportingEnabledForTesting(false)
+        updatesController.setErrorReportingEnabledForTesting(false)
 
         XCTAssertFalse(store.current.errorReporting.enabled)
         XCTAssertTrue(restartRequested)
@@ -1739,17 +1794,22 @@ private extension SettingsWindowControllerTests {
         wait(for: [settled], timeout: 2.0)
     }
 
-    func unpaddedToolbarImage(for section: SettingsSection) -> NSImage? {
-        let image = NSImage(
-            systemSymbolName: section.symbolName,
-            accessibilityDescription: section.title
+    func settingsNavigationKeyEvent(
+        _ character: String,
+        modifiers: NSEvent.ModifierFlags
+    ) -> NSEvent? {
+        NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: modifiers,
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            characters: character,
+            charactersIgnoringModifiers: character,
+            isARepeat: false,
+            keyCode: character == "[" ? 33 : 30
         )
-        if section == .openWith {
-            return image?.withSymbolConfiguration(
-                .init(pointSize: 0, weight: .regular, scale: .medium)
-            )
-        }
-        return image
     }
 }
 

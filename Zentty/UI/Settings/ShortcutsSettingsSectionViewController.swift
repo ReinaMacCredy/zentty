@@ -478,6 +478,7 @@ final class ShortcutsSettingsSectionViewController: SettingsScrollableSectionVie
         browserTableView.rowSizeStyle = .custom
         browserTableView.focusRingType = .none
         browserTableView.selectionHighlightStyle = .regular
+        browserTableView.floatsGroupRows = false
         browserTableView.backgroundColor = .clear
         browserTableView.usesAlternatingRowBackgroundColors = false
         browserTableView.delegate = self
@@ -1472,7 +1473,8 @@ private final class ShortcutsBrowserCommandCellView: NSTableCellView {
 
     private func syncSelectionAppearanceFromRowView() {
         let rowView = enclosingRowView()
-        let usesSelectedAppearance = rowView?.isSelected == true && rowView?.selectionHighlightStyle != .none
+        let usesSelectedAppearance = rowView?.isSelected == true
+            && rowView?.selectionHighlightStyle != NSTableView.SelectionHighlightStyle.none
         setSelectedAppearance(usesSelectedAppearance)
     }
 

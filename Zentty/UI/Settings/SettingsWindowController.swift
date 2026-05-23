@@ -4,9 +4,11 @@ enum SettingsSection: String, CaseIterable, Hashable, Sendable {
     case general
     case appearance
     case shortcuts
+    case notifications
     case openWith
     case devServers
     case paneLayout
+    case updatesPrivacy
     case agents
 
     var title: String {
@@ -17,12 +19,16 @@ enum SettingsSection: String, CaseIterable, Hashable, Sendable {
             "Appearance"
         case .shortcuts:
             "Shortcuts"
+        case .notifications:
+            "Notifications"
         case .openWith:
             "Open With"
         case .devServers:
             "Dev Servers"
         case .paneLayout:
             "Panes"
+        case .updatesPrivacy:
+            "Updates & Privacy"
         case .agents:
             "Agents"
         }
@@ -36,14 +42,66 @@ enum SettingsSection: String, CaseIterable, Hashable, Sendable {
             "paintpalette"
         case .shortcuts:
             "keyboard"
+        case .notifications:
+            "bell.badge"
         case .openWith:
             "square.and.arrow.up.on.square"
         case .devServers:
             "globe"
         case .paneLayout:
             "rectangle.split.3x1"
+        case .updatesPrivacy:
+            "arrow.triangle.2.circlepath"
         case .agents:
             "cpu"
+        }
+    }
+
+    var subtitle: String {
+        switch self {
+        case .general:
+            "Confirmations, restore, and clipboard"
+        case .appearance:
+            "Theme, opacity, and terminal colors"
+        case .shortcuts:
+            "Keyboard shortcuts and conflicts"
+        case .notifications:
+            "Desktop alerts and notification sound"
+        case .openWith:
+            "Default apps and custom launchers"
+        case .devServers:
+            "Dev server detection and browsers"
+        case .paneLayout:
+            "Labels, icons, opacity, and split behavior"
+        case .updatesPrivacy:
+            "Update channel and crash reporting"
+        case .agents:
+            "Claude Code agent integration"
+        }
+    }
+
+    /// Extra terms (beyond the title) that match this section in sidebar
+    /// search, so e.g. "crash" finds Updates & Privacy.
+    var searchKeywords: [String] {
+        switch self {
+        case .general:
+            ["confirm", "quit", "close", "restore", "workspace", "clipboard", "copy"]
+        case .appearance:
+            ["theme", "opacity", "color", "font", "terminal", "ghostty", "background"]
+        case .shortcuts:
+            ["keyboard", "keybinding", "hotkey", "binding", "shortcut"]
+        case .notifications:
+            ["sound", "alert", "notify", "permission", "desktop"]
+        case .openWith:
+            ["app", "editor", "launch", "finder", "vscode", "cursor", "xcode"]
+        case .devServers:
+            ["server", "localhost", "browser", "port", "detect"]
+        case .paneLayout:
+            ["pane", "split", "layout", "opacity", "label", "icon", "scroll"]
+        case .updatesPrivacy:
+            ["update", "channel", "beta", "stable", "crash", "error", "report", "privacy", "sentry"]
+        case .agents:
+            ["agent", "claude", "team", "caffeinate", "sleep", "subagent"]
         }
     }
 
@@ -55,16 +113,52 @@ enum SettingsSection: String, CaseIterable, Hashable, Sendable {
             .systemTeal
         case .shortcuts:
             .systemIndigo
+        case .notifications:
+            .systemRed
         case .openWith:
             .systemBlue
         case .devServers:
             .systemGreen
         case .paneLayout:
             .systemPurple
+        case .updatesPrivacy:
+            .systemCyan
         case .agents:
             .systemOrange
         }
     }
+
+    /// Per-section shrink factor for the badge glyph. `square.and.arrow.up.on.square`
+    /// is unusually wide and fills the rounded square, so Open With renders it a
+    /// touch smaller for consistent padding.
+    var badgeSymbolScale: CGFloat {
+        switch self {
+        case .openWith:
+            0.82
+        default:
+            1
+        }
+    }
+}
+
+/// A labelled group of sections in the settings sidebar. A `nil` title renders
+/// the sections without a group header (the pinned items at the top, like
+/// macOS System Settings).
+struct SettingsSidebarGroup: Equatable {
+    let title: String?
+    let sections: [SettingsSection]
+}
+
+/// Drives the order and grouping of the settings sidebar. Reordering is a
+/// data-only change here — the section view controllers are untouched.
+enum SettingsSidebarLayout {
+    static let groups: [SettingsSidebarGroup] = [
+        SettingsSidebarGroup(
+            title: nil,
+            sections: [.general, .appearance, .shortcuts, .notifications, .updatesPrivacy]
+        ),
+        SettingsSidebarGroup(title: "Workspace", sections: [.paneLayout, .openWith, .devServers, .agents]),
+    ]
 }
 
 enum AgentTeamsEnableWarningDecision {
@@ -96,35 +190,6 @@ enum AgentTeamsEnableWarning {
     }
 }
 
-enum SettingsNavigationPlacement: Equatable {
-    case topBar
-}
-
-enum SettingsTransitionProfile {
-    static let standardDuration: TimeInterval = 0.30
-    static let reducedMotionDuration: TimeInterval = 0.15
-    // Spring-like overshoot: controlPoint1.y > 1 creates natural overshoot
-    static let controlPoint1 = CGPoint(x: 0.34, y: 1.18)
-    static let controlPoint2 = CGPoint(x: 0.64, y: 1)
-    static let slideOffset: CGFloat = 16
-
-    static func resolvedDuration(reducedMotion: Bool) -> TimeInterval {
-        reducedMotion ? reducedMotionDuration : standardDuration
-    }
-
-    static func resolvedTimingFunction(reducedMotion: Bool) -> CAMediaTimingFunction {
-        if reducedMotion {
-            return CAMediaTimingFunction(name: .easeOut)
-        }
-        return CAMediaTimingFunction(
-            controlPoints: Float(controlPoint1.x),
-            Float(controlPoint1.y),
-            Float(controlPoint2.x),
-            Float(controlPoint2.y)
-        )
-    }
-}
-
 @MainActor
 protocol SettingsPaneMeasuring: AnyObject {
     func preferredViewportHeight(for width: CGFloat) -> CGFloat
@@ -133,6 +198,8 @@ protocol SettingsPaneMeasuring: AnyObject {
 @MainActor
 final class SettingsWindowController: NSWindowController {
     private let settingsViewController: SettingsViewController
+    private let navigationToolbar = NSToolbar(identifier: "be.zenjoy.Zentty.SettingsToolbar")
+    private weak var navigationSegmentedControl: NSSegmentedControl?
 
     init(
         configStore: AppConfigStore,
@@ -146,8 +213,7 @@ final class SettingsWindowController: NSWindowController {
         errorReportingRestartHandler: @escaping ErrorReportingRestartHandler = ErrorReportingApplicationRestart.restart,
         agentTeamsEnableWarningPresenter: @escaping AgentTeamsEnableWarningPresenter = AgentTeamsEnableWarning.present,
         runtimeErrorReportingEnabled: Bool = ErrorReportingRuntimeState.isEnabledForCurrentProcess,
-        appearance: NSAppearance? = nil,
-        initialSection: SettingsSection = .shortcuts
+        initialSection: SettingsSection = .general
     ) {
         let settingsViewController = SettingsViewController(
             configStore: configStore,
@@ -161,31 +227,45 @@ final class SettingsWindowController: NSWindowController {
             runtimeErrorReportingEnabled: runtimeErrorReportingEnabled,
             initialSection: initialSection
         )
-        let initialContentSize = NSSize(width: SettingsViewController.preferredContentWidth, height: 440)
-        let window = NSWindow(
-            contentRect: NSRect(origin: .zero, size: initialContentSize),
-            styleMask: [.titled, .closable],
+        let window = SettingsWindow(
+            contentRect: NSRect(origin: .zero, size: SettingsViewController.defaultContentSize),
+            styleMask: [.titled, .closable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
+        window.keyEquivalentHandler = { [weak settingsViewController] event in
+            settingsViewController?.handlePerformKeyEquivalent(event) ?? false
+        }
         window.title = initialSection.title
-        window.titleVisibility = .visible
-        window.titlebarAppearsTransparent = false
+        // The detail-pane header carries the section title, so keep the
+        // title bar text hidden (System Settings / Raycast style) while still
+        // setting `title` for the Window menu and Mission Control.
+        window.titleVisibility = .hidden
+        // Full-size content + transparent titlebar so the source-list sidebar's
+        // vibrancy runs all the way up behind the traffic lights, like macOS
+        // System Settings. Each pane insets its content below the bar via the
+        // safe-area layout guide.
+        window.titlebarAppearsTransparent = true
         window.titlebarSeparatorStyle = .automatic
         window.isReleasedWhenClosed = false
+        // Settings has a fixed-ish layout, so disable the green zoom/maximize
+        // button while keeping the window resizable by dragging its edges.
+        window.standardWindowButton(.zoomButton)?.isEnabled = false
         window.backgroundColor = NSColor.windowBackgroundColor
-        window.appearance = appearance
+        // Settings follows the macOS system light/dark, not the terminal theme,
+        // so leave the appearance unset (inherits the system appearance).
+        window.appearance = nil
+        window.contentViewController = settingsViewController
+        window.contentMinSize = SettingsViewController.minimumContentSize
+        window.setContentSize(SettingsViewController.defaultContentSize)
         if window.placeOnHostedTestScreenIfNeeded() == nil {
             window.center()
         }
-        if #available(macOS 13.0, *) {
-            window.toolbarStyle = .preference
-        }
-        window.contentViewController = settingsViewController
         settingsViewController.attach(to: window)
 
         self.settingsViewController = settingsViewController
         super.init(window: window)
+        configureNavigationToolbar(on: window)
     }
 
     @available(*, unavailable)
@@ -204,10 +284,105 @@ final class SettingsWindowController: NSWindowController {
         window?.makeKeyAndOrderFront(sender)
     }
 
-    func applyAppearance(_ appearance: NSAppearance?) {
-        window?.appearance = appearance
-        settingsViewController.handleAppearanceChange()
+    // MARK: - Navigation toolbar
+
+    private func configureNavigationToolbar(on window: NSWindow) {
+        navigationToolbar.delegate = self
+        navigationToolbar.allowsUserCustomization = false
+        navigationToolbar.displayMode = .iconOnly
+        window.toolbar = navigationToolbar
+        window.toolbarStyle = .unified
+        settingsViewController.onNavigationStateChange = { [weak self] in
+            self?.updateNavigationControlEnabledState()
+        }
     }
+
+    private func makeBackForwardToolbarItem(identifier: NSToolbarItem.Identifier) -> NSToolbarItem {
+        let segmented = NSSegmentedControl()
+        segmented.segmentStyle = .separated
+        segmented.trackingMode = .momentary
+        segmented.segmentCount = 2
+        segmented.setImage(
+            NSImage(systemSymbolName: "chevron.backward", accessibilityDescription: "Back"),
+            forSegment: 0
+        )
+        segmented.setImage(
+            NSImage(systemSymbolName: "chevron.forward", accessibilityDescription: "Forward"),
+            forSegment: 1
+        )
+        segmented.target = self
+        segmented.action = #selector(navigationSegmentClicked(_:))
+        navigationSegmentedControl = segmented
+
+        let item = NSToolbarItem(itemIdentifier: identifier)
+        item.view = segmented
+        item.label = "Navigate"
+        item.visibilityPriority = .high
+        updateNavigationControlEnabledState()
+        return item
+    }
+
+    @objc private func navigationSegmentClicked(_ sender: NSSegmentedControl) {
+        switch sender.selectedSegment {
+        case 0:
+            settingsViewController.goBack()
+        case 1:
+            settingsViewController.goForward()
+        default:
+            break
+        }
+    }
+
+    private func updateNavigationControlEnabledState() {
+        guard let control = navigationSegmentedControl else { return }
+        control.setEnabled(settingsViewController.canGoBack, forSegment: 0)
+        control.setEnabled(settingsViewController.canGoForward, forSegment: 1)
+    }
+
+    // MARK: - For Testing
+
+    var navigationToolbarItemIdentifiersForTesting: [NSToolbarItem.Identifier] {
+        navigationToolbar.items.map(\.itemIdentifier)
+    }
+
+    var navigationSegmentedControlForTesting: NSSegmentedControl? {
+        navigationSegmentedControl
+    }
+}
+
+extension SettingsWindowController: NSToolbarDelegate {
+    func toolbarDefaultItemIdentifiers(_: NSToolbar) -> [NSToolbarItem.Identifier] {
+        [.settingsSidebarTrackingSeparator, .settingsBackForward]
+    }
+
+    func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+        toolbarDefaultItemIdentifiers(toolbar)
+    }
+
+    func toolbar(
+        _: NSToolbar,
+        itemForItemIdentifier itemIdentifier: NSToolbarItem.Identifier,
+        willBeInsertedIntoToolbar _: Bool
+    ) -> NSToolbarItem? {
+        switch itemIdentifier {
+        case .settingsSidebarTrackingSeparator:
+            return NSTrackingSeparatorToolbarItem(
+                identifier: itemIdentifier,
+                splitView: settingsViewController.navigationSplitView,
+                dividerIndex: 0
+            )
+        case .settingsBackForward:
+            return makeBackForwardToolbarItem(identifier: itemIdentifier)
+        default:
+            return nil
+        }
+    }
+}
+
+private extension NSToolbarItem.Identifier {
+    static let settingsBackForward = NSToolbarItem.Identifier("be.zenjoy.Zentty.settings.backForward")
+    static let settingsSidebarTrackingSeparator =
+        NSToolbarItem.Identifier("be.zenjoy.Zentty.settings.sidebarTrackingSeparator")
 }
 
 private extension NSWindow {
@@ -243,30 +418,28 @@ private extension NSWindow {
 }
 
 @MainActor
-final class SettingsViewController: NSTabViewController {
-    private enum Layout {
-        static let minimumContentHeight: CGFloat = 340
-        static let maximumScreenHeightFraction: CGFloat = 2.0 / 3.0
-        static let toolbarIconBottomPadding: CGFloat = 4
-    }
-
+final class SettingsViewController: NSSplitViewController, SettingsSidebarViewControllerDelegate {
+    /// Seed width used by `SettingsScrollableSectionViewController` to lay out
+    /// its document view before the detail pane reports its real bounds.
     static let preferredContentWidth: CGFloat = 760
-
-    private struct SectionEntry {
-        let section: SettingsSection
-        let contentViewController: NSViewController
-        let tabViewItem: NSTabViewItem
-    }
-
-    private struct PendingTransition {
-        let id: Int
-        let section: SettingsSection
-        let animated: Bool
-    }
+    // Dimensions mirror the Raycast settings window: 981×786 content with a
+    // 227pt sidebar (≈754pt detail). The sidebar scrolls, so the height need
+    // not fit every row.
+    static let sidebarWidth: CGFloat = 227
+    static let detailMinimumWidth: CGFloat = 540
+    static let defaultContentSize = NSSize(width: 981, height: 786)
+    static let minimumContentSize = NSSize(
+        width: sidebarWidth + detailMinimumWidth,
+        height: 460
+    )
 
     private let configStore: AppConfigStore
     private var configObserverID: UUID?
-    private lazy var generalViewController = GeneralSettingsSectionViewController(
+    private lazy var generalViewController = GeneralSettingsSectionViewController(configStore: configStore)
+    private lazy var notificationsViewController = NotificationsSettingsSectionViewController(
+        configStore: configStore
+    )
+    private lazy var updatesPrivacyViewController = UpdatesPrivacySettingsSectionViewController(
         configStore: configStore,
         errorReportingBundleConfigurationProvider: errorReportingBundleConfigurationProvider,
         errorReportingConfirmationPresenter: errorReportingConfirmationPresenter,
@@ -297,17 +470,26 @@ final class SettingsViewController: NSTabViewController {
     private let errorReportingRestartHandler: ErrorReportingRestartHandler
     private let agentTeamsEnableWarningPresenter: AgentTeamsEnableWarningPresenter
     private let runtimeErrorReportingEnabled: Bool
-    private var entriesBySection: [SettingsSection: SectionEntry] = [:]
+
+    private lazy var sidebarViewController: SettingsSidebarViewController = {
+        let controller = SettingsSidebarViewController()
+        controller.delegate = self
+        return controller
+    }()
+    private let detailContainer = SettingsDetailContainerViewController()
     private weak var hostWindow: NSWindow?
-    private var isSynchronizingSelection = false
-    private var currentTransitionID = 0
-    private var pendingTransition: PendingTransition?
 
     private(set) var selectedSection: SettingsSection
+    private var history: SettingsNavigationHistory
+    /// Fired whenever back/forward availability may have changed, so the
+    /// toolbar control can refresh its enabled state.
+    var onNavigationStateChange: (() -> Void)?
+    var canGoBack: Bool { history.canGoBack }
+    var canGoForward: Bool { history.canGoForward }
     var onPrepareSectionForPresentationForTesting: ((SettingsSection, SettingsSection) -> Void)?
 
     var currentSectionViewController: NSViewController? {
-        entriesBySection[selectedSection]?.contentViewController
+        sectionViewController(for: selectedSection)
     }
 
     init(
@@ -324,6 +506,7 @@ final class SettingsViewController: NSTabViewController {
     ) {
         self.configStore = configStore
         self.selectedSection = initialSection
+        self.history = SettingsNavigationHistory(initial: initialSection)
         self.errorReportingBundleConfigurationProvider = errorReportingBundleConfigurationProvider
         self.errorReportingConfirmationPresenter = errorReportingConfirmationPresenter
         self.errorReportingRestartHandler = errorReportingRestartHandler
@@ -339,7 +522,6 @@ final class SettingsViewController: NSTabViewController {
             serverOpenService: serverOpenService
         )
         super.init(nibName: nil, bundle: nil)
-        tabStyle = .toolbar
     }
 
     @available(*, unavailable)
@@ -355,31 +537,54 @@ final class SettingsViewController: NSTabViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        tabStyle = .toolbar
-        transitionOptions = []
-        configureTabsIfNeeded()
-
+        setupSplitViewItems()
         configObserverID = configStore.addObserver { [weak self] config in
             Task { @MainActor [weak self] in
                 self?.apply(config: config)
             }
         }
         apply(config: configStore.current)
-        select(section: selectedSection, animated: false)
+        applySelection(selectedSection)
+        onNavigationStateChange?()
+    }
+
+    /// Builds the sidebar + detail split items on `self` (the split-view
+    /// controller is the window's content view controller, which is what lets
+    /// AppKit render the sidebar full-height behind the titlebar instead of as
+    /// an inset card). `allowsFullHeightLayout` opts both panes into that.
+    private func setupSplitViewItems() {
+        splitView.dividerStyle = .thin
+
+        let sidebarItem = NSSplitViewItem(sidebarWithViewController: sidebarViewController)
+        sidebarItem.canCollapse = false
+        sidebarItem.minimumThickness = Self.sidebarWidth
+        sidebarItem.maximumThickness = Self.sidebarWidth
+        sidebarItem.allowsFullHeightLayout = true
+        sidebarItem.holdingPriority = NSLayoutConstraint.Priority(
+            rawValue: NSLayoutConstraint.Priority.defaultHigh.rawValue + 1
+        )
+
+        let detailItem = NSSplitViewItem(viewController: detailContainer)
+        detailItem.canCollapse = false
+        detailItem.minimumThickness = Self.detailMinimumWidth
+        detailItem.allowsFullHeightLayout = true
+
+        addSplitViewItem(sidebarItem)
+        addSplitViewItem(detailItem)
     }
 
     override func viewWillAppear() {
         super.viewWillAppear()
         attach(to: view.window)
-        synchronizeWindow(animated: false, transitionID: currentTransitionID)
-    }
-
-    var navigationPlacement: SettingsNavigationPlacement {
-        .topBar
     }
 
     var sectionTitles: [String] {
-        SettingsSection.allCases.map(\.title)
+        SettingsSidebarViewController.flatten(SettingsSidebarLayout.groups).compactMap { row in
+            if case let .section(section) = row {
+                return section.title
+            }
+            return nil
+        }
     }
 
     var contentSectionTitle: String {
@@ -390,132 +595,105 @@ final class SettingsViewController: NSTabViewController {
         hostWindow = window
     }
 
+    /// The split view backing the sidebar/detail layout, exposed so the host
+    /// window can anchor an `NSTrackingSeparatorToolbarItem` to its divider.
+    var navigationSplitView: NSSplitView {
+        loadViewIfNeeded()
+        return splitView
+    }
+
     func handleAppearanceChange() {
         loadViewIfNeeded()
         view.layoutSubtreeIfNeeded()
         (currentSectionViewController as? SettingsAppearanceUpdating)?.handleAppearanceChange()
+        sidebarViewController.handleAppearanceChange()
     }
 
     func select(section: SettingsSection) {
-        select(section: section, animated: hostWindow?.isVisible == true && selectedSection != section)
+        select(section: section, animated: false)
     }
 
-    func select(section: SettingsSection, animated: Bool) {
+    func select(section: SettingsSection, animated _: Bool) {
         loadViewIfNeeded()
-        guard let entry = entriesBySection[section] else {
-            return
-        }
-
-        let isChangingSection = selectedSection != section
-        let shouldAnimate = animated && isChangingSection
-        let transitionID = prepareTransition(to: section, animated: shouldAnimate)
-
-        if tabView.selectedTabViewItem !== entry.tabViewItem {
-            isSynchronizingSelection = true
-            tabView.selectTabViewItem(entry.tabViewItem)
-            isSynchronizingSelection = false
-        }
-
-        handleSelectionChange(to: section, animated: shouldAnimate, transitionID: transitionID)
+        navigate(to: section, recordHistory: true)
     }
 
-    override func tabView(_ tabView: NSTabView, didSelect tabViewItem: NSTabViewItem?) {
-        guard
-            isSynchronizingSelection == false,
-            let identifier = tabViewItem?.identifier as? String,
-            let section = SettingsSection(rawValue: identifier)
-        else {
-            return
-        }
-
-        let transition = (pendingTransition?.section == section ? pendingTransition : nil)
-            ?? PendingTransition(
-                id: prepareTransition(
-                    to: section,
-                    animated: hostWindow?.isVisible == true && selectedSection != section
-                ),
-                section: section,
-                animated: hostWindow?.isVisible == true && selectedSection != section
-            )
-        handleSelectionChange(to: section, animated: transition.animated, transitionID: transition.id)
+    /// Replays the previous entry in the navigation history, if any.
+    func goBack() {
+        guard let section = history.goBack() else { return }
+        applySelection(section)
+        onNavigationStateChange?()
     }
 
-    override func tabView(_ tabView: NSTabView, shouldSelect tabViewItem: NSTabViewItem?) -> Bool {
-        guard
-            isSynchronizingSelection == false,
-            let identifier = tabViewItem?.identifier as? String,
-            let section = SettingsSection(rawValue: identifier)
-        else {
+    /// Replays the next entry in the navigation history, if any.
+    func goForward() {
+        guard let section = history.goForward() else { return }
+        applySelection(section)
+        onNavigationStateChange?()
+    }
+
+    // MARK: - SettingsSidebarViewControllerDelegate
+
+    func settingsSidebar(_: SettingsSidebarViewController, didSelect section: SettingsSection) {
+        navigate(to: section, recordHistory: true)
+    }
+
+    /// Forward navigation entry point: optionally records history, shows the
+    /// section, and refreshes back/forward availability. Back/forward replays
+    /// call `applySelection` directly so they don't mutate the stack.
+    private func navigate(to section: SettingsSection, recordHistory: Bool) {
+        if recordHistory {
+            history.record(section)
+        }
+        applySelection(section)
+        onNavigationStateChange?()
+    }
+
+    /// Handles ⌘[ / ⌘] for back/forward, scoped to the settings window via
+    /// `SettingsWindow.performKeyEquivalent`. Returns `false` for everything
+    /// else (and when the direction is unavailable) so the event keeps propagating.
+    func handlePerformKeyEquivalent(_ event: NSEvent) -> Bool {
+        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let unsupportedModifiers = modifiers.subtracting([.command, .capsLock])
+        guard modifiers.contains(.command), unsupportedModifiers.isEmpty else {
+            return false
+        }
+        switch event.charactersIgnoringModifiers {
+        case "[":
+            guard canGoBack else { return false }
+            goBack()
             return true
+        case "]":
+            guard canGoForward else { return false }
+            goForward()
+            return true
+        default:
+            return false
         }
-
-        _ = prepareTransition(
-            to: section,
-            animated: hostWindow?.isVisible == true && selectedSection != section
-        )
-        return true
     }
 
-    private func configureTabsIfNeeded() {
-        guard entriesBySection.isEmpty else {
-            return
-        }
+    private func applySelection(_ section: SettingsSection) {
+        loadViewIfNeeded()
+        onPrepareSectionForPresentationForTesting?(section, selectedSection)
 
-        for section in SettingsSection.allCases {
-            let contentViewController = sectionViewController(for: section)
-            let tabViewItem = NSTabViewItem(viewController: contentViewController)
-            tabViewItem.identifier = section.rawValue
-            tabViewItem.label = section.title
-            let image = NSImage(
-                systemSymbolName: section.symbolName,
-                accessibilityDescription: section.title
-            )
-            let baseImage: NSImage?
-            if section == .openWith {
-                baseImage = image?.withSymbolConfiguration(
-                    .init(pointSize: 0, weight: .regular, scale: .medium)
-                )
-            } else {
-                baseImage = image
-            }
-            if let baseImage {
-                let padded = NSImage(
-                    size: NSSize(
-                        width: baseImage.size.width,
-                        height: baseImage.size.height + Layout.toolbarIconBottomPadding
-                    ),
-                    flipped: false
-                ) { _ in
-                    baseImage.draw(in: NSRect(
-                        x: 0,
-                        y: Layout.toolbarIconBottomPadding,
-                        width: baseImage.size.width,
-                        height: baseImage.size.height
-                    ))
-                    return true
-                }
-                padded.isTemplate = true
-                tabViewItem.image = padded
-            } else {
-                tabViewItem.image = nil
-            }
+        let contentViewController = sectionViewController(for: section)
+        detailContainer.setContent(contentViewController, section: section)
+        (contentViewController as? SettingsPresentingSection)?.prepareForPresentation()
 
-            addTabViewItem(tabViewItem)
-            entriesBySection[section] = SectionEntry(
-                section: section,
-                contentViewController: contentViewController,
-                tabViewItem: tabViewItem
-            )
-        }
+        selectedSection = section
+        let title = section.title
+        hostWindow?.title = title
+        view.window?.title = title
+        sidebarViewController.select(section: section)
     }
 
     private func apply(config: AppConfig) {
-        generalViewController.apply(notifications: config.notifications)
         generalViewController.apply(confirmations: config.confirmations)
         generalViewController.apply(restore: config.restore)
         generalViewController.apply(clipboard: config.clipboard)
-        generalViewController.apply(updates: config.updates)
-        generalViewController.apply(errorReporting: config.errorReporting)
+        notificationsViewController.apply(notifications: config.notifications)
+        updatesPrivacyViewController.apply(updates: config.updates)
+        updatesPrivacyViewController.apply(errorReporting: config.errorReporting)
         agentsViewController.apply(
             agentTeams: config.agentTeams,
             agentCaffeination: config.agentCaffeination
@@ -524,7 +702,6 @@ final class SettingsViewController: NSTabViewController {
         paneLayoutViewController.apply(panes: config.panes, paneLayout: config.paneLayout)
         openWithViewController.apply(preferences: config.openWith)
         serverBrowserSettingsViewController.apply(serverDetection: config.serverDetection)
-        synchronizeWindow(animated: false, transitionID: currentTransitionID)
     }
 
     private func sectionViewController(for section: SettingsSection) -> NSViewController {
@@ -535,178 +712,32 @@ final class SettingsViewController: NSTabViewController {
             appearanceViewController
         case .shortcuts:
             shortcutsViewController
+        case .notifications:
+            notificationsViewController
         case .openWith:
             openWithViewController
         case .devServers:
             serverBrowserSettingsViewController
         case .paneLayout:
             paneLayoutViewController
+        case .updatesPrivacy:
+            updatesPrivacyViewController
         case .agents:
             agentsViewController
         }
     }
+}
 
-    private func handleSelectionChange(to section: SettingsSection, animated: Bool, transitionID: Int) {
-        selectedSection = section
-        synchronizeWindow(animated: animated, transitionID: transitionID)
-    }
+/// Settings window. Intercepts the back/forward key equivalents (⌘[ / ⌘])
+/// before the responder chain, so the shortcuts work regardless of which
+/// control holds first responder.
+private final class SettingsWindow: NSWindow {
+    var keyEquivalentHandler: ((NSEvent) -> Bool)?
 
-    @discardableResult
-    private func prepareTransition(to section: SettingsSection, animated: Bool) -> Int {
-        currentTransitionID += 1
-        let transitionID = currentTransitionID
-        pendingTransition = PendingTransition(id: transitionID, section: section, animated: animated)
-        transitionOptions = []
-        setScrollerSuppressed(true)
-        expandWindowBeforeTransitionIfNeeded(to: section, animated: animated)
-        prepareSectionForPresentation(section)
-
-        return transitionID
-    }
-
-    private func setScrollerSuppressed(_ suppressed: Bool) {
-        entriesBySection.values.forEach { entry in
-            (entry.contentViewController as? SettingsScrollableSectionViewController)?
-                .setScrollerSuppressed(suppressed)
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if keyEquivalentHandler?(event) == true {
+            return true
         }
-    }
-
-    private func expandWindowBeforeTransitionIfNeeded(to section: SettingsSection, animated: Bool) {
-        guard
-            animated,
-            section != selectedSection,
-            let window = hostWindow ?? view.window,
-            let targetFrame = targetWindowFrame(for: section, window: window),
-            targetFrame.height > window.frame.height
-        else {
-            return
-        }
-
-        window.setFrame(targetFrame, display: false)
-    }
-
-    private func prepareSectionForPresentation(_ section: SettingsSection) {
-        onPrepareSectionForPresentationForTesting?(section, selectedSection)
-        if let presentingSection = entriesBySection[section]?.contentViewController as? SettingsPresentingSection {
-            presentingSection.prepareForPresentation()
-        }
-    }
-
-    private func completeTransitionIfCurrent(_ transitionID: Int) {
-        guard transitionID == currentTransitionID else {
-            return
-        }
-
-        if pendingTransition?.id == transitionID {
-            pendingTransition = nil
-        }
-        setScrollerSuppressed(false)
-    }
-
-    private func synchronizeWindow(animated: Bool, transitionID: Int) {
-        guard let window = hostWindow ?? view.window else {
-            return
-        }
-
-        hostWindow = window
-        window.title = selectedSection.title
-
-        guard let entry = entriesBySection[selectedSection] else {
-            return
-        }
-
-        let targetHeight = targetContentHeight(
-            for: entry.contentViewController,
-            window: window,
-            screen: window.screen ?? NSScreen.main
-        )
-        let targetContentSize = NSSize(width: Self.preferredContentWidth, height: targetHeight)
-        let targetFrame = targetWindowFrame(for: targetContentSize, window: window)
-
-        if animated {
-            guard window.frame.integral != targetFrame.integral else {
-                completeTransitionIfCurrent(transitionID)
-                return
-            }
-
-            let reducedMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-            let duration = SettingsTransitionProfile.resolvedDuration(reducedMotion: reducedMotion)
-            let timingFunction = SettingsTransitionProfile.resolvedTimingFunction(reducedMotion: reducedMotion)
-
-            DispatchQueue.main.asyncAfter(deadline: .now() + duration) { [weak self] in
-                self?.completeTransitionIfCurrent(transitionID)
-            }
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = duration
-                context.timingFunction = timingFunction
-                context.allowsImplicitAnimation = true
-                window.animator().setFrame(targetFrame, display: false)
-            } completionHandler: { [weak self] in
-                Task { @MainActor [weak self] in
-                    self?.completeTransitionIfCurrent(transitionID)
-                }
-            }
-        } else {
-            window.setFrame(targetFrame, display: false)
-            completeTransitionIfCurrent(transitionID)
-        }
-    }
-
-    private func targetWindowFrame(for contentSize: NSSize, window: NSWindow) -> NSRect {
-        let currentFrame = window.frame
-        let topEdge = currentFrame.maxY
-        let targetFrameSize = window.frameRect(forContentRect: NSRect(
-            x: 0,
-            y: 0,
-            width: contentSize.width,
-            height: contentSize.height
-        )).size
-
-        return NSRect(
-            x: currentFrame.minX,
-            y: topEdge - targetFrameSize.height,
-            width: targetFrameSize.width,
-            height: targetFrameSize.height
-        )
-    }
-
-    private func targetWindowFrame(for section: SettingsSection, window: NSWindow) -> NSRect? {
-        guard let entry = entriesBySection[section] else {
-            return nil
-        }
-
-        let targetHeight = targetContentHeight(
-            for: entry.contentViewController,
-            window: window,
-            screen: window.screen ?? NSScreen.main
-        )
-        return targetWindowFrame(
-            for: NSSize(width: Self.preferredContentWidth, height: targetHeight),
-            window: window
-        )
-    }
-
-    private func targetContentHeight(
-        for contentViewController: NSViewController,
-        window: NSWindow,
-        screen: NSScreen?
-    ) -> CGFloat {
-        let measuredHeight = (contentViewController as? SettingsPaneMeasuring)?
-            .preferredViewportHeight(for: Self.preferredContentWidth)
-            ?? Layout.minimumContentHeight
-        let maxFrameHeight = max(
-            Layout.minimumContentHeight,
-            floor((screen?.visibleFrame.height ?? 900) * Layout.maximumScreenHeightFraction)
-        )
-        let maxContentHeight = max(
-            Layout.minimumContentHeight,
-            window.contentRect(forFrameRect: NSRect(
-                x: 0,
-                y: 0,
-                width: Self.preferredContentWidth,
-                height: maxFrameHeight
-            )).height
-        )
-        return min(max(measuredHeight, Layout.minimumContentHeight), maxContentHeight)
+        return super.performKeyEquivalent(with: event)
     }
 }

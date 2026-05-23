@@ -42,9 +42,9 @@ class SettingsScrollableSectionViewController: NSViewController, SettingsPaneMea
         scrollView.autohidesScrollers = true
         scrollView.hasVerticalScroller = true
         // Keep translatesAutoresizingMaskIntoConstraints = true (default) so
-        // NSTabView can size us when the selected tab changes. With =false and
-        // no ancestor constraints pinning the scrollView, a post-switch tab
-        // ends up at 0×0 (the blank-pane bug).
+        // the detail container can size us by frame/autoresizing mask. With
+        // =false and no ancestor constraints pinning the scrollView, a
+        // post-switch section can end up at 0×0 (the blank-pane bug).
         scrollView.autoresizingMask = [.width, .height]
 
         documentView.frame = NSRect(
@@ -832,7 +832,10 @@ final class OpenWithSettingsSectionViewController: SettingsScrollableSectionView
             rootStackView.topAnchor.constraint(equalTo: contentView.topAnchor),
             rootStackView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
             rootStackView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
-            rootStackView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
+            // Top-anchor the content (≤, not ==) so it keeps its natural height
+            // instead of stretching — and spreading rows — when the pane is
+            // taller than the content.
+            rootStackView.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor),
         ])
     }
 
