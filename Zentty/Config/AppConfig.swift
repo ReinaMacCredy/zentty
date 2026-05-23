@@ -139,7 +139,9 @@ struct AppConfig: Equatable, Sendable {
     struct MenuBar: Equatable, Sendable {
         var showStatusItem: Bool
 
-        static let `default` = MenuBar(showStatusItem: true)
+        static let `default` = MenuBar(
+            showStatusItem: true
+        )
     }
 
     var sidebar: Sidebar

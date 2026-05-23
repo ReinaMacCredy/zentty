@@ -22,7 +22,6 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
     private var currentClipboard: AppConfig.Clipboard = .default
     private var currentUpdates: AppConfig.Updates = .default
     private var currentErrorReporting: AppConfig.ErrorReporting = .default
-    private var currentMenuBar: AppConfig.MenuBar = .default
 
     private let statusLabel = NSTextField(labelWithString: "")
     private let subtitleLabel = NSTextField(labelWithString: "")
@@ -37,7 +36,6 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
     private let updateChannelPopupButton = NSPopUpButton()
     private let errorReportingSwitch = NSSwitch()
     private let alwaysCleanCopiesSwitch = NSSwitch()
-    private let menuBarStatusSwitch = NSSwitch()
     private let errorReportingStatusLabel = NSTextField(labelWithString: "")
     private let errorReportingSubtitleLabel = NSTextField(labelWithString: "")
     private let errorReportingRestartLabel = NSTextField(labelWithString: "")
@@ -65,7 +63,6 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
         self.currentClipboard = configStore.current.clipboard
         self.currentUpdates = configStore.current.updates
         self.currentErrorReporting = configStore.current.errorReporting
-        self.currentMenuBar = configStore.current.menuBar
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -114,25 +111,6 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
 
         stackView.addArrangedSubview(card)
         card.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
-
-        let menuBarCard = SettingsCardView()
-        let menuBarRow = makeSwitchRow(
-            title: "Show menu bar agent status",
-            subtitle: "Keep aggregate agent state visible in the macOS menu bar.",
-            toggle: menuBarStatusSwitch,
-            action: #selector(handleMenuBarStatusSwitchChanged(_:))
-        )
-        menuBarCard.addSubview(menuBarRow)
-        menuBarRow.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
-            menuBarRow.topAnchor.constraint(equalTo: menuBarCard.topAnchor),
-            menuBarRow.leadingAnchor.constraint(equalTo: menuBarCard.leadingAnchor),
-            menuBarRow.trailingAnchor.constraint(equalTo: menuBarCard.trailingAnchor),
-            menuBarRow.bottomAnchor.constraint(equalTo: menuBarCard.bottomAnchor),
-        ])
-
-        stackView.addArrangedSubview(menuBarCard)
-        menuBarCard.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
 
         let updatesCard = SettingsCardView()
         let updatesRow = makeUpdateChannelRow()
@@ -289,7 +267,6 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
         quitSwitch.state = currentConfirmations.confirmBeforeQuitting ? .on : .off
         restoreWorkspaceSwitch.state = currentRestore.restoreWorkspaceOnLaunch ? .on : .off
         alwaysCleanCopiesSwitch.state = currentClipboard.alwaysCleanCopies ? .on : .off
-        menuBarStatusSwitch.state = currentMenuBar.showStatusItem ? .on : .off
         selectUpdateChannelPopupItem(for: currentUpdates.channel)
         errorReportingSwitch.state = currentErrorReporting.enabled ? .on : .off
         refreshNotificationStatus()
@@ -325,12 +302,6 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
         currentClipboard = clipboard
         guard isViewLoaded else { return }
         alwaysCleanCopiesSwitch.state = clipboard.alwaysCleanCopies ? .on : .off
-    }
-
-    func apply(menuBar: AppConfig.MenuBar) {
-        currentMenuBar = menuBar
-        guard isViewLoaded else { return }
-        menuBarStatusSwitch.state = menuBar.showStatusItem ? .on : .off
     }
 
     func apply(updates: AppConfig.Updates) {
@@ -678,14 +649,6 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
     }
 
     @objc
-    private func handleMenuBarStatusSwitchChanged(_ sender: NSSwitch) {
-        try? configStore.update { config in
-            config.menuBar.showStatusItem = sender.state == .on
-        }
-        currentMenuBar = configStore.current.menuBar
-    }
-
-    @objc
     private func handleUpdateChannelChanged(_ sender: NSPopUpButton) {
         guard let channel = sender.selectedItem?.representedObject as? AppUpdateChannel else {
             return
@@ -930,10 +893,6 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
         restoreWorkspaceSwitch.state == .on
     }
 
-    var isMenuBarStatusSwitchOn: Bool {
-        menuBarStatusSwitch.state == .on
-    }
-
     var isErrorReportingSwitchOn: Bool {
         errorReportingSwitch.state == .on
     }
@@ -977,11 +936,6 @@ final class GeneralSettingsSectionViewController: SettingsScrollableSectionViewC
         handleRestoreWorkspaceSwitchChanged(restoreWorkspaceSwitch)
     }
 
-    func setMenuBarStatusEnabledForTesting(_ enabled: Bool) {
-        menuBarStatusSwitch.state = enabled ? .on : .off
-        handleMenuBarStatusSwitchChanged(menuBarStatusSwitch)
-    }
-
 }
 
 @MainActor
@@ -990,7 +944,9 @@ final class AgentsSettingsSectionViewController: SettingsScrollableSectionViewCo
     private let agentTeamsEnableWarningPresenter: AgentTeamsEnableWarningPresenter
     private var currentAgentTeams: AppConfig.AgentTeams
     private var currentAgentCaffeination: AppConfig.AgentCaffeination
+    private var currentMenuBar: AppConfig.MenuBar
 
+    private let menuBarStatusSwitch = NSSwitch()
     private let agentTeamsSwitch = NSSwitch()
     private let agentCaffeinationSwitch = NSSwitch()
     private let experimentalBadgeLabel = NSTextField(labelWithString: "EXPERIMENTAL")
@@ -1005,6 +961,7 @@ final class AgentsSettingsSectionViewController: SettingsScrollableSectionViewCo
         self.agentTeamsEnableWarningPresenter = agentTeamsEnableWarningPresenter
         self.currentAgentTeams = configStore.current.agentTeams
         self.currentAgentCaffeination = configStore.current.agentCaffeination
+        self.currentMenuBar = configStore.current.menuBar
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -1029,9 +986,17 @@ final class AgentsSettingsSectionViewController: SettingsScrollableSectionViewCo
         cardStack.translatesAutoresizingMaskIntoConstraints = false
         card.addSubview(cardStack)
 
+        let menuBarStatusRow = makeMenuBarStatusRow()
+        cardStack.addArrangedSubview(menuBarStatusRow)
+        menuBarStatusRow.widthAnchor.constraint(equalTo: cardStack.widthAnchor).isActive = true
+
+        addSeparator(to: cardStack)
+
         let agentTeamsRow = makeAgentTeamsRow()
         cardStack.addArrangedSubview(agentTeamsRow)
         agentTeamsRow.widthAnchor.constraint(equalTo: cardStack.widthAnchor).isActive = true
+
+        addSeparator(to: cardStack)
 
         let agentCaffeinationRow = makeAgentCaffeinationRow()
         cardStack.addArrangedSubview(agentCaffeinationRow)
@@ -1057,19 +1022,33 @@ final class AgentsSettingsSectionViewController: SettingsScrollableSectionViewCo
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        menuBarStatusSwitch.state = currentMenuBar.showStatusItem ? .on : .off
         agentTeamsSwitch.state = currentAgentTeams.enabled ? .on : .off
         agentCaffeinationSwitch.state = currentAgentCaffeination.enabled ? .on : .off
     }
 
     func apply(
         agentTeams: AppConfig.AgentTeams,
-        agentCaffeination: AppConfig.AgentCaffeination
+        agentCaffeination: AppConfig.AgentCaffeination,
+        menuBar: AppConfig.MenuBar
     ) {
         currentAgentTeams = agentTeams
         currentAgentCaffeination = agentCaffeination
+        currentMenuBar = menuBar
         guard isViewLoaded else { return }
+        menuBarStatusSwitch.state = menuBar.showStatusItem ? .on : .off
         agentTeamsSwitch.state = agentTeams.enabled ? .on : .off
         agentCaffeinationSwitch.state = agentCaffeination.enabled ? .on : .off
+    }
+
+    private func makeMenuBarStatusRow() -> NSView {
+        let row = makeAgentSwitchRow(
+            title: "Show agent status in menu bar",
+            subtitle: "Display a Zentty menu bar icon with live waiting, running, and idle agent panes.",
+            toggle: menuBarStatusSwitch,
+            action: #selector(handleMenuBarStatusSwitchChanged(_:))
+        )
+        return row
     }
 
     private func makeAgentTeamsRow() -> NSView {
@@ -1139,6 +1118,20 @@ final class AgentsSettingsSectionViewController: SettingsScrollableSectionViewCo
     }
 
     private func makeAgentCaffeinationRow() -> NSView {
+        makeAgentSwitchRow(
+            title: "Prevent sleep while agents run",
+            subtitle: "Keep the Mac awake while an agent pane is running. The display can still sleep.",
+            toggle: agentCaffeinationSwitch,
+            action: #selector(handleAgentCaffeinationSwitchChanged(_:))
+        )
+    }
+
+    private func makeAgentSwitchRow(
+        title: String,
+        subtitle: String,
+        toggle: NSSwitch,
+        action: Selector
+    ) -> NSView {
         let container = NSView()
         container.translatesAutoresizingMaskIntoConstraints = false
 
@@ -1149,39 +1142,52 @@ final class AgentsSettingsSectionViewController: SettingsScrollableSectionViewCo
         leftStack.translatesAutoresizingMaskIntoConstraints = false
 
         let titleLabel = makeLabel(
-            text: "Prevent sleep while agents run",
+            text: title,
             font: .systemFont(ofSize: 13, weight: .semibold)
         )
         leftStack.addArrangedSubview(titleLabel)
 
         let subtitleLabel = makeLabel(
-            text: "Keep the Mac awake while an agent pane is running. The display can still sleep.",
+            text: subtitle,
             font: .systemFont(ofSize: 12, weight: .regular)
         )
         subtitleLabel.textColor = .secondaryLabelColor
         leftStack.addArrangedSubview(subtitleLabel)
 
-        agentCaffeinationSwitch.target = self
-        agentCaffeinationSwitch.action = #selector(handleAgentCaffeinationSwitchChanged(_:))
+        toggle.target = self
+        toggle.action = action
 
         container.addSubview(leftStack)
-        container.addSubview(agentCaffeinationSwitch)
-        agentCaffeinationSwitch.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(toggle)
+        toggle.translatesAutoresizingMaskIntoConstraints = false
 
         NSLayoutConstraint.activate([
             leftStack.topAnchor.constraint(equalTo: container.topAnchor, constant: 14),
             leftStack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16),
             leftStack.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -14),
 
-            agentCaffeinationSwitch.centerYAnchor.constraint(equalTo: container.centerYAnchor),
-            agentCaffeinationSwitch.leadingAnchor.constraint(
+            toggle.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            toggle.leadingAnchor.constraint(
                 greaterThanOrEqualTo: leftStack.trailingAnchor,
                 constant: 12
             ),
-            agentCaffeinationSwitch.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -16),
+            toggle.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -16),
         ])
 
         return container
+    }
+
+    @discardableResult
+    private func addSeparator(to stack: NSStackView) -> NSView {
+        let separator = NSBox()
+        separator.boxType = .separator
+        separator.translatesAutoresizingMaskIntoConstraints = false
+        // Add to the stack before activating the width constraint: the anchor
+        // pair needs a common ancestor at activation time, otherwise AppKit
+        // throws and aborts assembleContent (leaving the pane blank).
+        stack.addArrangedSubview(separator)
+        separator.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+        return separator
     }
 
     private func configureExperimentalBadge() {
@@ -1201,6 +1207,15 @@ final class AgentsSettingsSectionViewController: SettingsScrollableSectionViewCo
         experimentalBadgeLabel.setContentHuggingPriority(.required, for: .horizontal)
         experimentalBadgeLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 84).isActive = true
         experimentalBadgeLabel.heightAnchor.constraint(equalToConstant: 16).isActive = true
+    }
+
+    @objc
+    private func handleMenuBarStatusSwitchChanged(_ sender: NSSwitch) {
+        try? configStore.update { config in
+            config.menuBar.showStatusItem = sender.state == .on
+        }
+        currentMenuBar = configStore.current.menuBar
+        menuBarStatusSwitch.state = currentMenuBar.showStatusItem ? .on : .off
     }
 
     @objc
@@ -1268,6 +1283,10 @@ final class AgentsSettingsSectionViewController: SettingsScrollableSectionViewCo
         agentTeamsSwitch.state == .on
     }
 
+    var isMenuBarStatusSwitchOn: Bool {
+        menuBarStatusSwitch.state == .on
+    }
+
     var isAgentCaffeinationSwitchOn: Bool {
         agentCaffeinationSwitch.state == .on
     }
@@ -1284,6 +1303,11 @@ final class AgentsSettingsSectionViewController: SettingsScrollableSectionViewCo
     func setAgentTeamsEnabledForTesting(_ enabled: Bool) {
         agentTeamsSwitch.state = enabled ? .on : .off
         requestAgentTeamsChange(to: enabled)
+    }
+
+    func setMenuBarStatusEnabledForTesting(_ enabled: Bool) {
+        menuBarStatusSwitch.state = enabled ? .on : .off
+        handleMenuBarStatusSwitchChanged(menuBarStatusSwitch)
     }
 
     func setAgentCaffeinationEnabledForTesting(_ enabled: Bool) {

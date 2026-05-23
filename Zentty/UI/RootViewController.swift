@@ -1312,6 +1312,8 @@ final class RootViewController: NSViewController {
             if let notification = notificationCoordinator.store.mostUrgentUnresolved() {
                 notificationCoordinator.closePanel()
                 navigateToNotification(notification)
+            } else {
+                NSApp.sendAction(#selector(AppDelegate.focusNextWaitingAgentPane(_:)), to: nil, from: nil)
             }
         case .pane(let command):
             handlePaneCommand(command)

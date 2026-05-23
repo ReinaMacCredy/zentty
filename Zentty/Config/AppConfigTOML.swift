@@ -757,6 +757,8 @@ enum AppConfigTOML {
         case "show_status_item":
             guard let value = decodeBool(assignment.value) else { return false }
             config.menuBar.showStatusItem = value
+        case "indicator_style", "hide_idle_panes", "show_waiting_count_on_icon", "click_focuses_waiting_pane":
+            return true
         default:
             return true
         }

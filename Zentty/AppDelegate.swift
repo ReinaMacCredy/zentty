@@ -178,6 +178,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc
+    func focusNextWaitingAgentPane(_ sender: Any?) {
+        _ = menuBarStatusController?.focusNextWaitingPane()
+    }
+
+    @objc
     func showAboutWindow(_ sender: Any?) {
         let appearance = resolvedAboutAppearance
         let theme = resolvedAboutTheme
@@ -622,8 +627,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if config.menuBar.showStatusItem {
             let controller = menuBarStatusController ?? MenuBarStatusController(
                 configStore: configStore,
-                focusWorklaneHandler: { [weak self] windowID, worklaneID in
-                    self?.focusWorklaneFromMenuBar(windowID: windowID, worklaneID: worklaneID)
+                focusPaneHandler: { [weak self] windowID, worklaneID, paneID in
+                    self?.focusPaneFromMenuBar(windowID: windowID, worklaneID: worklaneID, paneID: paneID)
+                },
+                openSettingsHandler: { [weak self] in
+                    self?.showAgentsSettingsFromMenuBar()
                 }
             )
             menuBarStatusController = controller
@@ -633,6 +641,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             menuBarStatusController?.stop()
             menuBarStatusController = nil
         }
+        menuBarStatusController?.refreshPresentation()
     }
 
     private func syncMenuBarStatusSources() {
@@ -646,11 +655,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         })
     }
 
-    private func focusWorklaneFromMenuBar(windowID: WindowID, worklaneID: WorklaneID) {
+    private func focusPaneFromMenuBar(windowID: WindowID, worklaneID: WorklaneID, paneID: PaneID) {
         guard let controller = windowControllers.values.first(where: { $0.windowID == windowID }) else {
             return
         }
-        controller.focusWorklane(id: worklaneID)
+        controller.navigateToPane(worklaneID: worklaneID, paneID: paneID)
+    }
+
+    private func showAgentsSettingsFromMenuBar() {
+        let controller = keyWindowController ?? orderedWindowControllers.first
+        controller?.showSettingsWindow(section: .agents, sender: nil)
     }
 
     private func launchWorkspace(_ envelope: SessionRestoreEnvelope) -> Bool {
