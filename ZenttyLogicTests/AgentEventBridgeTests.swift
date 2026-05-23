@@ -1239,6 +1239,10 @@ final class AgentEventBridgeTests: XCTestCase {
         let json = #"{"hook_event_name":"PreToolUse","session_id":"s1","cwd":"/tmp/project","tool_name":"AskUserQuestion","message":"Which file should I open?"}"#
         let payload = json.data(using: .utf8)!
 
+        // ask_user_question is a needs-input prompt. Like Notification, the
+        // adapter intentionally emits no lifecycle payload — a .running here
+        // would downgrade a prior .needsInput — and the canonical re-emit
+        // carries the needs-input signal instead.
         let adapterPayloads = try AgentEventBridge.grokAdapter(data: payload, environment: grokEnvironment())
         XCTAssertTrue(adapterPayloads.isEmpty)
 

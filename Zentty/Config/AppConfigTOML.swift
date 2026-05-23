@@ -27,6 +27,7 @@ enum AppConfigTOML {
         case restore
         case agentTeams
         case agentCaffeination
+        case menuBar
     }
 
     static func encode(_ config: AppConfig) -> String {
@@ -90,6 +91,7 @@ enum AppConfigTOML {
         lines.append("passive_detection_enabled = \(config.serverDetection.passiveDetectionEnabled)")
         lines.append("preferred_browser_id = \(encode(string: config.serverDetection.preferredBrowserID))")
         lines.append("enabled_browser_target_ids = \(encode(strings: config.serverDetection.enabledBrowserTargetIDs))")
+        lines.append("ignored_port_rules = \(encode(strings: config.serverDetection.ignoredPortRules))")
 
         if !config.serverDetection.customBrowsers.isEmpty {
             lines.append("")
@@ -156,6 +158,10 @@ enum AppConfigTOML {
         lines.append("")
         lines.append("[agent_caffeination]")
         lines.append("enabled = \(config.agentCaffeination.enabled)")
+
+        lines.append("")
+        lines.append("[menu_bar]")
+        lines.append("show_status_item = \(config.menuBar.showStatusItem)")
 
         return lines.joined(separator: "\n") + "\n"
     }
@@ -250,6 +256,10 @@ enum AppConfigTOML {
                 section = .agentCaffeination
                 continue
             }
+            if line == "[menu_bar]" {
+                section = .menuBar
+                continue
+            }
             guard let assignment = parseAssignment(line) else {
                 return nil
             }
@@ -332,6 +342,10 @@ enum AppConfigTOML {
                 }
             case .agentCaffeination:
                 guard decodeAgentCaffeinationAssignment(assignment, into: &config) else {
+                    return nil
+                }
+            case .menuBar:
+                guard decodeMenuBarAssignment(assignment, into: &config) else {
                     return nil
                 }
             case .root:
@@ -468,6 +482,11 @@ enum AppConfigTOML {
                 return false
             }
             config.serverDetection.enabledBrowserTargetIDs = values
+        case "ignored_port_rules":
+            guard let values = decodeStringArray(assignment.value) else {
+                return false
+            }
+            config.serverDetection.ignoredPortRules = values
         default:
             return true
         }
@@ -749,6 +768,22 @@ enum AppConfigTOML {
         case "enabled":
             guard let value = decodeBool(assignment.value) else { return false }
             config.agentCaffeination.enabled = value
+        default:
+            return true
+        }
+        return true
+    }
+
+    private static func decodeMenuBarAssignment(
+        _ assignment: (key: String, value: String),
+        into config: inout AppConfig
+    ) -> Bool {
+        switch assignment.key {
+        case "show_status_item":
+            guard let value = decodeBool(assignment.value) else { return false }
+            config.menuBar.showStatusItem = value
+        case "indicator_style", "hide_idle_panes", "show_waiting_count_on_icon", "click_focuses_waiting_pane":
+            return true
         default:
             return true
         }

@@ -1,3 +1,4 @@
+import Darwin
 import XCTest
 @testable import Zentty
 
@@ -116,7 +117,7 @@ final class PaneStripStoreTests: XCTestCase {
         )
     }
 
-    func test_command_running_keeps_then_clears_restored_agent_restore_draft() throws {
+    func test_command_running_keeps_then_clears_non_codex_restored_agent_restore_draft() throws {
         let paneID = PaneID("pane-agent")
         let worklaneID = WorklaneID("main")
         let draft = PaneRestoreDraft(
@@ -182,6 +183,227 @@ final class PaneStripStoreTests: XCTestCase {
         store.applyAgentStatusPayload(shellRunningPayload)
 
         auxiliary = try XCTUnwrap(store.worklanes[0].auxiliaryStateByPaneID[paneID])
+        XCTAssertNil(auxiliary.raw.restoredAgentRestoreDraft)
+        XCTAssertFalse(auxiliary.raw.restoredAgentAutoResumePending)
+    }
+
+    func test_codex_restored_agent_restore_draft_survives_repeated_codex_command_without_replacement_identity() throws {
+        let paneID = PaneID("pane-agent")
+        let worklaneID = WorklaneID("main")
+        let draft = PaneRestoreDraft(
+            paneID: "pane-agent",
+            kind: .agentResume,
+            toolName: "Codex",
+            sessionID: "019e4548-2fab-7542-9d5b-378a5da96fa5",
+            workingDirectory: "/tmp/project",
+            trackedPID: 4242
+        )
+        let worklane = WorklaneState(
+            id: worklaneID,
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [
+                    PaneState(id: paneID, title: "Codex")
+                ],
+                focusedPaneID: paneID
+            ),
+            nextPaneNumber: 2,
+            auxiliaryStateByPaneID: [
+                paneID: PaneAuxiliaryState(
+                    raw: PaneRawState(
+                        shellContext: PaneShellContext(
+                            scope: .local,
+                            path: "/tmp/project",
+                            home: "/Users/peter",
+                            user: "peter",
+                            host: nil
+                        ),
+                        restoredAgentRestoreDraft: draft,
+                        restoredAgentAutoResumePending: true
+                    ),
+                    presentation: PanePresentationState(cwd: "/tmp/project")
+                )
+            ]
+        )
+        let store = WorklaneStore(
+            worklanes: [worklane],
+            activeWorklaneID: worklaneID,
+            readyStatusDebounceInterval: 0
+        )
+        let shellRunningPayload = AgentStatusPayload(
+            worklaneID: worklaneID,
+            paneID: paneID,
+            signalKind: .shellState,
+            state: nil,
+            shellActivityState: .commandRunning,
+            shellCommand: "codex resume 019e4548-2fab-7542-9d5b-378a5da96fa5",
+            origin: .shell,
+            toolName: "Codex",
+            text: nil,
+            artifactKind: nil,
+            artifactLabel: nil,
+            artifactURL: nil
+        )
+
+        store.applyAgentStatusPayload(shellRunningPayload)
+        store.applyAgentStatusPayload(shellRunningPayload)
+
+        let auxiliary = try XCTUnwrap(store.worklanes[0].auxiliaryStateByPaneID[paneID])
+        XCTAssertEqual(auxiliary.raw.restoredAgentRestoreDraft, draft)
+        XCTAssertFalse(auxiliary.raw.restoredAgentAutoResumePending)
+    }
+
+    func test_codex_restored_agent_restore_draft_clears_after_non_codex_command() throws {
+        let paneID = PaneID("pane-agent")
+        let worklaneID = WorklaneID("main")
+        let draft = PaneRestoreDraft(
+            paneID: "pane-agent",
+            kind: .agentResume,
+            toolName: "Codex",
+            sessionID: "019e4548-2fab-7542-9d5b-378a5da96fa5",
+            workingDirectory: "/tmp/project",
+            trackedPID: 4242
+        )
+        let worklane = WorklaneState(
+            id: worklaneID,
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [
+                    PaneState(id: paneID, title: "Codex")
+                ],
+                focusedPaneID: paneID
+            ),
+            nextPaneNumber: 2,
+            auxiliaryStateByPaneID: [
+                paneID: PaneAuxiliaryState(
+                    raw: PaneRawState(
+                        shellContext: PaneShellContext(
+                            scope: .local,
+                            path: "/tmp/project",
+                            home: "/Users/peter",
+                            user: "peter",
+                            host: nil
+                        ),
+                        restoredAgentRestoreDraft: draft,
+                        restoredAgentAutoResumePending: true
+                    ),
+                    presentation: PanePresentationState(cwd: "/tmp/project")
+                )
+            ]
+        )
+        let store = WorklaneStore(
+            worklanes: [worklane],
+            activeWorklaneID: worklaneID,
+            readyStatusDebounceInterval: 0
+        )
+        let codexRunningPayload = AgentStatusPayload(
+            worklaneID: worklaneID,
+            paneID: paneID,
+            signalKind: .shellState,
+            state: nil,
+            shellActivityState: .commandRunning,
+            shellCommand: "codex resume 019e4548-2fab-7542-9d5b-378a5da96fa5",
+            origin: .shell,
+            toolName: "Codex",
+            text: nil,
+            artifactKind: nil,
+            artifactLabel: nil,
+            artifactURL: nil
+        )
+        let nonCodexRunningPayload = AgentStatusPayload(
+            worklaneID: worklaneID,
+            paneID: paneID,
+            signalKind: .shellState,
+            state: nil,
+            shellActivityState: .commandRunning,
+            shellCommand: "ls",
+            origin: .shell,
+            toolName: nil,
+            text: nil,
+            artifactKind: nil,
+            artifactLabel: nil,
+            artifactURL: nil
+        )
+
+        store.applyAgentStatusPayload(codexRunningPayload)
+        store.applyAgentStatusPayload(nonCodexRunningPayload)
+
+        let auxiliary = try XCTUnwrap(store.worklanes[0].auxiliaryStateByPaneID[paneID])
+        XCTAssertNil(auxiliary.raw.restoredAgentRestoreDraft)
+        XCTAssertFalse(auxiliary.raw.restoredAgentAutoResumePending)
+    }
+
+    func test_codex_restored_agent_restore_draft_clears_after_live_replacement_identity_exists() throws {
+        let paneID = PaneID("pane-agent")
+        let worklaneID = WorklaneID("main")
+        let livePID = Int32(getpid())
+        let draft = PaneRestoreDraft(
+            paneID: "pane-agent",
+            kind: .agentResume,
+            toolName: "Codex",
+            sessionID: "019e4548-2fab-7542-9d5b-378a5da96fa5",
+            workingDirectory: "/tmp/project",
+            trackedPID: 4242
+        )
+        let worklane = WorklaneState(
+            id: worklaneID,
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [
+                    PaneState(id: paneID, title: "Codex")
+                ],
+                focusedPaneID: paneID
+            ),
+            nextPaneNumber: 2,
+            auxiliaryStateByPaneID: [
+                paneID: PaneAuxiliaryState(
+                    raw: PaneRawState(
+                        shellContext: PaneShellContext(
+                            scope: .local,
+                            path: "/tmp/project",
+                            home: "/Users/peter",
+                            user: "peter",
+                            host: nil
+                        ),
+                        agentStatus: PaneAgentStatus(
+                            tool: .codex,
+                            state: .running,
+                            text: nil,
+                            artifactLink: nil,
+                            updatedAt: Date(),
+                            trackedPID: livePID,
+                            workingDirectory: "/tmp/project",
+                            sessionID: "019e4b24-6389-7ea2-95ec-27b4e2c000b6"
+                        ),
+                        restoredAgentRestoreDraft: draft
+                    ),
+                    presentation: PanePresentationState(cwd: "/tmp/project")
+                )
+            ]
+        )
+        let store = WorklaneStore(
+            worklanes: [worklane],
+            activeWorklaneID: worklaneID,
+            readyStatusDebounceInterval: 0
+        )
+        let shellRunningPayload = AgentStatusPayload(
+            worklaneID: worklaneID,
+            paneID: paneID,
+            signalKind: .shellState,
+            state: nil,
+            shellActivityState: .commandRunning,
+            shellCommand: "codex resume 019e4548-2fab-7542-9d5b-378a5da96fa5",
+            origin: .shell,
+            toolName: "Codex",
+            text: nil,
+            artifactKind: nil,
+            artifactLabel: nil,
+            artifactURL: nil
+        )
+
+        store.applyAgentStatusPayload(shellRunningPayload)
+
+        let auxiliary = try XCTUnwrap(store.worklanes[0].auxiliaryStateByPaneID[paneID])
         XCTAssertNil(auxiliary.raw.restoredAgentRestoreDraft)
         XCTAssertFalse(auxiliary.raw.restoredAgentAutoResumePending)
     }

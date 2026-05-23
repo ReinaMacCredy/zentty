@@ -301,7 +301,9 @@ final class AgentsSettingsSectionViewController: SettingsScrollableSectionViewCo
     private let agentTeamsEnableWarningPresenter: AgentTeamsEnableWarningPresenter
     private var currentAgentTeams: AppConfig.AgentTeams
     private var currentAgentCaffeination: AppConfig.AgentCaffeination
+    private var currentMenuBar: AppConfig.MenuBar
 
+    private let menuBarStatusSwitch = NSSwitch()
     private let agentTeamsSwitch = NSSwitch()
     private let agentCaffeinationSwitch = NSSwitch()
     private let experimentalBadgeLabel = NSTextField(labelWithString: "EXPERIMENTAL")
@@ -316,6 +318,7 @@ final class AgentsSettingsSectionViewController: SettingsScrollableSectionViewCo
         self.agentTeamsEnableWarningPresenter = agentTeamsEnableWarningPresenter
         self.currentAgentTeams = configStore.current.agentTeams
         self.currentAgentCaffeination = configStore.current.agentCaffeination
+        self.currentMenuBar = configStore.current.menuBar
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -340,9 +343,17 @@ final class AgentsSettingsSectionViewController: SettingsScrollableSectionViewCo
         cardStack.translatesAutoresizingMaskIntoConstraints = false
         card.addSubview(cardStack)
 
+        let menuBarStatusRow = makeMenuBarStatusRow()
+        cardStack.addArrangedSubview(menuBarStatusRow)
+        menuBarStatusRow.widthAnchor.constraint(equalTo: cardStack.widthAnchor).isActive = true
+
+        addSeparator(to: cardStack)
+
         let agentTeamsRow = makeAgentTeamsRow()
         cardStack.addArrangedSubview(agentTeamsRow)
         agentTeamsRow.widthAnchor.constraint(equalTo: cardStack.widthAnchor).isActive = true
+
+        addSeparator(to: cardStack)
 
         let agentCaffeinationRow = makeAgentCaffeinationRow()
         cardStack.addArrangedSubview(agentCaffeinationRow)
@@ -368,19 +379,33 @@ final class AgentsSettingsSectionViewController: SettingsScrollableSectionViewCo
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        menuBarStatusSwitch.state = currentMenuBar.showStatusItem ? .on : .off
         agentTeamsSwitch.state = currentAgentTeams.enabled ? .on : .off
         agentCaffeinationSwitch.state = currentAgentCaffeination.enabled ? .on : .off
     }
 
     func apply(
         agentTeams: AppConfig.AgentTeams,
-        agentCaffeination: AppConfig.AgentCaffeination
+        agentCaffeination: AppConfig.AgentCaffeination,
+        menuBar: AppConfig.MenuBar
     ) {
         currentAgentTeams = agentTeams
         currentAgentCaffeination = agentCaffeination
+        currentMenuBar = menuBar
         guard isViewLoaded else { return }
+        menuBarStatusSwitch.state = menuBar.showStatusItem ? .on : .off
         agentTeamsSwitch.state = agentTeams.enabled ? .on : .off
         agentCaffeinationSwitch.state = agentCaffeination.enabled ? .on : .off
+    }
+
+    private func makeMenuBarStatusRow() -> NSView {
+        let row = makeAgentSwitchRow(
+            title: "Show agent status in menu bar",
+            subtitle: "Display a Zentty menu bar icon with live waiting, running, and idle agent panes.",
+            toggle: menuBarStatusSwitch,
+            action: #selector(handleMenuBarStatusSwitchChanged(_:))
+        )
+        return row
     }
 
     private func makeAgentTeamsRow() -> NSView {
@@ -450,6 +475,20 @@ final class AgentsSettingsSectionViewController: SettingsScrollableSectionViewCo
     }
 
     private func makeAgentCaffeinationRow() -> NSView {
+        makeAgentSwitchRow(
+            title: "Prevent sleep while agents run",
+            subtitle: "Keep the Mac awake while an agent pane is running. The display can still sleep.",
+            toggle: agentCaffeinationSwitch,
+            action: #selector(handleAgentCaffeinationSwitchChanged(_:))
+        )
+    }
+
+    private func makeAgentSwitchRow(
+        title: String,
+        subtitle: String,
+        toggle: NSSwitch,
+        action: Selector
+    ) -> NSView {
         let container = NSView()
         container.translatesAutoresizingMaskIntoConstraints = false
 
@@ -460,39 +499,52 @@ final class AgentsSettingsSectionViewController: SettingsScrollableSectionViewCo
         leftStack.translatesAutoresizingMaskIntoConstraints = false
 
         let titleLabel = makeLabel(
-            text: "Prevent sleep while agents run",
+            text: title,
             font: .systemFont(ofSize: 13, weight: .semibold)
         )
         leftStack.addArrangedSubview(titleLabel)
 
         let subtitleLabel = makeLabel(
-            text: "Keep the Mac awake while an agent pane is running. The display can still sleep.",
+            text: subtitle,
             font: .systemFont(ofSize: 12, weight: .regular)
         )
         subtitleLabel.textColor = .secondaryLabelColor
         leftStack.addArrangedSubview(subtitleLabel)
 
-        agentCaffeinationSwitch.target = self
-        agentCaffeinationSwitch.action = #selector(handleAgentCaffeinationSwitchChanged(_:))
+        toggle.target = self
+        toggle.action = action
 
         container.addSubview(leftStack)
-        container.addSubview(agentCaffeinationSwitch)
-        agentCaffeinationSwitch.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(toggle)
+        toggle.translatesAutoresizingMaskIntoConstraints = false
 
         NSLayoutConstraint.activate([
             leftStack.topAnchor.constraint(equalTo: container.topAnchor, constant: 14),
             leftStack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16),
             leftStack.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -14),
 
-            agentCaffeinationSwitch.centerYAnchor.constraint(equalTo: container.centerYAnchor),
-            agentCaffeinationSwitch.leadingAnchor.constraint(
+            toggle.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            toggle.leadingAnchor.constraint(
                 greaterThanOrEqualTo: leftStack.trailingAnchor,
                 constant: 12
             ),
-            agentCaffeinationSwitch.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -16),
+            toggle.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -16),
         ])
 
         return container
+    }
+
+    @discardableResult
+    private func addSeparator(to stack: NSStackView) -> NSView {
+        let separator = NSBox()
+        separator.boxType = .separator
+        separator.translatesAutoresizingMaskIntoConstraints = false
+        // Add to the stack before activating the width constraint: the anchor
+        // pair needs a common ancestor at activation time, otherwise AppKit
+        // throws and aborts assembleContent (leaving the pane blank).
+        stack.addArrangedSubview(separator)
+        separator.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+        return separator
     }
 
     private func configureExperimentalBadge() {
@@ -512,6 +564,15 @@ final class AgentsSettingsSectionViewController: SettingsScrollableSectionViewCo
         experimentalBadgeLabel.setContentHuggingPriority(.required, for: .horizontal)
         experimentalBadgeLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 84).isActive = true
         experimentalBadgeLabel.heightAnchor.constraint(equalToConstant: 16).isActive = true
+    }
+
+    @objc
+    private func handleMenuBarStatusSwitchChanged(_ sender: NSSwitch) {
+        try? configStore.update { config in
+            config.menuBar.showStatusItem = sender.state == .on
+        }
+        currentMenuBar = configStore.current.menuBar
+        menuBarStatusSwitch.state = currentMenuBar.showStatusItem ? .on : .off
     }
 
     @objc
@@ -579,6 +640,10 @@ final class AgentsSettingsSectionViewController: SettingsScrollableSectionViewCo
         agentTeamsSwitch.state == .on
     }
 
+    var isMenuBarStatusSwitchOn: Bool {
+        menuBarStatusSwitch.state == .on
+    }
+
     var isAgentCaffeinationSwitchOn: Bool {
         agentCaffeinationSwitch.state == .on
     }
@@ -595,6 +660,11 @@ final class AgentsSettingsSectionViewController: SettingsScrollableSectionViewCo
     func setAgentTeamsEnabledForTesting(_ enabled: Bool) {
         agentTeamsSwitch.state = enabled ? .on : .off
         requestAgentTeamsChange(to: enabled)
+    }
+
+    func setMenuBarStatusEnabledForTesting(_ enabled: Bool) {
+        menuBarStatusSwitch.state = enabled ? .on : .off
+        handleMenuBarStatusSwitchChanged(menuBarStatusSwitch)
     }
 
     func setAgentCaffeinationEnabledForTesting(_ enabled: Bool) {

@@ -86,6 +86,18 @@ final class SettingsSidebarSearchFilterTests: AppKitTestCase {
             groups: SettingsSidebarLayout.groups
         )
         XCTAssertEqual(sections(crashRows), [.updatesPrivacy])
+
+        let ignoredPortRows = SettingsSidebarViewController.filterRows(
+            query: "ignored",
+            groups: SettingsSidebarLayout.groups
+        )
+        XCTAssertEqual(sections(ignoredPortRows), [.devServers])
+
+        let menuBarRows = SettingsSidebarViewController.filterRows(
+            query: "menu bar",
+            groups: SettingsSidebarLayout.groups
+        )
+        XCTAssertEqual(sections(menuBarRows), [.agents])
     }
 
     func test_filter_drops_group_headers_with_no_matches() {

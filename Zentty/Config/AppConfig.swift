@@ -51,12 +51,16 @@ struct AppConfig: Equatable, Sendable {
         /// Installed built-in slugs and `custom:` ids the user wants in the Open Server browser menu (never includes `system-default`).
         var enabledBrowserTargetIDs: [String]
         var customBrowsers: [ServerBrowserCustomApp]
+        /// Canonical port rules whose detected servers are hidden from the menu and primary
+        /// selection. Bare ports (`"9229"`) or inclusive ranges (`"24678-24680"`); see `ServerPortRule`.
+        var ignoredPortRules: [String]
 
         static let `default` = ServerDetection(
             passiveDetectionEnabled: true,
             preferredBrowserID: ServerBrowserTarget.systemDefaultID,
             enabledBrowserTargetIDs: [],
-            customBrowsers: []
+            customBrowsers: [],
+            ignoredPortRules: []
         )
     }
 
@@ -150,6 +154,14 @@ struct AppConfig: Equatable, Sendable {
         static let `default` = AgentCaffeination(enabled: true)
     }
 
+    struct MenuBar: Equatable, Sendable {
+        var showStatusItem: Bool
+
+        static let `default` = MenuBar(
+            showStatusItem: true
+        )
+    }
+
     var sidebar: Sidebar
     var paneLayout: PaneLayoutPreferences
     var panes: Panes
@@ -165,6 +177,7 @@ struct AppConfig: Equatable, Sendable {
     var restore: Restore
     var agentTeams: AgentTeams
     var agentCaffeination: AgentCaffeination
+    var menuBar: MenuBar
 
     static let `default` = AppConfig(
         sidebar: Sidebar(
@@ -184,7 +197,8 @@ struct AppConfig: Equatable, Sendable {
         appearance: .default,
         restore: .default,
         agentTeams: .default,
-        agentCaffeination: .default
+        agentCaffeination: .default,
+        menuBar: .default
     )
 
     static func migrated(
@@ -210,7 +224,8 @@ struct AppConfig: Equatable, Sendable {
             appearance: .default,
             restore: .default,
             agentTeams: .default,
-            agentCaffeination: .default
+            agentCaffeination: .default,
+            menuBar: .default
         )
     }
 
@@ -363,7 +378,8 @@ extension AppConfig.ServerDetection {
             passiveDetectionEnabled: passiveDetectionEnabled,
             preferredBrowserID: normalizedPreferredBrowserID,
             enabledBrowserTargetIDs: normalizedEnabledBrowserTargetIDs,
-            customBrowsers: canonicalBrowsers
+            customBrowsers: canonicalBrowsers,
+            ignoredPortRules: ServerPortRule.canonicalStrings(ignoredPortRules)
         )
     }
 }

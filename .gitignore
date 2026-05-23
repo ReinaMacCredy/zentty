@@ -13,6 +13,7 @@ build/
 .agent-bench-runs/
 .clawpatch/
 .factory
+.antigravitycli/
 .planning
 shaping/
 .wrangler/
@@ -29,4 +30,3 @@ fastlane/.env
 # App Store Connect API keys
 *.p8
 .sentryclirc
-.antigravitycli

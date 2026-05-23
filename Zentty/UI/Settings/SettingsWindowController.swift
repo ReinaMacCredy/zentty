@@ -76,7 +76,7 @@ enum SettingsSection: String, CaseIterable, Hashable, Sendable {
         case .updatesPrivacy:
             "Update channel and crash reporting"
         case .agents:
-            "Claude Code agent integration"
+            "Agent status, teams, and sleep behavior"
         }
     }
 
@@ -95,13 +95,13 @@ enum SettingsSection: String, CaseIterable, Hashable, Sendable {
         case .openWith:
             ["app", "editor", "launch", "finder", "vscode", "cursor", "xcode"]
         case .devServers:
-            ["server", "localhost", "browser", "port", "detect"]
+            ["server", "localhost", "browser", "port", "detect", "ignored", "hidden"]
         case .paneLayout:
             ["pane", "split", "layout", "opacity", "label", "icon", "scroll"]
         case .updatesPrivacy:
             ["update", "channel", "beta", "stable", "crash", "error", "report", "privacy", "sentry"]
         case .agents:
-            ["agent", "claude", "team", "caffeinate", "sleep", "subagent"]
+            ["agent", "claude", "team", "caffeinate", "sleep", "subagent", "menu", "menu bar", "menubar", "status"]
         }
     }
 
@@ -696,7 +696,8 @@ final class SettingsViewController: NSSplitViewController, SettingsSidebarViewCo
         updatesPrivacyViewController.apply(errorReporting: config.errorReporting)
         agentsViewController.apply(
             agentTeams: config.agentTeams,
-            agentCaffeination: config.agentCaffeination
+            agentCaffeination: config.agentCaffeination,
+            menuBar: config.menuBar
         )
         shortcutsViewController.apply(shortcuts: config.shortcuts)
         paneLayoutViewController.apply(panes: config.panes, paneLayout: config.paneLayout)
