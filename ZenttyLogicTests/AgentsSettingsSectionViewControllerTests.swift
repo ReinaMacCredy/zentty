@@ -1,8 +1,9 @@
 @testable import Zentty
+import AppKit
 import XCTest
 
 @MainActor
-final class AgentsSettingsSectionViewControllerTests: XCTestCase {
+final class AgentsSettingsSectionViewControllerTests: AppKitTestCase {
     private var temporaryDirectoryURL: URL!
     private var defaultsSuiteNames: [String] = []
 
@@ -40,6 +41,22 @@ final class AgentsSettingsSectionViewControllerTests: XCTestCase {
 
         XCTAssertEqual(switches(in: controller.view).count, 3)
         XCTAssertGreaterThan(controller.measuredContentHeight(), 0)
+    }
+
+    func test_menu_bar_status_toggle_persists() {
+        let store = makeConfigStore()
+        let controller = AgentsSettingsSectionViewController(
+            configStore: store,
+            agentTeamsEnableWarningPresenter: { _, completion in completion(.cancel) }
+        )
+        controller.loadViewIfNeeded()
+
+        XCTAssertTrue(controller.isMenuBarStatusSwitchOn)
+
+        controller.setMenuBarStatusEnabledForTesting(false)
+
+        XCTAssertFalse(store.current.menuBar.showStatusItem)
+        XCTAssertFalse(controller.isMenuBarStatusSwitchOn)
     }
 
     // MARK: - Helpers

@@ -197,7 +197,10 @@ final class ServerBrowserSettingsSectionViewController: SettingsScrollableSectio
             rootStackView.topAnchor.constraint(equalTo: contentView.topAnchor),
             rootStackView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
             rootStackView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
-            rootStackView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
+            // Top-anchor the content (≤, not ==) so it keeps its natural height
+            // instead of stretching — and spreading rows — when the pane is
+            // taller than the content.
+            rootStackView.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor),
         ])
     }
 

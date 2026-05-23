@@ -491,18 +491,16 @@ final class MainWindowControllerTests: XCTestCase {
         XCTAssertEqual(settingsViewController.contentSectionTitle, "Open With")
     }
 
-    func test_show_settings_window_matches_terminal_appearance() throws {
+    func test_show_settings_window_follows_system_appearance() throws {
         let controller = makeController()
 
         controller.showSettingsWindow(nil)
 
         let settingsWindow = try XCTUnwrap(controller.settingsWindow)
-        let expectedAppearance = try XCTUnwrap(controller.terminalAppearance)
 
-        XCTAssertEqual(
-            settingsWindow.appearance?.bestMatch(from: [.darkAqua, .aqua]),
-            expectedAppearance.bestMatch(from: [.darkAqua, .aqua])
-        )
+        // Settings follows the macOS system light/dark rather than the terminal
+        // theme, so it must not pin its own appearance.
+        XCTAssertNil(settingsWindow.appearance)
     }
 
     func test_show_settings_window_can_open_directly_to_appearance() throws {
@@ -536,12 +534,9 @@ final class MainWindowControllerTests: XCTestCase {
         let settingsViewController = try XCTUnwrap(
             settingsWindow.contentViewController as? SettingsViewController
         )
-        let tabController = try XCTUnwrap(
-            settingsWindow.contentViewController as? NSTabViewController
-        )
         settingsViewController.loadViewIfNeeded()
 
-        tabController.tabView.selectTabViewItem(at: 1)
+        settingsViewController.select(section: .appearance)
         waitForLayout("appearance settings switched", delay: 0.2)
 
         XCTAssertEqual(settingsViewController.selectedSection, .appearance)
@@ -559,11 +554,11 @@ final class MainWindowControllerTests: XCTestCase {
         controller.showSettingsWindow(nil)
 
         let settingsWindow = try XCTUnwrap(controller.settingsWindow)
-        let tabController = try XCTUnwrap(
-            settingsWindow.contentViewController as? NSTabViewController
+        let settingsViewController = try XCTUnwrap(
+            settingsWindow.contentViewController as? SettingsViewController
         )
 
-        tabController.tabView.selectTabViewItem(at: 1)
+        settingsViewController.select(section: .appearance)
         // Wait long enough for the 0.3s window-transition animation plus the
         // async theme catalog load to finish rendering into the pane.
         waitForLayout("appearance rendered", delay: 0.6)
@@ -598,14 +593,11 @@ final class MainWindowControllerTests: XCTestCase {
             preparedTransitions.append((target, selected))
         }
 
-        let appearanceItem = try XCTUnwrap(
-            settingsViewController.tabViewItems.first { $0.identifier as? String == SettingsSection.appearance.rawValue }
-        )
+        settingsViewController.select(section: .appearance)
 
-        XCTAssertTrue(settingsViewController.tabView(settingsViewController.tabView, shouldSelect: appearanceItem))
         XCTAssertTrue(
             preparedTransitions.contains { $0.target == .appearance && $0.selected == .general },
-            "Toolbar selection should prepare the target pane during the selection phase, before AppKit changes the selected tab."
+            "Sidebar selection should prepare the target pane with the previously selected section before committing."
         )
     }
 

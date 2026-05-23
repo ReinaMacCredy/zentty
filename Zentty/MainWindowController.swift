@@ -466,7 +466,6 @@ final class MainWindowController: NSObject, NSWindowDelegate {
                 openWithService: openWithService,
                 serverOpening: serverOpenService,
                 runtimeErrorReportingEnabled: ErrorReportingRuntimeState.isEnabledForCurrentProcess,
-                appearance: terminalAppearance,
                 initialSection: section
             )
             self.settingsWindowController = settingsWindowController
@@ -1172,7 +1171,8 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     private func syncWindowAppearance() {
         let appearance = terminalAppearance
         window.appearance = appearance
-        settingsWindowController?.applyAppearance(appearance)
+        // The settings window intentionally follows the macOS system appearance,
+        // so it is not synced to the terminal theme here.
         onWindowAppearanceDidChange?(appearance, currentWindowTheme)
     }
 
