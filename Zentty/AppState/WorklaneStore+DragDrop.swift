@@ -992,6 +992,7 @@ extension WorklaneStore {
             case .pi: return "pi"
             case .grok: return "grok"
             case .agy: return "agy"
+            case .hermes: return "hermes"
             case .custom(let name): return name
             }
         }

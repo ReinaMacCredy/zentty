@@ -1301,6 +1301,8 @@ final class TerminalDiagnostics: @unchecked Sendable {
             return "grok"
         case .agy:
             return "agy"
+        case .hermes:
+            return "hermes"
         case .custom(let name):
             return "custom:\(name)"
         case nil:

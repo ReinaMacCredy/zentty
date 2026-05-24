@@ -134,6 +134,13 @@ enum AgentLaunchBootstrap {
                 runtimeDirectoryURL: runtimeDirectoryURL,
                 fileManager: fileManager
             )
+        case .hermes:
+            return hermesPlan(
+                executablePath: executablePath,
+                arguments: request.arguments,
+                environment: environment,
+                fileManager: fileManager
+            )
         }
     }
 
@@ -392,6 +399,60 @@ enum AgentLaunchBootstrap {
                 AgentLaunchAction(
                     subcommand: "agent-event",
                     arguments: ["--adapter=agy"],
+                    standardInput: agentRunningJSON
+                )
+            ]
+        )
+    }
+
+    private static func hermesPlan(
+        executablePath: String,
+        arguments: [String],
+        environment: [String: String],
+        fileManager: FileManager
+    ) -> AgentLaunchPlan {
+        if environment["ZENTTY_HERMES_HOOKS_DISABLED"] == "1" {
+            return directPlan(executablePath: executablePath, arguments: arguments)
+        }
+
+        if let cliPath = environment["ZENTTY_CLI_BIN"]?.nilIfBlank {
+            try? HermesHooksInstaller.ensureInstalledForCurrentUser(
+                cliPath: cliPath,
+                environment: environment,
+                fileManager: fileManager
+            )
+        }
+
+        let argumentsJSON = (try? compactJSONString(arguments)) ?? "[]"
+        var launchEnvironment: [String: String] = [:]
+        if let hermesHome = environment["HERMES_HOME"]?.nilIfBlank {
+            launchEnvironment["HERMES_HOME"] = hermesHome
+        }
+        let launchEnvironmentJSON = (try? compactJSONString(launchEnvironment)) ?? "{}"
+        let sessionStartJSON = """
+        {"version":1,"event":"session.start","agent":{"name":"Hermes Agent","pid":\(AgentIPCProtocol.selfPIDPlaceholder)},"context":{"launch":{"arguments":\(argumentsJSON),"environment":\(launchEnvironmentJSON)}}}
+        """
+        let agentRunningJSON = """
+        {"version":1,"event":"agent.running","agent":{"name":"Hermes Agent","pid":\(AgentIPCProtocol.selfPIDPlaceholder)},"context":{"launch":{"arguments":\(argumentsJSON),"environment":\(launchEnvironmentJSON)}}}
+        """
+
+        return AgentLaunchPlan(
+            executablePath: executablePath,
+            arguments: arguments,
+            setEnvironment: [
+                "ZENTTY_AGENT_TOOL": "hermes",
+                "ZENTTY_HERMES_PID": "\(getpid())",
+            ],
+            unsetEnvironment: [],
+            preLaunchActions: [
+                AgentLaunchAction(
+                    subcommand: "agent-event",
+                    arguments: ["--adapter=hermes"],
+                    standardInput: sessionStartJSON
+                ),
+                AgentLaunchAction(
+                    subcommand: "agent-event",
+                    arguments: ["--adapter=hermes"],
                     standardInput: agentRunningJSON
                 )
             ]
@@ -1351,7 +1412,7 @@ enum AgentLaunchBootstrap {
     }
 
     private static func compactJSONData(_ object: Any) throws -> Data {
-        try JSONSerialization.data(withJSONObject: object, options: [])
+        try JSONSerialization.data(withJSONObject: object, options: [.withoutEscapingSlashes])
     }
 
     private static func tomlStringArrayLiteral(_ strings: [String]) -> String {

@@ -1,0 +1,37 @@
+{
+  "name": "hermes",
+  "command": "hermes",
+  "real_binary_names": ["hermes"],
+  "version_args": ["--version"],
+  "launch_args_by_scenario": {
+    "smoke": [
+      "--oneshot",
+      "Run this exact shell command: printf ZENTTY_AGENT_BENCH_OK"
+    ],
+    "session_capture": [
+      "--tui",
+      "Run this exact shell command: printf ZENTTY_AGENT_BENCH_OK"
+    ],
+    "restore_launch_with_id": [
+      "--resume",
+      "zentty-bench-hermes-session"
+    ]
+  },
+  "expectations": {
+    "smoke": {
+      "required_events": []
+    },
+    "session_capture": {
+      "required_events": ["session.start", "agent.running"],
+      "session_identity": {
+        "session_id_pattern": "non-empty",
+        "tracked_pid": true
+      }
+    },
+    "restore_launch_with_id": {
+      "required_events": [],
+      "required_bootstrap_arguments": [["--resume", "zentty-bench-hermes-session"]]
+    }
+  },
+  "skip_patterns": ["login", "auth", "not authenticated", "api key", "sign in"]
+}

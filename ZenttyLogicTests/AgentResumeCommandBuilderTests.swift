@@ -458,4 +458,68 @@ final class AgentResumeCommandBuilderTests: XCTestCase {
             "agy --continue"
         )
     }
+
+    func test_builder_returns_hermes_resume_command_for_safe_session_id() {
+        let draft = PaneRestoreDraft(
+            paneID: "pane-hermes",
+            kind: .agentResume,
+            toolName: "Hermes Agent",
+            sessionID: "hermes-session-123",
+            workingDirectory: "/tmp/project",
+            trackedPID: 4242,
+            agentLaunchSnapshot: AgentLaunchSnapshot(arguments: ["--tui", "--model", "anthropic/claude-sonnet-4.6"])
+        )
+
+        XCTAssertEqual(
+            AgentResumeCommandBuilder.command(for: draft),
+            "hermes --tui --model anthropic/claude-sonnet-4.6 --resume hermes-session-123"
+        )
+    }
+
+    func test_builder_prefixes_hermes_home_when_launch_snapshot_captured_it() {
+        let draft = PaneRestoreDraft(
+            paneID: "pane-hermes",
+            kind: .agentResume,
+            toolName: "Hermes Agent",
+            sessionID: "hermes-session-123",
+            workingDirectory: "/tmp/project",
+            trackedPID: 4242,
+            agentLaunchSnapshot: AgentLaunchSnapshot(
+                arguments: ["chat", "--tui", "--resume", "old-session", "--model", "anthropic/claude-sonnet-4.6"],
+                environment: ["HERMES_HOME": "/tmp/hermes profile"]
+            )
+        )
+
+        XCTAssertEqual(
+            AgentResumeCommandBuilder.command(for: draft),
+            #"env HERMES_HOME='/tmp/hermes profile' hermes --tui --model anthropic/claude-sonnet-4.6 --resume hermes-session-123"#
+        )
+    }
+
+    func test_builder_returns_nil_for_hermes_one_shot_launch_arguments() {
+        let draft = PaneRestoreDraft(
+            paneID: "pane-hermes",
+            kind: .agentResume,
+            toolName: "Hermes Agent",
+            sessionID: "hermes-session-123",
+            workingDirectory: "/tmp/project",
+            trackedPID: 4242,
+            agentLaunchSnapshot: AgentLaunchSnapshot(arguments: ["--oneshot", "fix this"])
+        )
+
+        XCTAssertNil(AgentResumeCommandBuilder.command(for: draft))
+    }
+
+    func test_builder_returns_nil_for_hermes_unsafe_session_id() {
+        let draft = PaneRestoreDraft(
+            paneID: "pane-hermes",
+            kind: .agentResume,
+            toolName: "Hermes Agent",
+            sessionID: "session; rm -rf /",
+            workingDirectory: "/tmp/project",
+            trackedPID: 4242
+        )
+
+        XCTAssertNil(AgentResumeCommandBuilder.command(for: draft))
+    }
 }

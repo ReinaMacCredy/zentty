@@ -77,6 +77,9 @@ enum AgentEventBridge {
             case "agy":
                 let eventName = positionalArgs.first
                 payloads = try agyAdapter(data: inputData, defaultEventName: eventName, environment: environment)
+            case "hermes":
+                let eventName = positionalArgs.first
+                payloads = try hermesAdapter(data: inputData, defaultEventName: eventName, environment: environment)
             case .none:
                 let input = try parseInput(inputData)
                 payloads = try makePayloads(from: input, environment: environment)
@@ -90,7 +93,7 @@ enum AgentEventBridge {
             return EXIT_SUCCESS
         } catch {
             agentEventBridgeLogger.error("run adapter=\(adapterLabel, privacy: .public) threw: \(error.localizedDescription, privacy: .public)")
-            if adapter == "claude" || adapter == "grok" || adapter == "agy" {
+            if adapter == "claude" || adapter == "grok" || adapter == "agy" || adapter == "hermes" {
                 return EXIT_SUCCESS
             }
             writeError(error)
@@ -149,8 +152,18 @@ enum AgentEventBridge {
             artifactLabel: JSONKeyAccess.firstString(in: artifact, keys: ["label"]),
             artifactURL: JSONKeyAccess.firstString(in: artifact, keys: ["url"]),
             workingDirectory: JSONKeyAccess.firstString(in: context, keys: ["workingDirectory"]),
-            agentLaunchSnapshot: JSONKeyAccess.firstStringArray(in: launch, keys: ["arguments"]).map(AgentLaunchSnapshot.init(arguments:))
+            agentLaunchSnapshot: launchSnapshot(from: launch)
         )
+    }
+
+    private static func launchSnapshot(from launch: [String: Any]?) -> AgentLaunchSnapshot? {
+        guard let arguments = JSONKeyAccess.firstStringArray(in: launch, keys: ["arguments"]) else {
+            return nil
+        }
+        let environment = (launch?["environment"] as? [String: Any])?.compactMapValues { value in
+            value as? String
+        }
+        return AgentLaunchSnapshot(arguments: arguments, environment: environment?.isEmpty == false ? environment : nil)
     }
 
     // MARK: - Payload Construction

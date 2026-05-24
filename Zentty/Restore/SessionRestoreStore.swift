@@ -451,7 +451,7 @@ enum SessionRestoreDraftExporter {
 
     private static func restoreIdentityRequirement(for tool: AgentTool) -> RestoreIdentityRequirement {
         switch tool {
-        case .amp, .claudeCode, .codex, .copilot, .cursor, .droid, .kimi, .openCode:
+        case .amp, .claudeCode, .codex, .copilot, .cursor, .droid, .kimi, .openCode, .hermes:
             return .sessionID
         case .gemini, .pi, .grok, .agy:
             return .workingDirectory
@@ -616,6 +616,23 @@ enum AgentResumeCommandBuilder {
                 return "agy --conversation \(sessionID)"
             }
             return nil
+        case .hermes:
+            guard let sessionID = validatedHermesSessionID(from: draft.sessionID) else {
+                logRejectedSessionID(for: draft)
+                return nil
+            }
+            guard let resumeArguments = sanitizedHermesResumeArguments(
+                from: draft.agentLaunchSnapshot?.arguments ?? []
+            ) else {
+                return nil
+            }
+            let commandArguments = ["hermes"] + resumeArguments + ["--resume", sessionID]
+            let command = commandArguments.map(shellQuotedArgument(_:)).joined(separator: " ")
+            if let hermesHome = draft.agentLaunchSnapshot?.environment?["HERMES_HOME"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !hermesHome.isEmpty {
+                return "env HERMES_HOME=\(shellQuotedArgument(hermesHome)) \(command)"
+            }
+            return command
         default:
             return nil
         }
@@ -717,6 +734,50 @@ enum AgentResumeCommandBuilder {
             return nil
         }
         return sessionID
+    }
+
+    private static func validatedHermesSessionID(from sessionID: String) -> String? {
+        guard !sessionID.hasPrefix("zentty-hermes-placeholder-") else {
+            return nil
+        }
+        let pattern = "^[A-Za-z0-9_.:-]+$"
+        guard sessionID.range(of: pattern, options: .regularExpression) != nil else {
+            return nil
+        }
+        return sessionID
+    }
+
+    private static func sanitizedHermesResumeArguments(from arguments: [String]) -> [String]? {
+        let oneShotFlags: Set<String> = ["--oneshot", "-z", "--query", "-q", "--quiet", "-Q"]
+        for argument in arguments {
+            let option = argument.hasPrefix("--")
+                ? (argument.split(separator: "=", maxSplits: 1).first.map(String.init) ?? argument)
+                : argument
+            if oneShotFlags.contains(option) {
+                return nil
+            }
+        }
+
+        var result: [String] = []
+        var index = 0
+        while index < arguments.count {
+            let argument = arguments[index]
+            if index == 0, argument == "chat" {
+                index += 1
+                continue
+            }
+            if argument == "--resume" || argument == "-r" {
+                index += 2
+                continue
+            }
+            if argument.hasPrefix("--resume=") {
+                index += 1
+                continue
+            }
+            result.append(argument)
+            index += 1
+        }
+        return result
     }
 
     private static func shellQuotedArgument(_ argument: String) -> String {
