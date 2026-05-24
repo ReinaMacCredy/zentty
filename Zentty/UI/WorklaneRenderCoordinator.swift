@@ -444,6 +444,14 @@ final class WorklaneRenderCoordinator {
         }
 
         if impacts.contains(.sidebar) || impacts.contains(.serverDetection) {
+            if impacts.contains(.serverDetection) {
+                ZenttyBreadcrumbs.record(
+                    category: "zentty.render.sidebar",
+                    data: [
+                        "serverDetection": true,
+                    ]
+                )
+            }
             renderSidebar(in: views)
         }
 

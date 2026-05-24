@@ -11,10 +11,12 @@ final class SentryErrorReportingClient: ErrorReportingClient {
             options.sendDefaultPii = configuration.sendDefaultPii
             options.enableAutoSessionTracking = configuration.enableAutoSessionTracking
             options.enableAutoPerformanceTracing = configuration.enableAutoPerformanceTracing
+            options.enableAutoBreadcrumbTracking = configuration.enableAutoBreadcrumbTracking
             options.enableNetworkBreadcrumbs = configuration.enableNetworkBreadcrumbs
             options.enableWatchdogTerminationTracking = configuration.enableWatchdogTerminationTracking
             options.enableUncaughtNSExceptionReporting = configuration.enableUncaughtNSExceptionReporting
             options.maxBreadcrumbs = configuration.maxBreadcrumbs
+            options.beforeBreadcrumb = ZenttyBreadcrumbScrubber.filter
         }
     }
 }

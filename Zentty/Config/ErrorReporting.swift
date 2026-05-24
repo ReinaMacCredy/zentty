@@ -75,6 +75,7 @@ struct ErrorReportingClientConfiguration: Equatable, Sendable {
     let sendDefaultPii: Bool
     let enableAutoSessionTracking: Bool
     let enableAutoPerformanceTracing: Bool
+    let enableAutoBreadcrumbTracking: Bool
     let enableNetworkBreadcrumbs: Bool
     let enableWatchdogTerminationTracking: Bool
     let enableUncaughtNSExceptionReporting: Bool
@@ -123,10 +124,11 @@ enum ErrorReportingBootstrap {
                 sendDefaultPii: false,
                 enableAutoSessionTracking: false,
                 enableAutoPerformanceTracing: false,
+                enableAutoBreadcrumbTracking: true,
                 enableNetworkBreadcrumbs: false,
                 enableWatchdogTerminationTracking: false,
                 enableUncaughtNSExceptionReporting: true,
-                maxBreadcrumbs: 0
+                maxBreadcrumbs: 50
             )
         )
         ErrorReportingRuntimeState.setEnabledForCurrentProcess(true)

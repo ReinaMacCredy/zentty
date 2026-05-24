@@ -91,12 +91,36 @@ assert_equal "beta", ReleaseAutomation.sparkle_channel("beta")
 assert_equal "Zentty-1.2.3-456", ReleaseAutomation.archive_basename(app_name: "Zentty", version: "v1.2.3", build: "456")
 assert_equal "appcast.xml", ReleaseAutomation.appcast_key
 assert_equal(
-  ["glitchtip-cli", "debug-files", "upload", "/tmp/build"],
+  ["glitchtip-cli", "debug-files", "upload", "/tmp/build", "--wait"],
   ReleaseAutomation.glitchtip_debug_files_upload_command(upload_root: "/tmp/build")
 )
 assert_equal(
-  ["glitchtip-cli", "debug-files", "upload", "/tmp/build", "--org", "zenjoy", "--project", "zentty"],
-  ReleaseAutomation.glitchtip_debug_files_upload_command(upload_root: "/tmp/build", org: "zenjoy", project: "zentty")
+  [
+    "glitchtip-cli", "--url", "https://errors.zenjoy.be",
+    "--auth-token", "token",
+    "debug-files", "upload", "/tmp/build", "--wait",
+    "--org", "zenjoy", "--project", "zentty"
+  ],
+  ReleaseAutomation.glitchtip_debug_files_upload_command(
+    upload_root: "/tmp/build",
+    url: "https://errors.zenjoy.be",
+    auth_token: "token",
+    org: "zenjoy",
+    project: "zentty"
+  )
+)
+assert_equal(
+  %w[SENTRY_URL SENTRY_AUTH_TOKEN SENTRY_ORG SENTRY_PROJECT],
+  ReleaseAutomation.missing_glitchtip_upload_env_names({})
+)
+assert_equal(
+  ["SENTRY_AUTH_TOKEN"],
+  ReleaseAutomation.missing_glitchtip_upload_env_names(
+    "SENTRY_URL" => "https://errors.zenjoy.be",
+    "SENTRY_AUTH_TOKEN" => " ",
+    "SENTRY_ORG" => "zenjoy",
+    "SENTRY_PROJECT" => "zentty"
+  )
 )
 assert_equal(
   ["codex", "exec", "--ephemeral", "--output-last-message", "/tmp/release-notes.md", "Draft notes"],

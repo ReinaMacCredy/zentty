@@ -30,10 +30,11 @@ final class ErrorReportingBootstrapTests: XCTestCase {
         XCTAssertEqual(configuration?.tracesSampleRate, 0)
         XCTAssertFalse(configuration?.enableAutoSessionTracking ?? true)
         XCTAssertFalse(configuration?.enableAutoPerformanceTracing ?? true)
+        XCTAssertTrue(configuration?.enableAutoBreadcrumbTracking ?? false)
         XCTAssertFalse(configuration?.enableNetworkBreadcrumbs ?? true)
         XCTAssertFalse(configuration?.enableWatchdogTerminationTracking ?? true)
         XCTAssertTrue(configuration?.enableUncaughtNSExceptionReporting ?? false)
-        XCTAssertEqual(configuration?.maxBreadcrumbs, 0)
+        XCTAssertEqual(configuration?.maxBreadcrumbs, 50)
         XCTAssertFalse(configuration?.sendDefaultPii ?? true)
     }
 
@@ -142,7 +143,7 @@ final class ErrorReportingBootstrapTests: XCTestCase {
     }
 
     @MainActor
-    func test_sentry_client_start_does_not_install_custom_event_or_breadcrumb_scrubbers() throws {
+    func test_sentry_client_start_installs_selective_breadcrumb_scrubber() throws {
         let client = SentryErrorReportingClient()
 
         client.start(
@@ -154,17 +155,68 @@ final class ErrorReportingBootstrapTests: XCTestCase {
                 sendDefaultPii: false,
                 enableAutoSessionTracking: false,
                 enableAutoPerformanceTracing: false,
+                enableAutoBreadcrumbTracking: true,
                 enableNetworkBreadcrumbs: false,
                 enableWatchdogTerminationTracking: false,
                 enableUncaughtNSExceptionReporting: true,
-                maxBreadcrumbs: 0
+                maxBreadcrumbs: 50
             )
         )
 
         let options = try XCTUnwrap(SentrySDK.startOption)
         XCTAssertNil(options.beforeSend)
-        XCTAssertNil(options.beforeBreadcrumb)
+        XCTAssertNotNil(options.beforeBreadcrumb)
+        XCTAssertTrue(options.enableAutoBreadcrumbTracking)
+        XCTAssertFalse(options.enableNetworkBreadcrumbs)
+        XCTAssertEqual(options.maxBreadcrumbs, 50)
         XCTAssertTrue(options.enableUncaughtNSExceptionReporting)
+    }
+
+    func test_breadcrumb_scrubber_drops_network_breadcrumbs() {
+        let breadcrumb = Breadcrumb(level: .info, category: "http")
+        breadcrumb.type = "http"
+        breadcrumb.data = ["url": "https://errors.zenjoy.be/api/0/projects/"]
+
+        XCTAssertNil(ZenttyBreadcrumbScrubber.filter(breadcrumb))
+    }
+
+    func test_breadcrumb_scrubber_removes_sensitive_keys_and_truncates_strings() throws {
+        let breadcrumb = Breadcrumb(level: .info, category: "zentty.passive-server.scan")
+        breadcrumb.data = [
+            "url": "https://example.com/private",
+            "cwd": "/Users/peter/private",
+            "commandText": "secret",
+            "paneCount": 3,
+            "durationMs": 42,
+            "source": String(repeating: "a", count: 200),
+        ]
+
+        let filtered = try XCTUnwrap(ZenttyBreadcrumbScrubber.filter(breadcrumb))
+        let data = try XCTUnwrap(filtered.data)
+        XCTAssertNil(data["url"])
+        XCTAssertNil(data["cwd"])
+        XCTAssertNil(data["commandText"])
+        XCTAssertEqual(data["paneCount"] as? Int, 3)
+        XCTAssertEqual(data["durationMs"] as? Int, 42)
+        XCTAssertEqual((data["source"] as? String)?.count, 160)
+    }
+
+    func test_breadcrumb_rate_limiter_throttles_by_category() {
+        let limiter = ZenttyBreadcrumbRateLimiter()
+        let start = Date(timeIntervalSince1970: 100)
+
+        XCTAssertTrue(limiter.shouldRecord(category: "zentty.input.terminal", minInterval: 10, now: start))
+        XCTAssertFalse(limiter.shouldRecord(
+            category: "zentty.input.terminal",
+            minInterval: 10,
+            now: start.addingTimeInterval(5)
+        ))
+        XCTAssertTrue(limiter.shouldRecord(
+            category: "zentty.input.terminal",
+            minInterval: 10,
+            now: start.addingTimeInterval(11)
+        ))
+        XCTAssertTrue(limiter.shouldRecord(category: "zentty.render.sidebar", minInterval: 10, now: start))
     }
 }
 

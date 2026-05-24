@@ -2906,6 +2906,7 @@ final class RootViewController: NSViewController {
 
             while !Task.isCancelled {
                 let shouldDiscoverDocker = dockerCadence.shouldDiscoverDocker()
+                let scanStartedAt = Date()
                 let results = await Task.detached(priority: .utility) { [contexts, scanner, dockerDiscovery, shouldDiscoverDocker] in
                     contexts.map { context in
                         PassiveServerDetectionResult(
@@ -2920,11 +2921,28 @@ final class RootViewController: NSViewController {
                     return
                 }
 
+                let scannerServerCount = results.reduce(0) { $0 + $1.scannerServers.count }
+                let dockerServerCount = results.reduce(0) { $0 + $1.dockerServers.count }
+                ZenttyBreadcrumbs.record(
+                    category: "zentty.passive-server.scan",
+                    data: [
+                        "contextCount": contexts.count,
+                        "worklaneCount": Set(contexts.map(\.worklaneID)).count,
+                        "scannerServerCount": scannerServerCount,
+                        "dockerServerCount": dockerServerCount,
+                        "dockerEnabled": shouldDiscoverDocker,
+                        "durationMs": Int(Date().timeIntervalSince(scanStartedAt) * 1000),
+                    ]
+                )
+
+                var appliedScannerCount = 0
+                var appliedDockerCount = 0
                 results.forEach { result in
                     if resultTracker.shouldApplyScannerResult(
                         worklaneID: result.worklaneID,
                         servers: result.scannerServers
                     ) {
+                        appliedScannerCount += 1
                         self.worklaneStore.replacePassiveServers(
                             worklaneID: result.worklaneID,
                             source: .scanner,
@@ -2932,16 +2950,26 @@ final class RootViewController: NSViewController {
                         )
                     }
                     if shouldDiscoverDocker,
-                       resultTracker.shouldApplyDockerResult(
-                           worklaneID: result.worklaneID,
-                           servers: result.dockerServers
-                       ) {
+                           resultTracker.shouldApplyDockerResult(
+                               worklaneID: result.worklaneID,
+                               servers: result.dockerServers
+                           ) {
+                        appliedDockerCount += 1
                         self.worklaneStore.replacePassiveServers(
                             worklaneID: result.worklaneID,
                             source: .docker,
                             servers: result.dockerServers
                         )
                     }
+                }
+                if appliedScannerCount > 0 || appliedDockerCount > 0 {
+                    ZenttyBreadcrumbs.record(
+                        category: "zentty.passive-server.apply",
+                        data: [
+                            "scannerChangedCount": appliedScannerCount,
+                            "dockerChangedCount": appliedDockerCount,
+                        ]
+                    )
                 }
 
                 let nextSnapshot = PassiveServerDetectionSnapshot(worklanes: self.worklaneStore.worklanes)

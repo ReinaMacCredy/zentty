@@ -119,6 +119,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 launchDecision = try sessionRestoreStore.prepareForLaunch(
                     restorePreferenceEnabled: configStore.current.restore.restoreWorkspaceOnLaunch
                 )
+                if let launchDecision {
+                    ZenttyBreadcrumbs.record(
+                        category: "zentty.launch.restore",
+                        message: "prepared",
+                        data: [
+                            "windowCount": launchDecision.envelope.workspace.windows.count,
+                        ]
+                    )
+                }
             } catch {
                 reportRestoreError("Failed to prepare restore launch", error: error)
                 launchDecision = nil
@@ -131,6 +140,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
 
             if let launchDecision, launchWorkspace(launchDecision.envelope) {
+                ZenttyBreadcrumbs.record(
+                    category: "zentty.launch.restore",
+                    message: "launched",
+                    data: [
+                        "windowCount": launchDecision.envelope.workspace.windows.count,
+                        "success": true,
+                    ]
+                )
                 do {
                     try sessionRestoreStore.consumeSnapshot()
                 } catch {
@@ -138,6 +155,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             } else {
                 if launchDecision != nil {
+                    ZenttyBreadcrumbs.record(
+                        category: "zentty.launch.restore",
+                        message: "failed",
+                        data: ["success": false]
+                    )
                     reportRestoreError("Prepared restore snapshot could not be launched; deleting snapshot")
                     do {
                         try sessionRestoreStore.deleteSnapshot()

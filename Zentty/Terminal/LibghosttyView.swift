@@ -1492,6 +1492,14 @@ final class LibghosttyView: NSView, TerminalFocusReporting, TerminalViewportDiag
         }
 
         onExplicitWheelScroll?()
+        ZenttyBreadcrumbs.record(
+            category: "zentty.input.terminal",
+            message: "scroll",
+            data: [
+                "precision": event.hasPreciseScrollingDeltas,
+                "momentum": event.momentumPhase != [],
+            ]
+        )
         surfaceController.sendMouseScroll(
             x: event.scrollingDeltaX,
             y: event.scrollingDeltaY,
@@ -1502,6 +1510,13 @@ final class LibghosttyView: NSView, TerminalFocusReporting, TerminalViewportDiag
     }
 
     override func keyDown(with event: NSEvent) {
+        ZenttyBreadcrumbs.record(
+            category: "zentty.input.terminal",
+            message: "key",
+            data: [
+                "repeat": event.isARepeat,
+            ]
+        )
         guard let surfaceController else {
             super.keyDown(with: event)
             return

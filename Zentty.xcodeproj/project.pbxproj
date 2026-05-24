@@ -447,6 +447,7 @@
 		ED27476E195CD5905EA8FE99 /* CleanCopyPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9147BE310A4C4D3D61638835 /* CleanCopyPipeline.swift */; };
 		ED97F9FB42E05ECE3179E60D /* PaneStripState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D36706DB3DF677FA13DC722 /* PaneStripState.swift */; };
 		EDDA5E4E1273F0E81FBBE882 /* SettingsNavigationHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC29DBB882ABDF747B9DDA76 /* SettingsNavigationHistory.swift */; };
+		EDE18C0DA4C79997711F2528 /* ZenttyBreadcrumbs.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B83CC56F8834AA75E2315BC /* ZenttyBreadcrumbs.swift */; };
 		EDF799E6005B1597EEA1314D /* AppDelegateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63590216920018B71F1ACB7A /* AppDelegateTests.swift */; };
 		EE970D14373E2C135E45C480 /* ThemeCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73931D75238B5C4F1427B708 /* ThemeCoordinator.swift */; };
 		EEC22296EE34DF6250AD3DAD /* BookmarkNameSuggester.swift in Sources */ = {isa = PBXBuildFile; fileRef = D08C0137453B47FE9FC59D1E /* BookmarkNameSuggester.swift */; };
@@ -659,6 +660,7 @@
 		4ABED86877FD29F83E4196E0 /* TmuxCompatCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxCompatCommand.swift; sourceTree = "<group>"; };
 		4B409385EC57C8C7A65441BD /* TmuxFormatRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxFormatRenderer.swift; sourceTree = "<group>"; };
 		4B6F06FD570B9740CE7008CB /* SettingsSidebarTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSidebarTests.swift; sourceTree = "<group>"; };
+		4B83CC56F8834AA75E2315BC /* ZenttyBreadcrumbs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZenttyBreadcrumbs.swift; sourceTree = "<group>"; };
 		4C07D99A780805BBF2EC8E2C /* SidebarResizeHandleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarResizeHandleView.swift; sourceTree = "<group>"; };
 		4C4740E3F7FBB64DB5815643 /* AppCanvasView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppCanvasView.swift; sourceTree = "<group>"; };
 		4C88D5D3BFE9433DCC2E7090 /* SidebarDropHitTestingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarDropHitTestingTests.swift; sourceTree = "<group>"; };
@@ -1283,6 +1285,7 @@
 				25C38CE6BD2D5F5D24B1B7FE /* AppConfigTOML.swift */,
 				B0057216F25AA9654E5BDB87 /* ErrorReporting.swift */,
 				B64108D9BDA637BCE7B68E60 /* SentryErrorReportingClient.swift */,
+				4B83CC56F8834AA75E2315BC /* ZenttyBreadcrumbs.swift */,
 			);
 			path = Config;
 			sourceTree = "<group>";
@@ -2479,6 +2482,7 @@
 				A8735957C7DEFFD7C1530E81 /* WorkspaceTemplateCapture.swift in Sources */,
 				D67B38252147AE7A878864E4 /* WorkspaceTemplateExporter.swift in Sources */,
 				D44B2E46DBB0E3EC6205B148 /* WorkspaceTemplateImporter.swift in Sources */,
+				EDE18C0DA4C79997711F2528 /* ZenttyBreadcrumbs.swift in Sources */,
 				1F8E1A9AF4D6D24D2C324242 /* main.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

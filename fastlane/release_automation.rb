@@ -99,8 +99,17 @@ module ReleaseAutomation
     APPCAST_FILENAME
   end
 
-  def glitchtip_debug_files_upload_command(upload_root:, org: nil, project: nil)
-    command = ["glitchtip-cli", "debug-files", "upload", upload_root]
+  def glitchtip_debug_files_upload_command(upload_root:, url: nil, auth_token: nil, org: nil, project: nil, wait: true)
+    command = ["glitchtip-cli"]
+
+    normalized_url = url.to_s.strip
+    command += ["--url", normalized_url] unless normalized_url.empty?
+
+    normalized_auth_token = auth_token.to_s.strip
+    command += ["--auth-token", normalized_auth_token] unless normalized_auth_token.empty?
+
+    command += ["debug-files", "upload", upload_root]
+    command << "--wait" if wait
 
     normalized_org = org.to_s.strip
     command += ["--org", normalized_org] unless normalized_org.empty?
@@ -109,6 +118,12 @@ module ReleaseAutomation
     command += ["--project", normalized_project] unless normalized_project.empty?
 
     command
+  end
+
+  def missing_glitchtip_upload_env_names(env)
+    %w[SENTRY_URL SENTRY_AUTH_TOKEN SENTRY_ORG SENTRY_PROJECT].select do |name|
+      env.fetch(name, "").to_s.strip.empty?
+    end
   end
 
   def codex_release_notes_command(output_path:, prompt:)

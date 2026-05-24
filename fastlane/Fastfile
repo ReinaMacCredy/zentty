@@ -220,7 +220,11 @@ def ensure_release_tools_ready!
   capture_command!("wrangler", "whoami", error_message: "wrangler is not authenticated")
   UI.user_error!("R2_PUBLIC_BASE_URL must be set") if r2_public_base_url.empty?
   UI.user_error!("SPARKLE_PUBLIC_ED_KEY must be set") if sparkle_public_ed_key.empty?
-  UI.important("GLITCHTIP_DSN is not set; this release build will ship without error reporting") if glitchtip_dsn.empty?
+  if glitchtip_dsn.empty?
+    UI.important("GLITCHTIP_DSN is not set; this release build will ship without error reporting")
+  else
+    ensure_glitchtip_upload_ready!
+  end
 end
 
 def determine_release_channel(options)
@@ -361,6 +365,14 @@ def glitchtip_dsn
   resolved_env_value("GLITCHTIP_DSN")
 end
 
+def glitchtip_url
+  resolved_env_value("SENTRY_URL")
+end
+
+def glitchtip_auth_token
+  resolved_env_value("SENTRY_AUTH_TOKEN")
+end
+
 def glitchtip_org
   resolved_env_value("SENTRY_ORG")
 end
@@ -454,10 +466,30 @@ def archive_release!(version:)
   )
 end
 
-def upload_glitchtip_dsyms!
+def resolved_glitchtip_upload_env
+  {
+    "SENTRY_URL" => glitchtip_url,
+    "SENTRY_AUTH_TOKEN" => glitchtip_auth_token,
+    "SENTRY_ORG" => glitchtip_org,
+    "SENTRY_PROJECT" => glitchtip_project
+  }
+end
+
+def ensure_glitchtip_upload_ready!
+  missing = ReleaseAutomation.missing_glitchtip_upload_env_names(resolved_glitchtip_upload_env)
+  UI.user_error!("Missing GlitchTip dSYM upload env: #{missing.join(", ")}") unless missing.empty?
+  capture_command!("glitchtip-cli", "--version", error_message: "glitchtip-cli must be installed to upload dSYMs")
+end
+
+def upload_glitchtip_dsyms!(upload_root: nil)
   return if glitchtip_dsn.empty?
 
-  upload_root = File.join(PROJECT_ROOT, BUILD_DIR)
+  ensure_glitchtip_upload_ready!
+
+  upload_root = upload_root.to_s.strip
+  upload_root = File.join(PROJECT_ROOT, BUILD_DIR) if upload_root.empty?
+  upload_root = File.expand_path(upload_root, PROJECT_ROOT)
+  UI.user_error!("dSYM upload path does not exist: #{upload_root}") unless File.directory?(upload_root)
 
   # gym exports dSYMs as .dSYM.zip — unzip them so glitchtip-cli can find the bundles
   Dir[File.join(upload_root, "**", "*.dSYM.zip")].each do |zip|
@@ -467,9 +499,10 @@ def upload_glitchtip_dsyms!
   dsym_paths = Dir[File.join(upload_root, "**", "*.dSYM")]
   UI.user_error!("No dSYM bundles found under #{upload_root}") if dsym_paths.empty?
 
-  capture_command!("glitchtip-cli", "--version", error_message: "glitchtip-cli must be installed to upload dSYMs")
   command = ReleaseAutomation.glitchtip_debug_files_upload_command(
     upload_root: upload_root,
+    url: glitchtip_url,
+    auth_token: glitchtip_auth_token,
     org: glitchtip_org,
     project: glitchtip_project
   )
@@ -921,8 +954,7 @@ def run_release_pipeline(options)
 
   sync_signing!
   archive_release!(version: version)
-  # TODO: re-enable once nginx ingress body size is increased for chunk uploads
-  # upload_glitchtip_dsyms!
+  upload_glitchtip_dsyms!
   notarize_app_bundle!
   package_release_zip!
   package_release_dmg!
@@ -990,8 +1022,8 @@ platform :mac do
   end
 
   desc "Upload archived dSYMs to GlitchTip"
-  lane :upload_dsyms do
-    upload_glitchtip_dsyms!
+  lane :upload_dsyms do |options|
+    upload_glitchtip_dsyms!(upload_root: options[:path])
   end
 
   desc "Notarize the .app bundle"
