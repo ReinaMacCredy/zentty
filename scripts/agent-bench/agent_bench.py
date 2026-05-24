@@ -1657,6 +1657,72 @@ class LaunchPlanner:
             {"ZENTTY_AGENT_TOOL": "grok", "HOME": str(home)},
         )
 
+    _HERMES_HOOK_EVENTS = [
+        ("on_session_start", "on-session-start", 5),
+        ("on_session_reset", "on-session-reset", 5),
+        ("pre_llm_call", "pre-llm-call", 5),
+        ("post_llm_call", "post-llm-call", 5),
+        ("on_session_end", "on-session-end", 5),
+        ("on_session_finalize", "on-session-finalize", 5),
+        ("pre_tool_call", "pre-tool-call", 5),
+        ("post_tool_call", "post-tool-call", 5),
+        ("pre_approval_request", "pre-approval-request", 30),
+        ("post_approval_response", "post-approval-response", 5),
+    ]
+
+    @staticmethod
+    def _hermes_hook_command(cli_path: str, cli_event: str) -> str:
+        escaped = shell_escape_double_quoted(cli_path)
+        return (
+            ": zentty-hermes-hook-v1; "
+            'if [ "$ZENTTY_HERMES_HOOKS_DISABLED" = "1" ]; then echo \'{}\'; exit 0; fi; '
+            f"\"{escaped}\" hermes-hook {cli_event} || echo '{{}}'"
+        )
+
+    def _plan_hermes(self, executable: str, arguments: list[str], environment: dict[str, Any], cli_path: str) -> dict[str, Any]:
+        home = self._overlay_dir("hermes") / "home"
+        home.mkdir(parents=True, exist_ok=True)
+        source_hermes_home = config_source_dir(environment, "HERMES_HOME", ".hermes")
+        hermes_home = home / ".hermes"
+        symlink_directory_contents_skipping(source_hermes_home, hermes_home, {"config.yaml", "shell-hooks-allowlist.json"})
+
+        config_lines = ["hooks:"]
+        approvals = []
+        for event_name, cli_event, timeout in self._HERMES_HOOK_EVENTS:
+            command = self._hermes_hook_command(cli_path, cli_event)
+            config_lines.extend([
+                f"  {event_name}:",
+                f"    - command: {json.dumps(command)}",
+                f"      timeout: {timeout}",
+            ])
+            approvals.append({
+                "event": event_name,
+                "command": command,
+                "approved_at": "agent-bench",
+            })
+        (hermes_home / "config.yaml").write_text("\n".join(config_lines) + "\n", encoding="utf-8")
+        write_json(hermes_home / "shell-hooks-allowlist.json", {"approvals": approvals})
+
+        launch: dict[str, Any] = {"arguments": arguments}
+        if str(environment.get("HERMES_HOME") or "").strip():
+            launch["environment"] = {"HERMES_HOME": str(hermes_home)}
+        context = compact_json({"launch": launch})
+        session_start = '{"version":1,"event":"session.start","agent":{"name":"Hermes Agent","pid":"__ZENTTY_SELF_PID__"},"context":' + context + "}"
+        running = '{"version":1,"event":"agent.running","agent":{"name":"Hermes Agent","pid":"__ZENTTY_SELF_PID__"},"context":' + context + "}"
+        return self._launch_plan(
+            executable,
+            arguments,
+            {
+                "ZENTTY_AGENT_TOOL": "hermes",
+                "HOME": str(home),
+                "HERMES_HOME": str(hermes_home),
+            },
+            prelaunch=[
+                {"subcommand": "agent-event", "arguments": ["--adapter=hermes"], "standardInput": session_start},
+                {"subcommand": "agent-event", "arguments": ["--adapter=hermes"], "standardInput": running},
+            ],
+        )
+
     # Antigravity hook events Zentty subscribes to, kept in sync with
     # AgyHooksInstaller.events on the Swift side. Tool-use events take the
     # `{matcher, hooks:[...]}` wrapper; lifecycle events are plain entries.

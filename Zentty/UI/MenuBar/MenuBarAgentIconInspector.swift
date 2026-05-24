@@ -24,6 +24,7 @@ enum MenuBarAgentIconInspector {
         .pi,
         .grok,
         .agy,
+        .hermes,
         .custom("Custom Agent"),
     ]
 

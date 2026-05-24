@@ -168,6 +168,17 @@ struct AgentToolLauncher {
                 return "agy early-exit flag: \(flag)"
             }
             return nil
+        case .hermes:
+            if environment["ZENTTY_HERMES_HOOKS_DISABLED"] == "1" {
+                return "ZENTTY_HERMES_HOOKS_DISABLED=1"
+            }
+            if let subcommand = arguments.first, Self.isHermesPassthroughSubcommand(subcommand) {
+                return "hermes passthrough subcommand: \(subcommand)"
+            }
+            if let flag = arguments.first(where: { Self.hermesEarlyExitFlags.contains(Self.optionName($0)) }) {
+                return "hermes early-exit flag: \(flag)"
+            }
+            return nil
         case .codex, .gemini, .opencode:
             return nil
         }
@@ -212,6 +223,20 @@ struct AgentToolLauncher {
     static let agyEarlyExitFlags: Set<String> = [
         "--help", "-h", "--version", "-v",
     ]
+
+    static let hermesEarlyExitFlags: Set<String> = [
+        "--help", "-h", "--version", "-V", "--list-tools", "--list-toolsets", "--oneshot", "-z", "--query", "-q", "--quiet", "-Q",
+    ]
+
+    private static func isHermesPassthroughSubcommand(_ argument: String) -> Bool {
+        !argument.hasPrefix("-") && argument != "chat"
+    }
+
+    private static func optionName(_ argument: String) -> String {
+        argument.hasPrefix("--")
+            ? (argument.split(separator: "=", maxSplits: 1).first.map(String.init) ?? argument)
+            : argument
+    }
 
     private func findRealBinary() throws -> String {
         let wrappedToolNames = tool.realBinaryNames
@@ -363,6 +388,8 @@ struct AgentToolLauncher {
             return "Grok"
         case .agy:
             return "Antigravity"
+        case .hermes:
+            return "Hermes Agent"
         }
     }
 
@@ -388,10 +415,12 @@ struct AgentToolLauncher {
             "ZENTTY_KIMI_HOOKS_DISABLED",
             "ZENTTY_GROK_HOOKS_DISABLED",
             "ZENTTY_AGY_HOOKS_DISABLED",
+            "ZENTTY_HERMES_HOOKS_DISABLED",
             "ZENTTY_CODEX_NOTIFY_DISABLED",
             "GEMINI_CLI_SYSTEM_SETTINGS_PATH",
             "CODEX_HOME",
             "COPILOT_HOME",
+            "HERMES_HOME",
             "XDG_CONFIG_HOME",
             "XDG_STATE_HOME",
             "OPENCODE_CONFIG",
@@ -444,7 +473,7 @@ struct AgentToolLauncher {
         switch tool {
         case .claude:
             return EnvironmentPatch(set: [:], unset: ["CLAUDECODE"])
-        case .amp, .codex, .copilot, .cursor, .droid, .gemini, .kimi, .opencode, .pi, .grok, .agy:
+        case .amp, .codex, .copilot, .cursor, .droid, .gemini, .kimi, .opencode, .pi, .grok, .agy, .hermes:
             return EnvironmentPatch()
         }
     }
@@ -476,6 +505,8 @@ struct AgentToolLauncher {
             environmentPatch.set["ZENTTY_GROK_PID"] = "\(getpid())"
         case .agy:
             environmentPatch.set["ZENTTY_AGY_PID"] = "\(getpid())"
+        case .hermes:
+            environmentPatch.set["ZENTTY_HERMES_PID"] = "\(getpid())"
         case .opencode, .pi:
             break
         }
@@ -533,6 +564,7 @@ struct AgentToolLauncher {
             "ZENTTY_KIMI_PID",
             "ZENTTY_GROK_PID",
             "ZENTTY_AGY_PID",
+            "ZENTTY_HERMES_PID",
         ]
         return Dictionary(uniqueKeysWithValues: keys.compactMap { key in
             guard let value = environment[key], !value.isEmpty else {

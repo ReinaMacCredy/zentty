@@ -336,6 +336,22 @@ Zentty injects a local OpenCode plugin overlay via the shared agent wrapper. The
 
 `todo.updated` is normalized inside the plugin into `taskProgressDoneCount` / `taskProgressTotalCount`. The Swift bridge treats those as the authoritative OpenCode task counts and uses them only for the main session's running label.
 
+## Hermes Agent
+
+Wrapped `hermes` launches get persistent status hooks in the active Hermes home (`$HERMES_HOME` or `~/.hermes`). Zentty writes a managed block to `config.yaml` and matching approvals to `shell-hooks-allowlist.json`; foreign hooks and settings are preserved.
+
+Zentty registers these Hermes events:
+
+- `on_session_start` / `on_session_reset` -> `session.start`
+- `pre_llm_call`, `pre_tool_call`, `post_tool_call`, `post_approval_response` -> `running`
+- `post_llm_call` -> `idle`
+- `pre_approval_request` -> `needs-input` with approval text
+- `on_session_end` / `on_session_finalize` -> `session.end`
+
+Manual control is available with `zentty install hermes-hooks` and `zentty uninstall hermes-hooks`. Disable automatic hook setup with `ZENTTY_HERMES_HOOKS_DISABLED=1`.
+
+When Hermes provides a real session id, Zentty can restore the pane with `hermes --resume <session_id>` and preserves the captured `HERMES_HOME` value.
+
 ## Grok Build (Early Beta — May 2026)
 
 Grok Build (the `grok` CLI from xAI) is in early beta. Per Grok's official docs (`~/.grok/docs/user-guide/10-hooks.md`), its "Always trusted" global hook source is `~/.grok/hooks/*.json` — a single JSON file there registers hooks that fire on every grok session with no `/hooks-trust` ceremony and no `/plugins enable`.

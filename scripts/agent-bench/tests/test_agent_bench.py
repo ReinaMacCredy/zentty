@@ -1436,7 +1436,7 @@ class ProfileTests(unittest.TestCase):
 
         self.assertEqual(
             sorted(profiles),
-            ["agy", "amp", "claude", "codex", "copilot", "cursor", "droid", "gemini", "grok", "kimi", "opencode", "pi"],
+            ["agy", "amp", "claude", "codex", "copilot", "cursor", "droid", "gemini", "grok", "hermes", "kimi", "opencode", "pi"],
         )
         for profile in profiles.values():
             self.assertIn("smoke", profile.expectations)
@@ -1730,6 +1730,54 @@ class ProfileTests(unittest.TestCase):
             self.assertIn('"id":"' + placeholder + '"', plan["preLaunchActions"][0]["standardInput"])
             self.assertIn('"id":"' + placeholder + '"', plan["preLaunchActions"][1]["standardInput"])
             self.assertNotIn("pane-antigravity", plan["preLaunchActions"][0]["standardInput"])
+
+    def test_hermes_plan_installs_overlay_hooks_and_preserves_launch_context(self):
+        profile = agent_bench.load_profiles(ROOT / "profiles")["hermes"]
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = pathlib.Path(tmp)
+            real_home = run_dir / "real-home"
+            (real_home / ".hermes").mkdir(parents=True)
+            (real_home / ".hermes" / "credentials.json").write_text("{}")
+            (real_home / ".hermes" / "config.yaml").write_text("model: test\n")
+
+            plan = agent_bench.LaunchPlanner(
+                profile=profile,
+                scenario="session_capture",
+                run_dir=run_dir,
+                resources_dir=None,
+            ).plan(
+                {
+                    "arguments": ["--tui", "--model", "anthropic/claude-sonnet-4.6"],
+                    "environment": {
+                        "ZENTTY_REAL_BINARY": "/usr/local/bin/hermes",
+                        "ZENTTY_CLI_BIN": "/tmp/zentty-bench",
+                        "HOME": str(real_home),
+                    },
+                }
+            )
+
+            overlay_home = pathlib.Path(plan["setEnvironment"]["HOME"])
+            hermes_home = pathlib.Path(plan["setEnvironment"]["HERMES_HOME"])
+
+            self.assertEqual(plan["setEnvironment"]["ZENTTY_AGENT_TOOL"], "hermes")
+            self.assertEqual(hermes_home, overlay_home / ".hermes")
+            self.assertTrue((hermes_home / "credentials.json").exists())
+            self.assertFalse((hermes_home / "config.yaml").is_symlink())
+            self.assertFalse((hermes_home / "shell-hooks-allowlist.json").is_symlink())
+
+            config = (hermes_home / "config.yaml").read_text(encoding="utf-8")
+            self.assertIn("on_session_start:", config)
+            self.assertIn("pre_approval_request:", config)
+            self.assertIn("hermes-hook on-session-start", config)
+
+            allowlist = json.loads((hermes_home / "shell-hooks-allowlist.json").read_text(encoding="utf-8"))
+            self.assertEqual({item["event"] for item in allowlist["approvals"]}, {event[0] for event in agent_bench.LaunchPlanner._HERMES_HOOK_EVENTS})
+
+            self.assertEqual([action["arguments"] for action in plan["preLaunchActions"]], [["--adapter=hermes"], ["--adapter=hermes"]])
+            self.assertIn('"event":"session.start"', plan["preLaunchActions"][0]["standardInput"])
+            self.assertIn('"event":"agent.running"', plan["preLaunchActions"][1]["standardInput"])
+            self.assertNotIn('"session"', plan["preLaunchActions"][0]["standardInput"])
+            self.assertIn('"arguments":["--tui","--model","anthropic/claude-sonnet-4.6"]', plan["preLaunchActions"][0]["standardInput"])
 
     def test_claude_plan_installs_tool_use_hooks_for_permission_sensitive_tools(self):
         profile = agent_bench.load_profiles(ROOT / "profiles")["claude"]

@@ -68,6 +68,31 @@ final class AgentEventBridgeTests: XCTestCase {
         XCTAssertEqual(input.agentLaunchSnapshot, AgentLaunchSnapshot(arguments: ["--mode", "smart"]))
     }
 
+    func test_parseInput_extracts_launch_environment() throws {
+        let json = """
+        {
+          "version": 1,
+          "event": "session.start",
+          "context": {
+            "launch": {
+              "arguments": ["--tui", "--model", "anthropic/claude-sonnet-4.6"],
+              "environment": { "HERMES_HOME": "/tmp/hermes profile" }
+            }
+          }
+        }
+        """
+
+        let input = try AgentEventBridge.parseInput(Data(json.utf8))
+
+        XCTAssertEqual(
+            input.agentLaunchSnapshot,
+            AgentLaunchSnapshot(
+                arguments: ["--tui", "--model", "anthropic/claude-sonnet-4.6"],
+                environment: ["HERMES_HOME": "/tmp/hermes profile"]
+            )
+        )
+    }
+
     func test_parseInput_handles_minimal_payload() throws {
         let json = #"{"version": 1, "event": "agent.idle"}"#
         let input = try AgentEventBridge.parseInput(json.data(using: .utf8)!)
@@ -1537,6 +1562,134 @@ final class AgentEventBridgeTests: XCTestCase {
         XCTAssertTrue(wroteError)
     }
 
+    // MARK: - Hermes adapter
+
+    func test_hermes_adapter_session_start_attaches_pid_and_starts_session() throws {
+        let json = #"{"session_id":"hermes-session-123","cwd":"/tmp/project"}"#
+
+        let payloads = try AgentEventBridge.hermesAdapter(
+            data: Data(json.utf8),
+            defaultEventName: "on-session-start",
+            environment: hermesEnvironment(pid: "4242")
+        )
+
+        XCTAssertEqual(payloads.count, 2)
+        XCTAssertEqual(payloads[0].signalKind, .pid)
+        XCTAssertEqual(payloads[0].pidEvent, .attach)
+        XCTAssertEqual(payloads[0].pid, 4242)
+        XCTAssertEqual(payloads[1].state, .starting)
+        XCTAssertEqual(payloads[1].sessionID, "hermes-session-123")
+        XCTAssertEqual(payloads[1].agentWorkingDirectory, "/tmp/project")
+    }
+
+    func test_hermes_real_session_start_inherits_bootstrap_launch_snapshot() throws {
+        let bootstrapInput = try AgentEventBridge.parseInput(Data(#"""
+        {
+          "version": 1,
+          "event": "session.start",
+          "agent": { "name": "Hermes Agent", "pid": 4242 },
+          "context": {
+            "launch": {
+              "arguments": ["--tui", "--model", "anthropic/claude-sonnet-4.6"],
+              "environment": { "HERMES_HOME": "/tmp/hermes profile" }
+            }
+          }
+        }
+        """#.utf8))
+        let bootstrapPayloads = try AgentEventBridge.makePayloads(
+            from: bootstrapInput,
+            environment: hermesEnvironment(pid: "4242")
+        )
+        let sessionStartPayloads = try AgentEventBridge.hermesAdapter(
+            data: Data(#"{"session_id":"hermes-session-123","cwd":"/tmp/project"}"#.utf8),
+            defaultEventName: "on-session-start",
+            environment: hermesEnvironment(pid: "4242")
+        )
+
+        var reducerState = PaneAgentReducerState()
+        let startedAt = Date(timeIntervalSince1970: 100)
+        for payload in bootstrapPayloads {
+            reducerState.apply(payload, now: startedAt)
+        }
+        for payload in sessionStartPayloads {
+            reducerState.apply(payload, now: startedAt.addingTimeInterval(1))
+        }
+
+        let status = try XCTUnwrap(reducerState.reducedStatus(now: startedAt.addingTimeInterval(1)))
+        XCTAssertEqual(status.sessionID, "hermes-session-123")
+        XCTAssertEqual(
+            status.agentLaunchSnapshot,
+            AgentLaunchSnapshot(
+                arguments: ["--tui", "--model", "anthropic/claude-sonnet-4.6"],
+                environment: ["HERMES_HOME": "/tmp/hermes profile"]
+            )
+        )
+        XCTAssertEqual(status.trackedPID, 4242)
+    }
+
+    func test_hermes_adapter_pre_llm_and_post_llm_map_running_then_idle() throws {
+        let running = try AgentEventBridge.hermesAdapter(
+            data: Data(#"{"session_id":"hermes-session-123","cwd":"/tmp/project"}"#.utf8),
+            defaultEventName: "pre-llm-call",
+            environment: hermesEnvironment()
+        )
+        let idle = try AgentEventBridge.hermesAdapter(
+            data: Data(#"{"session_id":"hermes-session-123","cwd":"/tmp/project"}"#.utf8),
+            defaultEventName: "post-llm-call",
+            environment: hermesEnvironment()
+        )
+
+        XCTAssertEqual(running.map(\.state), [.running])
+        XCTAssertEqual(idle.map(\.state), [.idle])
+    }
+
+    func test_hermes_adapter_pre_approval_request_maps_to_needs_input() throws {
+        let payloads = try AgentEventBridge.hermesAdapter(
+            data: Data(#"""
+            {
+              "session_id": "hermes-session-123",
+              "cwd": "/tmp/project",
+              "tool_name": "terminal",
+              "tool_input": { "command": "xcodebuild test" },
+              "message": "Allow terminal command?"
+            }
+            """#.utf8),
+            defaultEventName: "pre-approval-request",
+            environment: hermesEnvironment()
+        )
+
+        let payload = try XCTUnwrap(payloads.first)
+        XCTAssertEqual(payload.state, .needsInput)
+        XCTAssertEqual(payload.interactionKind, .approval)
+        XCTAssertEqual(payload.text, "Allow terminal command?")
+        XCTAssertEqual(payload.sessionID, "hermes-session-123")
+    }
+
+    func test_hermes_adapter_post_approval_response_restores_running() throws {
+        let payloads = try AgentEventBridge.hermesAdapter(
+            data: Data(#"{"session_id":"hermes-session-123","cwd":"/tmp/project"}"#.utf8),
+            defaultEventName: "post-approval-response",
+            environment: hermesEnvironment()
+        )
+
+        XCTAssertEqual(payloads.map(\.state), [.running])
+        XCTAssertEqual(payloads.first?.interactionKind, .none)
+    }
+
+    func test_hermes_adapter_session_end_clears_lifecycle_and_pid() throws {
+        let payloads = try AgentEventBridge.hermesAdapter(
+            data: Data(#"{"session_id":"hermes-session-123"}"#.utf8),
+            defaultEventName: "on-session-end",
+            environment: hermesEnvironment(pid: "4242")
+        )
+
+        XCTAssertEqual(payloads.count, 2)
+        XCTAssertEqual(payloads[0].signalKind, .lifecycle)
+        XCTAssertNil(payloads[0].state)
+        XCTAssertEqual(payloads[1].signalKind, .pid)
+        XCTAssertEqual(payloads[1].pidEvent, .clear)
+    }
+
     // MARK: - Adapter Test Helpers
 
     private func codexEnvironment(pid: String? = nil) -> [String: String] {
@@ -1572,6 +1725,12 @@ final class AgentEventBridgeTests: XCTestCase {
     private func grokEnvironment(pid: String? = nil) -> [String: String] {
         var env = defaultEnvironment
         if let pid { env["ZENTTY_GROK_PID"] = pid }
+        return env
+    }
+
+    private func hermesEnvironment(pid: String? = nil) -> [String: String] {
+        var env = defaultEnvironment
+        if let pid { env["ZENTTY_HERMES_PID"] = pid }
         return env
     }
 

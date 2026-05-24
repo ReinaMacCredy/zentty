@@ -467,17 +467,17 @@ send_event '{"version":1,"event":"task.progress","progress":{"done":2,"total":5}
 
 ## 11. Existing Agent Adapters
 
-The four built-in agents currently produce these canonical events through their respective wrapper scripts:
+The built-in agents currently produce these canonical events through their respective wrapper scripts, plugins, or installed hooks:
 
-| Canonical Event | Claude Code | Copilot | Codex | OpenCode |
-|---|---|---|---|---|
-| `session.start` | `SessionStart` hook | `session-start` hook | `session-start` hook | plugin load |
-| `session.end` | `SessionEnd` hook | `session-end` hook | — | — |
-| `agent.running` | `UserPromptSubmit` hook | OSC 9;4 progress | `prompt-submit` hook | `session.status(busy)` |
-| `agent.idle` | `Stop` hook | OSC 9;4 remove | `stop` hook | `session.status(idle)` |
-| `agent.needs-input` | `Notification`, `PermissionRequest`, `PreToolUse(AskUserQuestion)` hooks | `pre-tool-use(askuserquestion)` hook | — | `permission.asked`, `question.asked` |
-| `agent.input-resolved` | `UserPromptSubmit` hook | `post-tool-use(askuserquestion)` hook | — | `permission.replied`, `question.replied` |
-| `task.progress` | `TaskCreated`, `TaskCompleted` hooks | — | — | `todo.updated` |
+| Canonical Event | Claude Code | Copilot | Codex | OpenCode | Hermes Agent |
+|---|---|---|---|---|---|
+| `session.start` | `SessionStart` hook | `session-start` hook | `session-start` hook | plugin load | `on_session_start` hook |
+| `session.end` | `SessionEnd` hook | `session-end` hook | — | — | `on_session_end` hook |
+| `agent.running` | `UserPromptSubmit` hook | OSC 9;4 progress | `prompt-submit` hook | `session.status(busy)` | `pre_llm_call`, tool/approval hooks |
+| `agent.idle` | `Stop` hook | OSC 9;4 remove | `stop` hook | `session.status(idle)` | `post_llm_call` hook |
+| `agent.needs-input` | `Notification`, `PermissionRequest`, `PreToolUse(AskUserQuestion)` hooks | `pre-tool-use(askuserquestion)` hook | — | `permission.asked`, `question.asked` | `pre_approval_request` hook |
+| `agent.input-resolved` | `UserPromptSubmit` hook | `post-tool-use(askuserquestion)` hook | — | `permission.replied`, `question.replied` | `post_approval_response` hook |
+| `task.progress` | `TaskCreated`, `TaskCompleted` hooks | — | — | `todo.updated` | — |
 
 **Note:** Copilot's running detection relies on OSC 9;4 terminal progress sequences rather than hook events, because Copilot's hook API lacks a turn-complete event. The wrapper script translates this into the canonical protocol.
 

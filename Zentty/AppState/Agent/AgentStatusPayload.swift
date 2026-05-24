@@ -2,9 +2,11 @@ import Foundation
 
 struct AgentLaunchSnapshot: Codable, Equatable, Sendable {
     var arguments: [String]
+    var environment: [String: String]?
 
-    init(arguments: [String]) {
+    init(arguments: [String], environment: [String: String]? = nil) {
         self.arguments = arguments
+        self.environment = environment
     }
 }
 

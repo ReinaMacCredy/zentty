@@ -27,6 +27,7 @@ struct ZenttyCLI: ParsableCommand {
             CodexNotifyCommand.self,
             GeminiHookCommand.self,
             AgyHookCommand.self,
+            HermesHookCommand.self,
             IPCCommand.self,
             LaunchCommand.self,
             InstallCommand.self,
@@ -43,6 +44,7 @@ private enum IntegrationTarget: String, CaseIterable {
     case kimiHooks = "kimi-hooks"
     case grokHooks = "grok-hooks"
     case agyHooks = "agy-hooks"
+    case hermesHooks = "hermes-hooks"
 
     static func resolve(_ raw: String) throws -> IntegrationTarget {
         guard let target = IntegrationTarget(rawValue: raw) else {
@@ -111,6 +113,13 @@ struct InstallCommand: ParsableCommand {
             try AgyHooksInstaller.install(hooksFileURL: hooksFileURL, cliPath: cliPath)
             let eventList = AgyHooksInstaller.events.map(\.agentEvent).joined(separator: ", ")
             print("Installed Zentty Antigravity hooks at \(hooksFileURL.path) (events: \(eventList)).")
+        case .hermesHooks:
+            let cliPath = resolveInvokingCLIPath()
+            let configURL = HermesHooksInstaller.defaultConfigURL()
+            let allowlistURL = HermesHooksInstaller.defaultAllowlistURL()
+            try HermesHooksInstaller.install(configURL: configURL, allowlistURL: allowlistURL, cliPath: cliPath)
+            let eventList = HermesHooksInstaller.events.map(\.name).joined(separator: ", ")
+            print("Installed Zentty Hermes Agent hooks at \(configURL.path) (events: \(eventList)).")
         }
     }
 }
@@ -142,6 +151,11 @@ struct UninstallCommand: ParsableCommand {
             let hooksFileURL = AgyHooksInstaller.defaultUserHooksFileURL()
             try AgyHooksInstaller.uninstall(hooksFileURL: hooksFileURL)
             print("Removed Zentty Antigravity hook entries from \(hooksFileURL.path).")
+        case .hermesHooks:
+            let configURL = HermesHooksInstaller.defaultConfigURL()
+            let allowlistURL = HermesHooksInstaller.defaultAllowlistURL()
+            try HermesHooksInstaller.uninstall(configURL: configURL, allowlistURL: allowlistURL)
+            print("Removed Zentty Hermes Agent hook entries from \(configURL.path).")
         }
     }
 }
@@ -1182,6 +1196,51 @@ struct AgyHookCommand: ParsableCommand {
     }
 }
 
+struct HermesHookCommand: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "hermes-hook",
+        abstract: "Forward a Hermes Agent hook payload to the running Zentty app.",
+        shouldDisplay: false
+    )
+
+    @Argument(help: "Hermes hook event name (e.g. on-session-start, pre-approval-request).")
+    var event: String
+
+    mutating func run() throws {
+        defer { print("{}") }
+
+        if ProcessInfo.processInfo.environment["ZENTTY_HERMES_HOOKS_DISABLED"] == "1" {
+            return
+        }
+
+        let payload = readStandardInputPayload() ?? "{}"
+        let environment = ProcessInfo.processInfo.environment
+        guard let socketPath = environment["ZENTTY_INSTANCE_SOCKET"],
+              !socketPath.isEmpty,
+              IPCCommand.hasRequiredRoutingEnvironment(environment) else {
+            return
+        }
+
+        let request = AgentIPCRequest(
+            kind: .ipc,
+            arguments: ["--adapter=hermes", event],
+            standardInput: payload,
+            environment: IPCCommand.forwardedEnvironment(from: environment),
+            expectsResponse: false,
+            subcommand: "agent-event"
+        )
+
+        do {
+            _ = try AgentIPCClient.send(request: request, socketPath: socketPath)
+        } catch {
+            guard environment["ZENTTY_CLI_DEBUG"] == "1" else {
+                return
+            }
+            FileHandle.standardError.write(Data(("zentty hermes-hook send failed: \(error.localizedDescription)\n").utf8))
+        }
+    }
+}
+
 struct IPCCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "ipc",
@@ -1205,6 +1264,7 @@ struct IPCCommand: ParsableCommand {
         "ZENTTY_DROID_PID",
         "ZENTTY_KIMI_PID",
         "ZENTTY_AGY_PID",
+        "ZENTTY_HERMES_PID",
     ]
 
     @Argument(help: "Supported values: agent-event, agent-signal, agent-status")
@@ -1347,7 +1407,7 @@ struct LaunchCommand: ParsableCommand {
         shouldDisplay: false
     )
 
-    @Argument(help: "Supported values: amp, claude, codex, copilot, cursor, droid, gemini, kimi, opencode, pi, grok, agy")
+    @Argument(help: "Supported values: amp, claude, codex, copilot, cursor, droid, gemini, kimi, opencode, pi, grok, agy, hermes")
     var tool: String
 
     @Argument(parsing: .captureForPassthrough, help: "Arguments forwarded to the real tool.")

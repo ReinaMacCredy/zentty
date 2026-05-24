@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import XCTest
 @testable import Zentty
@@ -94,6 +95,13 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(AgentTool.resolve(named: "Antigravity"), .agy)
         XCTAssertEqual(AgentTool.resolveKnown(named: "agy"), .agy)
         XCTAssertEqual(AgentTool.resolveKnown(named: "Antigravity"), .agy)
+    }
+
+    func test_agent_tool_recognizes_hermes_for_explicit_and_known_tool_resolution() {
+        XCTAssertEqual(AgentTool.resolve(named: "hermes"), .hermes)
+        XCTAssertEqual(AgentTool.resolve(named: "Hermes Agent"), .hermes)
+        XCTAssertEqual(AgentTool.resolveKnown(named: "hermes"), .hermes)
+        XCTAssertEqual(AgentTool.resolveKnown(named: "Hermes Agent"), .hermes)
     }
 
     func test_agent_tool_recognizer_infers_codex_from_explicit_attention_title() {
@@ -242,6 +250,23 @@ final class AgentStatusSupportTests: XCTestCase {
                 "ampEarlyExitFlags should contain \(flag)"
             )
         }
+    }
+
+    func test_hermes_passthrough_policy_allows_chat_and_resume_bootstrap() throws {
+        // Hermes can add management subcommands without Zentty changes. The
+        // launcher should bootstrap default, chat, and flag-first interactive
+        // launches, while passing other subcommands through unchanged.
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let launcherPath = repoRoot
+            .appendingPathComponent("ZenttyCLI/AgentToolLauncher.swift")
+            .path
+        let source = try String(contentsOfFile: launcherPath, encoding: .utf8)
+
+        XCTAssertTrue(source.contains("Self.isHermesPassthroughSubcommand(subcommand)"))
+        XCTAssertTrue(source.contains("!argument.hasPrefix(\"-\") && argument != \"chat\""))
+        XCTAssertTrue(source.contains("\"--resume\"") == false)
     }
 
     func test_agent_tool_launcher_forwards_opencode_tui_and_xdg_environment() throws {
@@ -8427,6 +8452,90 @@ final class AgentStatusSupportTests: XCTestCase {
     /// AgentStatusHelper accepts the bundle layout. For most tools dir == file name;
     /// cursor wraps the Cursor CLI binary `cursor-agent` (the `cursor` name belongs to
     /// the Cursor IDE launcher, which we do not want to intercept).
+    func test_agent_launch_bootstrap_builds_hermes_plan_and_installs_hooks() throws {
+        let runtimeDirectory = try makeTemporaryDirectory(named: "agent-launch-hermes-runtime")
+        let home = try makeTemporaryDirectory(named: "agent-launch-hermes-home")
+        let hermesHome = home.appendingPathComponent(".hermes", isDirectory: true)
+        try FileManager.default.createDirectory(at: hermesHome, withIntermediateDirectories: true)
+        try "model: anthropic/claude-sonnet-4.6\n".write(
+            to: hermesHome.appendingPathComponent("config.yaml", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let request = AgentIPCRequest(
+            kind: .bootstrap,
+            arguments: ["chat", "--tui", "--model", "anthropic/claude-sonnet-4.6"],
+            standardInput: nil,
+            environment: [
+                "HOME": home.path,
+                "ZENTTY_REAL_BINARY": "/usr/local/bin/hermes",
+                "ZENTTY_CLI_BIN": "/opt/zentty/bin/zentty",
+            ],
+            expectsResponse: true,
+            tool: .hermes
+        )
+
+        let plan = try AgentLaunchBootstrap.makePlan(
+            request: request,
+            target: AgentIPCTarget(
+                windowID: WindowID("window-main"),
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-main")
+            ),
+            runtimeDirectoryURL: runtimeDirectory
+        )
+
+        XCTAssertEqual(plan.executablePath, "/usr/local/bin/hermes")
+        XCTAssertEqual(plan.arguments, ["chat", "--tui", "--model", "anthropic/claude-sonnet-4.6"])
+        XCTAssertEqual(plan.setEnvironment["ZENTTY_AGENT_TOOL"], "hermes")
+        XCTAssertEqual(plan.setEnvironment["ZENTTY_HERMES_PID"], "\(getpid())")
+        XCTAssertEqual(plan.preLaunchActions.count, 2)
+        XCTAssertEqual(plan.preLaunchActions.first?.arguments, ["--adapter=hermes"])
+        XCTAssertTrue(plan.preLaunchActions[0].standardInput?.contains(#""event":"session.start""#) == true)
+        XCTAssertTrue(plan.preLaunchActions[0].standardInput?.contains(#""arguments":["chat","--tui","--model","anthropic/claude-sonnet-4.6"]"#) == true)
+
+        let config = try String(contentsOf: hermesHome.appendingPathComponent("config.yaml"), encoding: .utf8)
+        XCTAssertTrue(config.contains(HermesHooksInstaller.hookMarker))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: hermesHome.appendingPathComponent("shell-hooks-allowlist.json").path))
+    }
+
+    func test_agent_launch_bootstrap_hermes_disabled_skips_hook_install() throws {
+        let runtimeDirectory = try makeTemporaryDirectory(named: "agent-launch-hermes-disabled-runtime")
+        let home = try makeTemporaryDirectory(named: "agent-launch-hermes-disabled-home")
+        let hermesHome = home.appendingPathComponent(".hermes", isDirectory: true)
+        try FileManager.default.createDirectory(at: hermesHome, withIntermediateDirectories: true)
+        let configURL = hermesHome.appendingPathComponent("config.yaml", isDirectory: false)
+        try "model: test\n".write(to: configURL, atomically: true, encoding: .utf8)
+
+        let request = AgentIPCRequest(
+            kind: .bootstrap,
+            arguments: ["--tui"],
+            standardInput: nil,
+            environment: [
+                "HOME": home.path,
+                "ZENTTY_REAL_BINARY": "/usr/local/bin/hermes",
+                "ZENTTY_CLI_BIN": "/opt/zentty/bin/zentty",
+                "ZENTTY_HERMES_HOOKS_DISABLED": "1",
+            ],
+            expectsResponse: true,
+            tool: .hermes
+        )
+
+        let plan = try AgentLaunchBootstrap.makePlan(
+            request: request,
+            target: AgentIPCTarget(
+                windowID: WindowID("window-main"),
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-main")
+            ),
+            runtimeDirectoryURL: runtimeDirectory
+        )
+
+        XCTAssertEqual(plan.preLaunchActions.count, 0)
+        XCTAssertFalse((try String(contentsOf: configURL, encoding: .utf8)).contains(HermesHooksInstaller.hookMarker))
+    }
+
     private var wrapperLayoutPairs: [(dirName: String, fileName: String)] {
         [
             ("claude", "claude"),
@@ -8442,6 +8551,7 @@ final class AgentStatusSupportTests: XCTestCase {
             ("amp", "amp"),
             ("pi", "pi"),
             ("agy", "agy"),
+            ("hermes", "hermes"),
         ]
     }
 
