@@ -85,6 +85,13 @@ final class MenuBarStatusIconRendererTests: XCTestCase {
         XCTAssertEqual(image?.size.height, MenuBarStatusIconRenderer.agentIconSide)
     }
 
+    func test_idle_agent_icon_does_not_draw_status_badge() throws {
+        let image = try XCTUnwrap(MenuBarStatusIconRenderer.agentIconImage(for: .custom("local-agent"), fleetState: .idle))
+        let rep = try XCTUnwrap(bitmapRepresentation(for: image))
+
+        XCTAssertLessThan(alpha(at: NSPoint(x: 16, y: 6), in: rep), 0.2)
+    }
+
     func test_badged_image_clears_cutout_around_status_dot() throws {
         let base = NSImage(size: NSSize(width: 20, height: 20))
         base.lockFocus()

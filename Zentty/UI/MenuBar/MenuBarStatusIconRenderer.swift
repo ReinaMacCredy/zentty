@@ -134,6 +134,13 @@ enum MenuBarStatusIconRenderer {
         appearance: NSAppearance? = nil
     ) -> NSImage? {
         guard let baseImage = agentIconTemplateImage(for: agentTool) else { return nil }
+        guard fleetState != .idle else {
+            return unbadgedAgentImage(
+                baseImage: baseImage,
+                canvasSide: agentIconSide,
+                appearance: appearance
+            )
+        }
         return badgedImage(
             baseImage: baseImage,
             canvasSide: agentIconSide,
@@ -361,6 +368,28 @@ enum MenuBarStatusIconRenderer {
         clearEllipse(in: dotRect.insetBy(dx: -cutoutPadding, dy: -cutoutPadding))
         dotColor(for: fleetState).setFill()
         NSBezierPath(ovalIn: dotRect).fill()
+
+        image.unlockFocus()
+        image.isTemplate = false
+        return image
+    }
+
+    private static func unbadgedAgentImage(
+        baseImage: NSImage,
+        canvasSide: CGFloat,
+        appearance: NSAppearance?
+    ) -> NSImage {
+        let image = NSImage(size: NSSize(width: canvasSide, height: canvasSide))
+        image.lockFocus()
+
+        let rect = NSRect(x: 0, y: 0, width: canvasSide, height: canvasSide)
+        let iconColor = labelColor(for: appearance)
+        tintedTemplateImage(baseImage, color: iconColor).draw(
+            in: rect,
+            from: NSRect(origin: .zero, size: baseImage.size),
+            operation: .sourceOver,
+            fraction: 1
+        )
 
         image.unlockFocus()
         image.isTemplate = false
