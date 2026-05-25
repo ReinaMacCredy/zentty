@@ -40,6 +40,14 @@
 
 See [Zentty CLI](docs/cli.md) for command-line usage.
 
+## Agent Skill
+
+Agents can install the Zentty CLI skill to discover pane-aware commands while running inside Zentty:
+
+```bash
+npx skills add dedene/zentty
+```
+
 ## Install
 
 Download the latest `.dmg` from the [releases page](https://github.com/dedene/zentty/releases/latest), open it, and drag Zentty to your Applications folder.
