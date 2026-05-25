@@ -2232,6 +2232,44 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(mtimeBefore, mtimeAfter, "file should not be rewritten when key already exists")
     }
 
+    func test_droid_uninstall_removes_managed_hooks_and_preserves_user_hooks() throws {
+        let directory = try makeTemporaryDirectory(named: "droid-hooks-uninstall")
+        let settingsURL = directory.appendingPathComponent("settings.local.json", isDirectory: false)
+
+        try DroidHooksInstaller.install(at: settingsURL, cliPath: "/opt/zentty/bin/zentty")
+
+        var object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: try Data(contentsOf: settingsURL)) as? [String: Any]
+        )
+        var hooks = try XCTUnwrap(object["hooks"] as? [String: Any])
+        var stopEntries = try XCTUnwrap(hooks["Stop"] as? [[String: Any]])
+        stopEntries.append([
+            "hooks": [
+                [
+                    "type": "command",
+                    "command": "printf user-hook",
+                    "timeout": 1,
+                ],
+            ],
+        ])
+        hooks["Stop"] = stopEntries
+        object["hooks"] = hooks
+        try JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys])
+            .write(to: settingsURL, options: .atomic)
+
+        try DroidHooksInstaller.uninstall(at: settingsURL)
+
+        let updated = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: try Data(contentsOf: settingsURL)) as? [String: Any]
+        )
+        let updatedHooks = try XCTUnwrap(updated["hooks"] as? [String: Any])
+        XCTAssertNil(updatedHooks["SessionStart"])
+        let updatedStopEntries = try XCTUnwrap(updatedHooks["Stop"] as? [[String: Any]])
+        XCTAssertEqual(updatedStopEntries.count, 1)
+        let nestedHooks = try XCTUnwrap(updatedStopEntries[0]["hooks"] as? [[String: Any]])
+        XCTAssertEqual(nestedHooks[0]["command"] as? String, "printf user-hook")
+    }
+
     // MARK: - KimiHooksInstaller
 
     func test_kimi_hooks_installer_appends_managed_block_and_preserves_existing_content() throws {
@@ -4252,6 +4290,34 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(try String(contentsOf: installedPluginURL, encoding: .utf8), "// user-owned plugin\n")
         XCTAssertNil(plan.setEnvironment["PLUGINS"])
         XCTAssertEqual(plan.setEnvironment["ZENTTY_AGENT_TOOL"], "amp")
+    }
+
+    func test_amp_plugin_uninstall_removes_owned_plugin_only() throws {
+        let directory = try makeTemporaryDirectory(named: "amp-plugin-uninstall")
+        let pluginURL = directory
+            .appendingPathComponent("amp", isDirectory: true)
+            .appendingPathComponent("plugins", isDirectory: true)
+            .appendingPathComponent(AmpPluginInstaller.pluginFileName, isDirectory: false)
+        try FileManager.default.createDirectory(at: pluginURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "// \(AmpPluginInstaller.ownershipMarker)\n".write(to: pluginURL, atomically: true, encoding: .utf8)
+
+        try AmpPluginInstaller.uninstall(destinationConfigHomeURL: directory)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: pluginURL.path))
+    }
+
+    func test_amp_plugin_uninstall_preserves_unmarked_plugin() throws {
+        let directory = try makeTemporaryDirectory(named: "amp-plugin-uninstall-unmarked")
+        let pluginURL = directory
+            .appendingPathComponent("amp", isDirectory: true)
+            .appendingPathComponent("plugins", isDirectory: true)
+            .appendingPathComponent(AmpPluginInstaller.pluginFileName, isDirectory: false)
+        try FileManager.default.createDirectory(at: pluginURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "// user plugin\n".write(to: pluginURL, atomically: true, encoding: .utf8)
+
+        try AmpPluginInstaller.uninstall(destinationConfigHomeURL: directory)
+
+        XCTAssertEqual(try String(contentsOf: pluginURL, encoding: .utf8), "// user plugin\n")
     }
 
     func test_agent_launch_bootstrap_amp_respects_hooks_disabled() throws {

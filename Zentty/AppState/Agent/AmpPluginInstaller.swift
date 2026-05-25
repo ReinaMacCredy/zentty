@@ -54,6 +54,33 @@ enum AmpPluginInstaller {
         return true
     }
 
+    static func uninstall(
+        destinationConfigHomeURL: URL = defaultUserConfigHomeURL(environment: ProcessInfo.processInfo.environment),
+        fileManager: FileManager = .default
+    ) throws {
+        try uninstall(
+            destinationURL: bundledPluginDestinationURL(destinationConfigHomeURL: destinationConfigHomeURL),
+            fileManager: fileManager
+        )
+    }
+
+    static func uninstall(
+        destinationURL: URL,
+        fileManager: FileManager = .default
+    ) throws {
+        guard fileManager.fileExists(atPath: destinationURL.path) else {
+            return
+        }
+
+        let existing = (try? String(contentsOf: destinationURL, encoding: .utf8)) ?? ""
+        guard existing.contains(ownershipMarker) else {
+            ampPluginInstallerLogger.warning("Refusing to remove unmarked AMP plugin at \(destinationURL.path, privacy: .public)")
+            return
+        }
+
+        try fileManager.removeItem(at: destinationURL)
+    }
+
     static func defaultUserConfigHomeURL(environment: [String: String]) -> URL {
         if let configRoot = nonBlank(environment["XDG_CONFIG_HOME"]) {
             return URL(fileURLWithPath: configRoot, isDirectory: true)

@@ -481,6 +481,7 @@
 		F7341AA3719ED1FB2D7B3739 /* TerminalScrollFrameSampler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AFCA2B8C7CCCEF9A040B1D1 /* TerminalScrollFrameSampler.swift */; };
 		F75C8D5EDC0772F56DE54C52 /* PaneStripStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFB4690A6E06FB3FC4C1909E /* PaneStripStoreTests.swift */; };
 		F79914E37499F5FE7297C009 /* PresentationPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB40B6883D6232A52132FA30 /* PresentationPipeline.swift */; };
+		F8250CEECD7700EA54A9687B /* AmpPluginInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = E455660542BED764C4FCF49E /* AmpPluginInstaller.swift */; };
 		F9041F8DDD50C06C4E5A89A8 /* WorklanePeekControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1FFD1D69CCE5697BFE6636F /* WorklanePeekControllerTests.swift */; };
 		F97846ECF2EADD4484996415 /* DroidHooksInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E98A96BAD466E5847C42948 /* DroidHooksInstaller.swift */; };
 		F9C6AC77A6FB6F8DE3D4A6DB /* ArgumentParser in Frameworks */ = {isa = PBXBuildFile; productRef = 7D52A635E3B0AD7FA3A4255D /* ArgumentParser */; };
@@ -2561,6 +2562,7 @@
 				F5A26C1A6A89ED60FFF6F341 /* AgentToolLauncher.swift in Sources */,
 				A4A53654BC7A3139C0256836 /* AgyCanonicalReEmitter.swift in Sources */,
 				C8AC887AB1E462D59D6619FF /* AgyHooksInstaller.swift in Sources */,
+				F8250CEECD7700EA54A9687B /* AmpPluginInstaller.swift in Sources */,
 				BF98C820ECF82C8A5810259F /* CursorHooksInstaller.swift in Sources */,
 				DB99D15DBBA9E04854EE979F /* DroidHooksInstaller.swift in Sources */,
 				2835550C9EC2274B56BB12EC /* GrokCanonicalReEmitter.swift in Sources */,

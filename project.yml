@@ -54,6 +54,7 @@ targets:
     sources:
       - path: ZenttyCLI
       - path: Zentty/AppState/Agent/AgentIPCProtocol.swift
+      - path: Zentty/AppState/Agent/AmpPluginInstaller.swift
       - path: Zentty/AppState/Agent/CursorHooksInstaller.swift
       - path: Zentty/AppState/Agent/DroidHooksInstaller.swift
       - path: Zentty/AppState/Agent/GrokHooksInstaller.swift

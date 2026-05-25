@@ -41,7 +41,9 @@ struct ZenttyCLI: ParsableCommand {
 // MARK: - install / uninstall
 
 private enum IntegrationTarget: String, CaseIterable {
+    case ampHooks = "amp-hooks"
     case cursorHooks = "cursor-hooks"
+    case droidHooks = "droid-hooks"
     case kimiHooks = "kimi-hooks"
     case grokHooks = "grok-hooks"
     case agyHooks = "agy-hooks"
@@ -86,11 +88,20 @@ struct InstallCommand: ParsableCommand {
         discussion: "Supported targets: \(IntegrationTarget.allCases.map(\.rawValue).joined(separator: ", "))"
     )
 
-    @Argument(help: "Target integration name (e.g. cursor-hooks, kimi-hooks).")
+    @Argument(help: "Target integration name (e.g. amp-hooks, cursor-hooks).")
     var target: String
 
     mutating func run() throws {
         switch try IntegrationTarget.resolve(target) {
+        case .ampHooks:
+            let configHomeURL = AmpPluginInstaller.defaultUserConfigHomeURL(environment: ProcessInfo.processInfo.environment)
+            let pluginsURL = configHomeURL
+                .appendingPathComponent("amp", isDirectory: true)
+                .appendingPathComponent("plugins", isDirectory: true)
+            guard AmpPluginInstaller.installBundledPluginIfPossible(destinationConfigHomeURL: configHomeURL) else {
+                throw ValidationError("Could not install Zentty Amp plugin under \(configHomeURL.path).")
+            }
+            print("Installed Zentty Amp plugin under \(pluginsURL.path).")
         case .cursorHooks:
             let hooksURL = CursorHooksInstaller.defaultUserHooksURL()
             try CursorHooksInstaller.install(
@@ -98,6 +109,15 @@ struct InstallCommand: ParsableCommand {
                 cliPath: resolveInvokingCLIPath()
             )
             print("Installed Zentty cursor hooks at \(hooksURL.path).")
+        case .droidHooks:
+            let settingsURL = DroidHooksInstaller.defaultUserSettingsURL()
+            try DroidHooksInstaller.install(
+                at: settingsURL,
+                cliPath: resolveInvokingCLIPath()
+            )
+            let hooksConfigURL = DroidHooksInstaller.defaultHooksConfigURL()
+            try DroidHooksInstaller.suppressHookOutput(at: hooksConfigURL)
+            print("Installed Zentty Droid hooks at \(settingsURL.path).")
         case .kimiHooks:
             let configURL = KimiHooksInstaller.defaultUserConfigURL()
             try KimiHooksInstaller.install(
@@ -132,15 +152,26 @@ struct UninstallCommand: ParsableCommand {
         discussion: "Supported targets: \(IntegrationTarget.allCases.map(\.rawValue).joined(separator: ", "))"
     )
 
-    @Argument(help: "Target integration name (e.g. cursor-hooks, kimi-hooks).")
+    @Argument(help: "Target integration name (e.g. amp-hooks, cursor-hooks).")
     var target: String
 
     mutating func run() throws {
         switch try IntegrationTarget.resolve(target) {
+        case .ampHooks:
+            let configHomeURL = AmpPluginInstaller.defaultUserConfigHomeURL(environment: ProcessInfo.processInfo.environment)
+            let pluginsURL = configHomeURL
+                .appendingPathComponent("amp", isDirectory: true)
+                .appendingPathComponent("plugins", isDirectory: true)
+            try AmpPluginInstaller.uninstall(destinationConfigHomeURL: configHomeURL)
+            print("Removed Zentty Amp plugin from \(pluginsURL.path).")
         case .cursorHooks:
             let hooksURL = CursorHooksInstaller.defaultUserHooksURL()
             try CursorHooksInstaller.uninstall(at: hooksURL)
             print("Removed Zentty cursor hook entries from \(hooksURL.path).")
+        case .droidHooks:
+            let settingsURL = DroidHooksInstaller.defaultUserSettingsURL()
+            try DroidHooksInstaller.uninstall(at: settingsURL)
+            print("Removed Zentty Droid hook entries from \(settingsURL.path).")
         case .kimiHooks:
             let configURL = KimiHooksInstaller.defaultUserConfigURL()
             try KimiHooksInstaller.uninstall(at: configURL)
