@@ -218,7 +218,9 @@ extension WorklaneStore {
 
         var targetWorklane = worklanes[targetIndex]
         let targetColumnCount = targetWorklane.paneStripState.columns.count
-        let insertWidth = max(1, removal.pane.width)
+        let insertWidth = targetColumnCount == 0
+            ? max(1, singleColumnWidth)
+            : max(1, removal.pane.width)
 
         if targetColumnCount == 1, let firstPaneWidth = layoutContext.firstPaneWidthAfterSingleSplit {
             targetWorklane.paneStripState.resizeFirstColumn(to: firstPaneWidth)

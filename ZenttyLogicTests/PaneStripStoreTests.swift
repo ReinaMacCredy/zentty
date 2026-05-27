@@ -3525,6 +3525,59 @@ final class PaneStripStoreTests: XCTestCase {
         XCTAssertEqual(widths.reduce(0, +) + layoutContext.sizing.interPaneSpacing, layoutContext.availableWidth, accuracy: 0.001)
     }
 
+    func test_transferPaneToNewWorklane_reexpandsPaneFromHalfWidthSplitToSingleColumnWidth() throws {
+        let layoutContext = PaneLayoutContext(
+            displayClass: .largeDisplay,
+            preset: .balanced,
+            viewportWidth: 1500,
+            leadingVisibleInset: 0,
+            sizing: .balanced
+        )
+        let sourceWorklaneID = WorklaneID("source")
+        let halfWidth = layoutContext.visibleSplitColumnWidth
+        let store = WorklaneStore(
+            worklanes: [
+                WorklaneState(
+                    id: sourceWorklaneID,
+                    title: "SOURCE",
+                    paneStripState: PaneStripState(
+                        columns: [
+                            PaneColumnState(
+                                id: PaneColumnID("left-column"),
+                                panes: [PaneState(id: PaneID("left"), title: "left")],
+                                width: halfWidth,
+                                focusedPaneID: PaneID("left"),
+                                lastFocusedPaneID: PaneID("left")
+                            ),
+                            PaneColumnState(
+                                id: PaneColumnID("right-column"),
+                                panes: [PaneState(id: PaneID("right"), title: "right")],
+                                width: halfWidth,
+                                focusedPaneID: PaneID("right"),
+                                lastFocusedPaneID: PaneID("right")
+                            ),
+                        ],
+                        focusedColumnID: PaneColumnID("left-column")
+                    )
+                )
+            ],
+            layoutContext: layoutContext,
+            activeWorklaneID: sourceWorklaneID
+        )
+
+        store.transferPaneToNewWorklane(
+            paneID: PaneID("left"),
+            singleColumnWidth: layoutContext.singlePaneWidth
+        )
+
+        let newWorklane = try XCTUnwrap(store.worklanes.first(where: { $0.id != sourceWorklaneID }))
+        XCTAssertEqual(newWorklane.paneStripState.columns.count, 1)
+        let movedColumn = try XCTUnwrap(newWorklane.paneStripState.columns.first)
+        XCTAssertEqual(movedColumn.panes.map(\.id), [PaneID("left")])
+        XCTAssertEqual(movedColumn.width, layoutContext.singlePaneWidth, accuracy: 0.001)
+        XCTAssertNotEqual(movedColumn.width, halfWidth, accuracy: 0.001)
+    }
+
     func test_transfer_last_pane_to_worklane_with_identical_pane_keeps_both_panes() throws {
         let layoutContext = PaneLayoutContext(
             displayClass: .largeDisplay,
