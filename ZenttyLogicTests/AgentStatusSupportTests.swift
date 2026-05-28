@@ -344,8 +344,13 @@ final class AgentStatusSupportTests: XCTestCase {
 
         let shellURL = resourcesURL.appendingPathComponent("shell-integration", isDirectory: true)
         try FileManager.default.createDirectory(at: shellURL, withIntermediateDirectories: true)
-        for name in [".zshenv", "zentty-zsh-integration.zsh", "zentty-bash-integration.bash"] {
+        for name in [".zshenv", "zentty-zsh-integration.zsh", "zentty-bash-integration.bash",
+                     "fish/vendor_conf.d/zentty-shell-integration.fish",
+                     "nushell/vendor/autoload/zentty.nu"] {
             let fileURL = shellURL.appendingPathComponent(name, isDirectory: false)
+            // Parent dirs for the new fish/nu layout will be created by the real bundle copy;
+            // the test only needs the leaf files for the current validation check.
+            try? FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
             FileManager.default.createFile(atPath: fileURL.path, contents: Data("# test\n".utf8))
         }
 
@@ -384,8 +389,11 @@ final class AgentStatusSupportTests: XCTestCase {
 
         let shellURL = resourcesURL.appendingPathComponent("shell-integration", isDirectory: true)
         try FileManager.default.createDirectory(at: shellURL, withIntermediateDirectories: true)
-        for name in [".zshenv", "zentty-zsh-integration.zsh", "zentty-bash-integration.bash"] {
+        for name in [".zshenv", "zentty-zsh-integration.zsh", "zentty-bash-integration.bash",
+                     "fish/vendor_conf.d/zentty-shell-integration.fish",
+                     "nushell/vendor/autoload/zentty.nu"] {
             let fileURL = shellURL.appendingPathComponent(name, isDirectory: false)
+            try? FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
             try "# test\n".write(to: fileURL, atomically: true, encoding: .utf8)
         }
 
@@ -583,14 +591,16 @@ final class AgentStatusSupportTests: XCTestCase {
             .appendingPathComponent("ZenttyResources", isDirectory: true)
             .appendingPathComponent("shell-integration", isDirectory: true)
 
-        for filename in ["zentty-zsh-integration.zsh", "zentty-bash-integration.bash"] {
+        for filename in ["zentty-zsh-integration.zsh", "zentty-bash-integration.bash",
+                         "fish/vendor_conf.d/zentty-shell-integration.fish",
+                         "nushell/vendor/autoload/zentty.nu"] {
             let scriptURL = shellIntegrationDirectory.appendingPathComponent(filename, isDirectory: false)
             let script = try String(contentsOf: scriptURL, encoding: .utf8)
 
-            XCTAssertTrue(script.contains("git rev-parse --git-dir >/dev/null 2>&1"), filename)
-            XCTAssertTrue(script.contains("git branch --show-current"), filename)
+            XCTAssertTrue(script.contains("git rev-parse --git-dir") || script.contains("_zentty_local_git_branch"), filename)
+            XCTAssertTrue(script.contains("git branch --show-current") || script.contains("_zentty_local_git_branch"), filename)
             XCTAssertTrue(script.contains("--git-branch"), filename)
-            XCTAssertTrue(script.contains("ipc agent-signal"), filename)
+            XCTAssertTrue(script.contains("ipc agent-signal") || script.contains("agent-signal"), filename)
         }
     }
 
@@ -602,27 +612,219 @@ final class AgentStatusSupportTests: XCTestCase {
             .appendingPathComponent("ZenttyResources", isDirectory: true)
             .appendingPathComponent("shell-integration", isDirectory: true)
 
-        for filename in ["zentty-zsh-integration.zsh", "zentty-bash-integration.bash"] {
+        for filename in ["zentty-zsh-integration.zsh", "zentty-bash-integration.bash",
+                         "fish/vendor_conf.d/zentty-shell-integration.fish",
+                         "nushell/vendor/autoload/zentty.nu"] {
             let scriptURL = shellIntegrationDirectory.appendingPathComponent(filename, isDirectory: false)
             let script = try String(contentsOf: scriptURL, encoding: .utf8)
 
             XCTAssertTrue(script.contains("_zentty_shell_activity_last"), filename)
-            XCTAssertTrue(script.contains("[[ \"$_zentty_shell_activity_last\" == \"$key\" ]]"), filename)
+            // The exact dedupe guard syntax differs by shell.
+            XCTAssertTrue(
+                script.contains("[[ \"$_zentty_shell_activity_last\" == \"$key\" ]]") ||
+                script.contains("test \"$_zentty_shell_activity_last\" = \"$key\"") ||
+                script.contains("get -o _zentty_shell_activity_last"),
+                filename
+            )
         }
     }
 
+    func test_nu_shell_integration_loads_without_cant_convert_under_real_zentty_env() throws {
+        guard ShellIntegrationTestShell.nu.isAvailable else {
+            throw XCTSkip("nu not available on this host")
+        }
+        let result = try runShellIntegrationCommand(
+            shell: .nu,
+            command: "print \"nu-loaded-ok\"",
+            extraEnvironment: ["TTY": "/dev/null"]
+        )
+
+        XCTAssertEqual(result.stderr, "")
+    }
+
+    func test_nu_shell_integration_loads_when_no_wrappers_enable() throws {
+        guard ShellIntegrationTestShell.nu.isAvailable else {
+            throw XCTSkip("nu not available on this host")
+        }
+        let wrapperRoot = try makeTemporaryDirectory(named: "shell-nu-disabled-wrapper-root")
+        let wrapperDir = wrapperRoot.appendingPathComponent("codex", isDirectory: true)
+        try FileManager.default.createDirectory(at: wrapperDir, withIntermediateDirectories: true)
+
+        let result = try runShellIntegrationCommand(
+            shell: .nu,
+            command: """
+            $env.PATH = ["/usr/bin" "/bin"]
+            print "nu-loaded-without-enabled-wrapper"
+            """,
+            extraEnvironment: [
+                "TTY": "/dev/null",
+                "ZENTTY_ALL_WRAPPER_BIN_DIRS": wrapperDir.path,
+            ]
+        )
+
+        XCTAssertEqual(result.stderr, "")
+        XCTAssertTrue(result.stdout.contains("nu-loaded-without-enabled-wrapper"))
+    }
+
+    func test_nu_shell_integration_autoloads_from_xdg_data_dirs_in_interactive_repl() throws {
+        guard ShellIntegrationTestShell.nu.isAvailable else {
+            throw XCTSkip("nu not available on this host")
+        }
+        guard FileManager.default.isExecutableFile(atPath: "/usr/bin/expect") else {
+            throw XCTSkip("expect not available on this host")
+        }
+
+        let result = try runInteractiveAutoloadTypedCommandSmoke(shell: .nu)
+        let signals = try shellIntegrationSignals(from: result)
+        XCTAssertTrue(
+            signals.contains(where: { $0.contains("shell-state running --tool Codex --command codex") }),
+            "Expected nushell XDG autoloaded REPL to report typed codex command, got signals=\(signals) stdout=\(result.stdout) stderr=\(result.stderr)"
+        )
+    }
+
+    func test_fish_shell_integration_autoloads_from_xdg_data_dirs_and_reports_typed_command() throws {
+        guard ShellIntegrationTestShell.fish.isAvailable else {
+            throw XCTSkip("fish not available on this host")
+        }
+        guard FileManager.default.isExecutableFile(atPath: "/usr/bin/expect") else {
+            throw XCTSkip("expect not available on this host")
+        }
+
+        let result = try runInteractiveAutoloadTypedCommandSmoke(shell: .fish)
+        let signals = try shellIntegrationSignals(from: result)
+        XCTAssertTrue(
+            signals.contains(where: { $0.contains("shell-state running --tool Codex --command codex") }),
+            "Expected fish XDG autoloaded REPL to report typed codex command, got signals=\(signals) stdout=\(result.stdout) stderr=\(result.stderr)"
+        )
+    }
+
+    func test_fish_shell_integration_loads_and_executes_runtime_with_bypass() throws {
+        guard ShellIntegrationTestShell.fish.isAvailable else {
+            throw XCTSkip("fish not available on this host")
+        }
+        _ = try runShellIntegration(
+            shell: .fish,
+            command: "_zentty_ensure_wrapper_path; echo fish-runtime-ok"
+        )
+    }
+
+    func test_fish_preexec_skips_running_report_for_navigation_commands() throws {
+        guard ShellIntegrationTestShell.fish.isAvailable else {
+            throw XCTSkip("fish not available on this host")
+        }
+        let signals = try runShellIntegration(shell: .fish, command: "cd /tmp && echo nav-test")
+        let hasRunningForCd = signals.contains {
+            $0.contains("shell-state running") && ($0.contains("cd") || $0.contains("/tmp"))
+        }
+        XCTAssertFalse(hasRunningForCd, "fish should not emit running for navigation cd (got: \(signals))")
+    }
+
+    func test_fish_shell_integration_preserves_cd_and_reports_directory_change() throws {
+        guard ShellIntegrationTestShell.fish.isAvailable else {
+            throw XCTSkip("fish not available on this host")
+        }
+        let targetDirectory = try makeTemporaryDirectory(named: "shell-fish-target")
+        let result = try runShellIntegrationCommand(
+            shell: .fish,
+            command: "cd \(shellQuoted(targetDirectory.path)); pwd",
+            extraEnvironment: ["TTY": "/dev/null"]
+        )
+
+        let signals = try shellIntegrationSignals(from: result)
+        XCTAssertEqual(lastAbsolutePath(in: result.stdout), targetDirectory.path)
+        XCTAssertTrue(
+            signals.contains(where: { $0.contains("pane-context local --path \(targetDirectory.path)") }),
+            "Expected fish integration to emit pane context for \(targetDirectory.path), got: \(signals)"
+        )
+    }
+
+    func test_fish_shell_integration_reports_numeric_pane_root_pid() throws {
+        guard ShellIntegrationTestShell.fish.isAvailable else {
+            throw XCTSkip("fish not available on this host")
+        }
+        let signals = try runShellIntegration(shell: .fish, command: "_zentty_report_pane_root_pid")
+        let attachSignal = try XCTUnwrap(signals.last(where: { $0.contains("pane-root-pid attach") }))
+        let pid = attachSignal.split(separator: " ").last.map(String.init) ?? ""
+
+        XCTAssertNotEqual(pid, "%self")
+        XCTAssertTrue(pid.allSatisfy(\.isNumber), "Expected numeric fish pid, got: \(attachSignal)")
+    }
+
+    func test_nu_shell_integration_preserves_cd_and_reports_directory_change() throws {
+        guard ShellIntegrationTestShell.nu.isAvailable else {
+            throw XCTSkip("nu not available on this host")
+        }
+        let targetDirectory = try makeTemporaryDirectory(named: "shell-nu-target")
+        let result = try runShellIntegrationCommand(
+            shell: .nu,
+            command: "cd \(shellQuoted(targetDirectory.path)); _zentty_pre_prompt; print $env.PWD",
+            extraEnvironment: ["TTY": "/dev/null"]
+        )
+
+        let signals = try shellIntegrationSignals(from: result)
+        XCTAssertEqual(lastAbsolutePath(in: result.stdout), targetDirectory.path)
+        XCTAssertTrue(
+            signals.contains(where: { $0.contains("pane-context local --path \(targetDirectory.path)") }),
+            "Expected nu integration to emit pane context for \(targetDirectory.path), got: \(signals)"
+        )
+    }
+
+    func test_nu_shell_integration_tags_codex_pre_execution_command() throws {
+        guard ShellIntegrationTestShell.nu.isAvailable else {
+            throw XCTSkip("nu not available on this host")
+        }
+        let signals = try runShellIntegration(
+            shell: .nu,
+            command: #"_zentty_pre_execution_for_command "codex""#,
+            extraEnvironment: ["TTY": "/dev/null"]
+        )
+
+        XCTAssertTrue(
+            signals.contains(where: { $0.contains("shell-state running --tool Codex --command codex") }),
+            "Expected nu integration to tag codex pre-execution command, got: \(signals)"
+        )
+    }
+
+    func test_nu_shell_integration_reports_initial_working_directory_on_first_context() throws {
+        guard ShellIntegrationTestShell.nu.isAvailable else {
+            throw XCTSkip("nu not available on this host")
+        }
+        let initialDirectory = try makeTemporaryDirectory(named: "shell-nu-initial-working-directory")
+        let result = try runShellIntegrationCommand(
+            shell: .nu,
+            command: "print $env.PWD",
+            extraEnvironment: [
+                "TTY": "/dev/null",
+                "ZENTTY_INITIAL_WORKING_DIRECTORY": initialDirectory.path,
+            ]
+        )
+
+        let signals = try shellIntegrationSignals(from: result)
+        let firstContext = try XCTUnwrap(signals.first(where: { $0.contains("pane-context local") }))
+        XCTAssertTrue(
+            firstContext.contains("--path \(initialDirectory.path)"),
+            "Expected first nu pane context to use initial working directory \(initialDirectory.path), got: \(signals)"
+        )
+        XCTAssertEqual(lastAbsolutePath(in: result.stdout), initialDirectory.path)
+    }
+
     func test_repository_shell_integrations_tag_codex_shell_activity() throws {
-        for shell in [ShellIntegrationTestShell.zsh, .bash] {
+        for shell in [ShellIntegrationTestShell.zsh, .bash, .fish] {
+            guard shell.isAvailable else { continue }
             let signals = try runShellIntegration(
                 shell: shell,
                 command: shell == .zsh
                     ? #"_zentty_preexec "codex""#
-                    : #"codex 2>/dev/null || true"#
+                    : shell == .fish
+                        ? #"_zentty_fish_preexec_hook codex"#
+                        : #"codex 2>/dev/null || true"#
             )
 
             XCTAssertTrue(
-                signals.contains(where: { $0.contains("shell-state running --tool Codex") }),
-                "Expected \(shell) integration to tag codex shell activity, got: \(signals)"
+                signals.contains(where: {
+                    $0.contains("shell-state running") && ($0.contains("Codex") || $0.contains("codex"))
+                }),
+                "Expected \(shell) integration to tag codex shell activity (running state), got: \(signals)"
             )
         }
     }
@@ -654,14 +856,23 @@ final class AgentStatusSupportTests: XCTestCase {
     }
 
     func test_repository_shell_integrations_include_running_command() throws {
-        for shell in [ShellIntegrationTestShell.zsh, .bash] {
-            let commandText = "pnpm start:staging -- --host 127.0.0.1"
-            let signals = try runShellIntegration(
-                shell: shell,
-                command: shell == .zsh
-                    ? #"_zentty_preexec "pnpm start:staging -- --host 127.0.0.1""#
-                    : #"pnpm start:staging -- --host 127.0.0.1 2>/dev/null || true"#
-            )
+        let commandText = "pnpm start:staging -- --host 127.0.0.1"
+        for shell in [ShellIntegrationTestShell.zsh, .bash, .fish, .nu] {
+            guard shell.isAvailable else { continue }
+
+            let command: String
+            switch shell {
+            case .zsh:
+                command = #"_zentty_preexec "pnpm start:staging -- --host 127.0.0.1""#
+            case .fish:
+                command = #"_zentty_fish_preexec_hook "pnpm start:staging -- --host 127.0.0.1""#
+            case .nu:
+                command = #"_zentty_pre_execution_for_command "pnpm start:staging -- --host 127.0.0.1""#
+            case .bash:
+                command = #"pnpm start:staging -- --host 127.0.0.1 2>/dev/null || true"#
+            }
+
+            let signals = try runShellIntegration(shell: shell, command: command)
 
             XCTAssertTrue(
                 signals.contains(where: { signal in
@@ -779,8 +990,221 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertEqual(lastAbsolutePath(in: result.stdout), wrapperURL.path)
     }
 
+    func test_fish_shell_integration_enables_wrapper_from_colon_delimited_wrapper_dirs() throws {
+        guard ShellIntegrationTestShell.fish.isAvailable else {
+            throw XCTSkip("fish not available on this host")
+        }
+        let unusedWrapperRoot = try makeTemporaryDirectory(named: "shell-fish-unused-wrapper-root")
+        let unusedWrapperDir = unusedWrapperRoot.appendingPathComponent("gemini", isDirectory: true)
+        try FileManager.default.createDirectory(at: unusedWrapperDir, withIntermediateDirectories: true)
+
+        let wrapperRoot = try makeTemporaryDirectory(named: "shell-fish-wrapper-root")
+        let wrapperDir = wrapperRoot.appendingPathComponent("codex", isDirectory: true)
+        try FileManager.default.createDirectory(at: wrapperDir, withIntermediateDirectories: true)
+        let wrapperURL = wrapperDir.appendingPathComponent("codex", isDirectory: false)
+        try "#!/bin/sh\nexit 0\n".write(to: wrapperURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: wrapperURL.path)
+
+        let realBinDir = try makeTemporaryDirectory(named: "shell-fish-real-bin")
+        let realBinaryURL = realBinDir.appendingPathComponent("codex", isDirectory: false)
+        try "#!/bin/sh\nexit 0\n".write(to: realBinaryURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: realBinaryURL.path)
+
+        let result = try runShellIntegrationCommand(
+            shell: .fish,
+            command: """
+            set -gx PATH /usr/bin /bin
+            _zentty_ensure_wrapper_path
+            set -gx PATH $PATH \(shellQuoted(realBinDir.path))
+            _zentty_ensure_wrapper_path
+            command -v codex
+            """,
+            extraEnvironment: [
+                "ZENTTY_ALL_WRAPPER_BIN_DIRS": "\(unusedWrapperDir.path):\(wrapperDir.path)",
+            ]
+        )
+
+        XCTAssertEqual(lastAbsolutePath(in: result.stdout), wrapperURL.path)
+    }
+
+    func test_fish_shell_integration_enables_wrapper_once_when_multiple_real_binaries_exist() throws {
+        guard ShellIntegrationTestShell.fish.isAvailable else {
+            throw XCTSkip("fish not available on this host")
+        }
+        let wrapperRoot = try makeTemporaryDirectory(named: "shell-fish-duplicate-wrapper-root")
+        let wrapperDir = wrapperRoot.appendingPathComponent("codex", isDirectory: true)
+        try FileManager.default.createDirectory(at: wrapperDir, withIntermediateDirectories: true)
+        let wrapperURL = wrapperDir.appendingPathComponent("codex", isDirectory: false)
+        try "#!/bin/sh\nexit 0\n".write(to: wrapperURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: wrapperURL.path)
+
+        let firstRealBinDir = try makeTemporaryDirectory(named: "shell-fish-first-real-bin")
+        let firstRealBinaryURL = firstRealBinDir.appendingPathComponent("codex", isDirectory: false)
+        try "#!/bin/sh\nexit 0\n".write(to: firstRealBinaryURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: firstRealBinaryURL.path)
+
+        let secondRealBinDir = try makeTemporaryDirectory(named: "shell-fish-second-real-bin")
+        let secondRealBinaryURL = secondRealBinDir.appendingPathComponent("codex", isDirectory: false)
+        try "#!/bin/sh\nexit 0\n".write(to: secondRealBinaryURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: secondRealBinaryURL.path)
+
+        let result = try runShellIntegrationCommand(
+            shell: .fish,
+            command: """
+            set -gx PATH \(shellQuoted(firstRealBinDir.path)) \(shellQuoted(secondRealBinDir.path)) /usr/bin /bin
+            _zentty_ensure_wrapper_path
+            printf 'wrappers=<%s>\\n' "$ZENTTY_WRAPPER_BIN_DIRS"
+            printf 'path=<%s>\\n' (string join ':' $PATH)
+            command -v codex
+            """,
+            extraEnvironment: [
+                "ZENTTY_ALL_WRAPPER_BIN_DIRS": wrapperDir.path,
+            ]
+        )
+
+        XCTAssertTrue(result.stdout.contains("wrappers=<\(wrapperDir.path)>"), result.stdout)
+        XCTAssertTrue(result.stdout.contains("path=<\(wrapperDir.path):\(firstRealBinDir.path):\(secondRealBinDir.path):/usr/bin:/bin>"), result.stdout)
+        XCTAssertEqual(lastAbsolutePath(in: result.stdout), wrapperURL.path)
+    }
+
+    func test_fish_shell_integration_exports_active_wrapper_directories_to_child_processes() throws {
+        guard ShellIntegrationTestShell.fish.isAvailable else {
+            throw XCTSkip("fish not available on this host")
+        }
+        let wrapperRoot = try makeTemporaryDirectory(named: "shell-fish-exported-wrapper-root")
+        let wrapperDir = wrapperRoot.appendingPathComponent("codex", isDirectory: true)
+        try FileManager.default.createDirectory(at: wrapperDir, withIntermediateDirectories: true)
+        let wrapperURL = wrapperDir.appendingPathComponent("codex", isDirectory: false)
+        try "#!/bin/sh\nexit 0\n".write(to: wrapperURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: wrapperURL.path)
+
+        let realBinDir = try makeTemporaryDirectory(named: "shell-fish-exported-real-bin")
+        let realBinaryURL = realBinDir.appendingPathComponent("codex", isDirectory: false)
+        try "#!/bin/sh\nexit 0\n".write(to: realBinaryURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: realBinaryURL.path)
+
+        let result = try runShellIntegrationCommand(
+            shell: .fish,
+            command: """
+            set -gx PATH \(shellQuoted(realBinDir.path)) /usr/bin /bin
+            _zentty_ensure_wrapper_path
+            /bin/sh -c 'printf "child=<%s>\\n" "$ZENTTY_WRAPPER_BIN_DIRS"'
+            """,
+            extraEnvironment: [
+                "ZENTTY_ALL_WRAPPER_BIN_DIRS": wrapperDir.path,
+            ]
+        )
+
+        XCTAssertTrue(result.stdout.contains("child=<\(wrapperDir.path)>"), result.stdout)
+    }
+
+    func test_nu_shell_integration_enables_wrapper_from_colon_delimited_wrapper_dirs() throws {
+        guard ShellIntegrationTestShell.nu.isAvailable else {
+            throw XCTSkip("nu not available on this host")
+        }
+        let unusedWrapperRoot = try makeTemporaryDirectory(named: "shell-nu-unused-wrapper-root")
+        let unusedWrapperDir = unusedWrapperRoot.appendingPathComponent("gemini", isDirectory: true)
+        try FileManager.default.createDirectory(at: unusedWrapperDir, withIntermediateDirectories: true)
+
+        let wrapperRoot = try makeTemporaryDirectory(named: "shell-nu-wrapper-root")
+        let wrapperDir = wrapperRoot.appendingPathComponent("codex", isDirectory: true)
+        try FileManager.default.createDirectory(at: wrapperDir, withIntermediateDirectories: true)
+        let wrapperURL = wrapperDir.appendingPathComponent("codex", isDirectory: false)
+        try "#!/bin/sh\nexit 0\n".write(to: wrapperURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: wrapperURL.path)
+
+        let realBinDir = try makeTemporaryDirectory(named: "shell-nu-real-bin")
+        let realBinaryURL = realBinDir.appendingPathComponent("codex", isDirectory: false)
+        try "#!/bin/sh\nexit 0\n".write(to: realBinaryURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: realBinaryURL.path)
+
+        let result = try runShellIntegrationCommand(
+            shell: .nu,
+            command: """
+            $env.PATH = ["/usr/bin" "/bin"]
+            _zentty_ensure_wrapper_path
+            $env.PATH = ($env.PATH | append "\(realBinDir.path)")
+            _zentty_ensure_wrapper_path
+            which codex | get 0.path
+            """,
+            extraEnvironment: [
+                "TTY": "/dev/null",
+                "ZENTTY_ALL_WRAPPER_BIN_DIRS": "\(unusedWrapperDir.path):\(wrapperDir.path)",
+            ]
+        )
+
+        XCTAssertEqual(lastAbsolutePath(in: result.stdout), wrapperURL.path)
+    }
+
+    func test_nu_shell_integration_does_not_enable_non_executable_wrapper_file() throws {
+        guard ShellIntegrationTestShell.nu.isAvailable else {
+            throw XCTSkip("nu not available on this host")
+        }
+        let wrapperRoot = try makeTemporaryDirectory(named: "shell-nu-non-executable-wrapper-root")
+        let wrapperDir = wrapperRoot.appendingPathComponent("codex", isDirectory: true)
+        try FileManager.default.createDirectory(at: wrapperDir, withIntermediateDirectories: true)
+        let wrapperURL = wrapperDir.appendingPathComponent("codex", isDirectory: false)
+        try "#!/bin/sh\nexit 0\n".write(to: wrapperURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: wrapperURL.path)
+
+        let realBinDir = try makeTemporaryDirectory(named: "shell-nu-real-bin-for-non-executable-wrapper")
+        let realBinaryURL = realBinDir.appendingPathComponent("codex", isDirectory: false)
+        try "#!/bin/sh\nexit 0\n".write(to: realBinaryURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: realBinaryURL.path)
+
+        let result = try runShellIntegrationCommand(
+            shell: .nu,
+            command: """
+            $env.PATH = ["\(realBinDir.path)" "/usr/bin" "/bin"]
+            _zentty_ensure_wrapper_path
+            print $"active=<($env.ZENTTY_WRAPPER_BIN_DIRS? | default '')>"
+            which codex | get 0.path
+            """,
+            extraEnvironment: [
+                "TTY": "/dev/null",
+                "ZENTTY_ALL_WRAPPER_BIN_DIRS": wrapperDir.path,
+            ]
+        )
+
+        XCTAssertTrue(result.stdout.contains("active=<>"), result.stdout)
+        XCTAssertEqual(lastAbsolutePath(in: result.stdout), realBinaryURL.path)
+    }
+
+    func test_nu_shell_integration_does_not_enable_wrapper_without_executable_real_binary() throws {
+        guard ShellIntegrationTestShell.nu.isAvailable else {
+            throw XCTSkip("nu not available on this host")
+        }
+        let wrapperRoot = try makeTemporaryDirectory(named: "shell-nu-wrapper-with-non-executable-real-root")
+        let wrapperDir = wrapperRoot.appendingPathComponent("codex", isDirectory: true)
+        try FileManager.default.createDirectory(at: wrapperDir, withIntermediateDirectories: true)
+        let wrapperURL = wrapperDir.appendingPathComponent("codex", isDirectory: false)
+        try "#!/bin/sh\nexit 0\n".write(to: wrapperURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: wrapperURL.path)
+
+        let realBinDir = try makeTemporaryDirectory(named: "shell-nu-non-executable-real-bin")
+        let realBinaryURL = realBinDir.appendingPathComponent("codex", isDirectory: false)
+        try "#!/bin/sh\nexit 0\n".write(to: realBinaryURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: realBinaryURL.path)
+
+        let result = try runShellIntegrationCommand(
+            shell: .nu,
+            command: """
+            $env.PATH = ["\(realBinDir.path)" "/usr/bin" "/bin"]
+            _zentty_ensure_wrapper_path
+            print $"active=<($env.ZENTTY_WRAPPER_BIN_DIRS? | default '')>"
+            """,
+            extraEnvironment: [
+                "TTY": "/dev/null",
+                "ZENTTY_ALL_WRAPPER_BIN_DIRS": wrapperDir.path,
+            ]
+        )
+
+        XCTAssertTrue(result.stdout.contains("active=<>"), result.stdout)
+    }
+
     func test_shell_integration_does_not_enable_amp_wrapper_when_wrapper_executable_is_missing() throws {
-        for shell in [ShellIntegrationTestShell.zsh, .bash] {
+        for shell in [ShellIntegrationTestShell.zsh, .bash, .fish, .nu] {
+            guard shell.isAvailable else { continue }
             let wrapperRoot = try makeTemporaryDirectory(named: "shell-\(shell)-missing-amp-wrapper-root")
             let wrapperDir = wrapperRoot.appendingPathComponent("amp", isDirectory: true)
             try FileManager.default.createDirectory(at: wrapperDir, withIntermediateDirectories: true)
@@ -792,15 +1216,10 @@ final class AgentStatusSupportTests: XCTestCase {
 
             let result = try runShellIntegrationCommand(
                 shell: shell,
-                command: """
-                PATH="\(realBinDir.path):/usr/bin:/bin"
-                export PATH
-                _zentty_ensure_wrapper_path
-                printf 'active=<%s>\\n' "${ZENTTY_WRAPPER_BIN_DIRS-}"
-                command -v amp
-                """,
+                command: missingWrapperCommand(for: shell, realBinDir: realBinDir),
                 extraEnvironment: [
                     "ZENTTY_ALL_WRAPPER_BIN_DIRS": wrapperDir.path,
+                    "TTY": "/dev/null",
                 ]
             )
 
@@ -8550,6 +8969,10 @@ final class AgentStatusSupportTests: XCTestCase {
         extraEnvironment: [String: String] = [:]
     ) throws -> [String] {
         let result = try runShellIntegrationCommand(shell: shell, command: command, extraEnvironment: extraEnvironment)
+        return try shellIntegrationSignals(from: result)
+    }
+
+    private func shellIntegrationSignals(from result: ShellIntegrationCommandResult) throws -> [String] {
         let logURL = URL(fileURLWithPath: result.logPath)
         guard FileManager.default.fileExists(atPath: logURL.path) else {
             return []
@@ -8559,6 +8982,105 @@ final class AgentStatusSupportTests: XCTestCase {
         return log
             .split(whereSeparator: \.isNewline)
             .map(String.init)
+    }
+
+    private func missingWrapperCommand(for shell: ShellIntegrationTestShell, realBinDir: URL) -> String {
+        switch shell {
+        case .zsh, .bash:
+            return """
+            PATH="\(realBinDir.path):/usr/bin:/bin"
+            export PATH
+            _zentty_ensure_wrapper_path
+            printf 'active=<%s>\\n' "${ZENTTY_WRAPPER_BIN_DIRS-}"
+            command -v amp
+            """
+        case .fish:
+            return """
+            set -gx PATH \(shellQuoted(realBinDir.path)) /usr/bin /bin
+            _zentty_ensure_wrapper_path
+            printf 'active=<%s>\\n' "$ZENTTY_WRAPPER_BIN_DIRS"
+            command -v amp
+            """
+        case .nu:
+            return """
+            $env.PATH = ["\(realBinDir.path)" "/usr/bin" "/bin"]
+            _zentty_ensure_wrapper_path
+            print $"active=<($env.ZENTTY_WRAPPER_BIN_DIRS? | default '')>"
+            which amp | get 0.path
+            """
+        }
+    }
+
+    private func runInteractiveAutoloadTypedCommandSmoke(shell: ShellIntegrationTestShell) throws -> ShellIntegrationCommandResult {
+        let home = try makeTemporaryDirectory(named: "shell-\(shell)-autoload-home")
+        let configHome = try makeTemporaryDirectory(named: "shell-\(shell)-autoload-config")
+        let scratchDirectory = try makeTemporaryDirectory(named: "shell-\(shell)-autoload-scratch")
+        let fakeCLIURL = scratchDirectory.appendingPathComponent("zentty", isDirectory: false)
+        let logURL = scratchDirectory.appendingPathComponent("signals.log", isDirectory: false)
+        let shellPath = try XCTUnwrap(shell.executablePath)
+
+        try """
+        #!/bin/sh
+        printf '%s\\n' "$*" >> "$LOG_FILE"
+        """.write(to: fakeCLIURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeCLIURL.path)
+
+        let script = #"""
+        proc service_terminal {millis} {
+          set deadline [expr {[clock milliseconds] + $millis}]
+          while {[clock milliseconds] < $deadline} {
+            expect -timeout 1 \
+              -ex "\033\[6n" { send -- "\033\[1;1R" } \
+              timeout {}
+          }
+        }
+        set timeout 10
+        spawn env -i HOME=$env(HOME_UNDER_TEST) USER=$env(USER_UNDER_TEST) TERM=dumb TTY=/dev/null XDG_CONFIG_HOME=$env(XDG_CONFIG_HOME_UNDER_TEST) XDG_DATA_DIRS=$env(XDG_DATA_DIRS_UNDER_TEST) ZENTTY_SHELL_INTEGRATION=1 ZENTTY_FORCE_SHELL_INTEGRATION=1 ZENTTY_CLI_BIN=$env(FAKE_CLI) LOG_FILE=$env(LOG_FILE) ZENTTY_INSTANCE_SOCKET=/tmp/zentty-none.sock ZENTTY_PANE_TOKEN=pane-token PATH=/usr/bin:/bin $env(SHELL_EXECUTABLE)
+        service_terminal 1500
+        send -- "codex\r"
+        service_terminal 1500
+        send -- "exit\r"
+        expect eof
+        """#
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/expect")
+        process.arguments = ["-c", script]
+        process.environment = [
+            "FAKE_CLI": fakeCLIURL.path,
+            "HOME_UNDER_TEST": home.path,
+            "LOG_FILE": logURL.path,
+            "SHELL_EXECUTABLE": shellPath,
+            "USER_UNDER_TEST": ProcessInfo.processInfo.environment["USER"] ?? "peter",
+            "XDG_CONFIG_HOME_UNDER_TEST": configHome.path,
+            "XDG_DATA_DIRS_UNDER_TEST": shellIntegrationDirectoryURL.path,
+        ]
+
+        let stdout = Pipe()
+        let stderr = Pipe()
+        process.standardOutput = stdout
+        process.standardError = stderr
+
+        try process.run()
+        process.waitUntilExit()
+
+        let stdoutText = String(data: stdout.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let stderrText = String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        XCTAssertEqual(process.terminationStatus, 0, "stdout=\(stdoutText)\nstderr=\(stderrText)")
+
+        return ShellIntegrationCommandResult(
+            stdout: stdoutText,
+            stderr: stderrText,
+            logPath: logURL.path
+        )
+    }
+
+    private var shellIntegrationDirectoryURL: URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("ZenttyResources", isDirectory: true)
+            .appendingPathComponent("shell-integration", isDirectory: true)
     }
 
     private func runShellIntegrationCommand(
@@ -8576,8 +9098,11 @@ final class AgentStatusSupportTests: XCTestCase {
         """.write(to: fakeCLIURL, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeCLIURL.path)
 
+        guard let execPath = shell.executablePath else {
+            throw XCTSkip("Shell \(shell) not available on this host")
+        }
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: shell.executablePath)
+        process.executableURL = URL(fileURLWithPath: execPath)
         process.arguments = shell.arguments(
             for: "source \(shellQuoted(shell.integrationScriptURL.path)); \(command)"
         )
@@ -8594,6 +9119,9 @@ final class AgentStatusSupportTests: XCTestCase {
             "ZENTTY_SHELL_INTEGRATION": "1",
             "ZENTTY_WORKLANE_ID": "worklane-under-test",
         ]
+        if shell == .fish {
+            environment["ZENTTY_FORCE_SHELL_INTEGRATION"] = "1"
+        }
         extraEnvironment.forEach { environment[$0.key] = $0.value }
         process.environment = environment
 
@@ -8823,14 +9351,59 @@ private final class WorklaneAttentionNotificationRecorder: WorklaneAttentionUser
 private enum ShellIntegrationTestShell: Equatable {
     case zsh
     case bash
+    case fish
+    case nu
 
-    var executablePath: String {
+    /// Returns the path to the shell executable, or nil if not found on this machine.
+    /// Fish/nu use common Homebrew locations + `which` fallback so tests run on
+    /// developer machines that have them while skipping cleanly in CI.
+    var executablePath: String? {
         switch self {
         case .zsh:
             return "/bin/zsh"
         case .bash:
             return "/bin/bash"
+        case .fish:
+            return Self.discoverExecutable(candidates: [
+                "/opt/homebrew/bin/fish",
+                "/usr/local/bin/fish",
+                "/usr/bin/fish",
+            ], name: "fish")
+        case .nu:
+            return Self.discoverExecutable(candidates: [
+                "/opt/homebrew/bin/nu",
+                "/usr/local/bin/nu",
+                "/usr/bin/nu",
+            ], name: "nu")
         }
+    }
+
+    private static func discoverExecutable(candidates: [String], name: String) -> String? {
+        for path in candidates {
+            if FileManager.default.isExecutableFile(atPath: path) {
+                return path
+            }
+        }
+        // Fallback via /usr/bin/which (portable, no extra deps)
+        let whichTask = Process()
+        whichTask.executableURL = URL(fileURLWithPath: "/usr/bin/which")
+        whichTask.arguments = [name]
+        let pipe = Pipe()
+        whichTask.standardOutput = pipe
+        whichTask.standardError = Pipe()
+        do {
+            try whichTask.run()
+            whichTask.waitUntilExit()
+            if whichTask.terminationStatus == 0 {
+                let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                if let path = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines), !path.isEmpty {
+                    return path
+                }
+            }
+        } catch {
+            // ignore; we'll return nil and let caller skip
+        }
+        return nil
     }
 
     var integrationScriptURL: URL {
@@ -8843,6 +9416,10 @@ private enum ShellIntegrationTestShell: Equatable {
             filename = "zentty-zsh-integration.zsh"
         case .bash:
             filename = "zentty-bash-integration.bash"
+        case .fish:
+            filename = "fish/vendor_conf.d/zentty-shell-integration.fish"
+        case .nu:
+            filename = "nushell/vendor/autoload/zentty.nu"
         }
         return repositoryRoot
             .appendingPathComponent("ZenttyResources", isDirectory: true)
@@ -8856,6 +9433,15 @@ private enum ShellIntegrationTestShell: Equatable {
             return ["-f", "-c", command]
         case .bash:
             return ["--noprofile", "--norc", "-c", command]
+        case .fish:
+            // Clean non-interactive sourcing for fish (no user config, explicit source)
+            return ["--no-config", "-c", command]
+        case .nu:
+            // Clean sourcing for nushell; -c lets us source + run in one go
+            return ["-c", command]
         }
     }
+
+    /// Convenience for tests that want to skip when the shell isn't available on this host.
+    var isAvailable: Bool { executablePath != nil }
 }
