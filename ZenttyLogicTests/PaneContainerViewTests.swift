@@ -1770,6 +1770,39 @@ final class PaneContainerViewTests: AppKitTestCase {
         )
     }
 
+    func test_context_menu_swaps_clean_copy_for_copy_raw_when_auto_clean_enabled() throws {
+        let original = CleanCopyPipeline.isAutoCleanEnabled
+        CleanCopyPipeline.isAutoCleanEnabled = true
+        addTeardownBlock { CleanCopyPipeline.isAutoCleanEnabled = original }
+
+        let adapter = PaneContainerTerminalAdapterSpy()
+        let pane = PaneState(id: PaneID("shell"), title: "shell")
+        let runtime = PaneRuntime(
+            pane: pane,
+            adapter: adapter,
+            metadataSink: { _, _ in },
+            eventSink: { _, _ in }
+        )
+        let paneView = PaneContainerView(
+            pane: pane,
+            width: 420,
+            height: 520,
+            emphasis: 1,
+            isFocused: true,
+            runtime: runtime,
+            theme: ZenttyTheme.fallback(for: nil)
+        )
+
+        let menu = try XCTUnwrap(paneView.contextMenuForTesting())
+
+        // With auto-clean on, "Copy" already cleans, so the redundant "Clean Copy" is replaced
+        // by "Copy Raw" — the escape hatch for the unmodified selection.
+        XCTAssertNil(menu.item(withTitle: "Clean Copy"))
+        let copyRaw = try XCTUnwrap(menu.item(withTitle: "Copy Raw"))
+        XCTAssertEqual(copyRaw.action, #selector(MainWindowController.copyRaw(_:)))
+        XCTAssertNotNil(copyRaw.image)
+    }
+
     func test_context_menu_places_restored_command_rerun_first_when_available() throws {
         let adapter = PaneContainerTerminalAdapterSpy()
         let pane = PaneState(id: PaneID("shell"), title: "shell")
