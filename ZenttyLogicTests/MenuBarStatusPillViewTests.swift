@@ -137,6 +137,30 @@ final class MenuBarStatusPillViewTests: AppKitTestCase {
         XCTAssertGreaterThan(reducedAlpha, normalAlpha)
     }
 
+    func test_label_truncates_when_pill_framed_narrower_than_intrinsic() throws {
+        let aqua = NSAppearance(named: .aqua)
+        let pill = makePill()
+        pill.configure(
+            kind: .running,
+            text: "An unusually long status that exceeds the pill",
+            taskProgress: nil,
+            appearance: aqua,
+            reduceTransparency: false
+        )
+        let intrinsicWidth = pill.intrinsicContentSize.width
+
+        // Frame it much narrower than it wants; the label must stay inside the
+        // capsule (truncating) rather than overflowing into the row.
+        pill.frame = NSRect(x: 0, y: 0, width: 60, height: 18)
+        pill.layoutSubtreeIfNeeded()
+
+        let label = try XCTUnwrap(
+            pill.subviews.compactMap { $0 as? NSTextField }.first { $0.stringValue.contains("unusually") }
+        )
+        XCTAssertLessThanOrEqual(label.frame.maxX, pill.bounds.width)
+        XCTAssertLessThan(label.frame.width, intrinsicWidth)
+    }
+
     // MARK: - Helpers
 
     private func makePill() -> MenuBarStatusPillView {

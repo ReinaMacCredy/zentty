@@ -147,7 +147,11 @@ final class MenuBarStatusPillView: NSView {
         x += revealWidth
 
         let labelHeight = ceil(label.fittingSize.height)
-        let labelWidth = ceil(label.fittingSize.width)
+        // Clamp to the room left inside the pill so the label truncates (it's
+        // .byTruncatingTail) instead of being hard-clipped by the capsule when
+        // the row frames the pill narrower than its intrinsic width.
+        let availableLabelWidth = max(0, bounds.width - x - Metrics.paddingTrailing)
+        let labelWidth = min(ceil(label.fittingSize.width), availableLabelWidth)
         label.frame = NSRect(
             x: x,
             y: ((bounds.height - labelHeight) / 2).rounded(),
