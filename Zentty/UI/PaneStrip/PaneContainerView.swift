@@ -1297,12 +1297,24 @@ final class PaneContainerView: NSView {
             action: #selector(NSText.copy(_:)),
             symbolName: "doc.on.doc"
         ))
-        customMenu.addItem(makeContextMenuItem(
-            title: "Clean Copy",
-            action: #selector(MainWindowController.cleanCopy(_:)),
-            symbolName: "sparkles.rectangle.stack",
-            fallbackSymbolName: "doc.on.doc"
-        ))
+        // With auto-clean on, the plain "Copy" above already produces cleaned text, so a separate
+        // "Clean Copy" would just duplicate it. Offer "Copy Raw" instead — the escape hatch for the
+        // unmodified selection. With auto-clean off, "Copy" is raw, so "Clean Copy" is the useful companion.
+        if CleanCopyPipeline.isAutoCleanEnabled {
+            customMenu.addItem(makeContextMenuItem(
+                title: "Copy Raw",
+                action: #selector(MainWindowController.copyRaw(_:)),
+                symbolName: "doc.plaintext",
+                fallbackSymbolName: "doc.on.doc"
+            ))
+        } else {
+            customMenu.addItem(makeContextMenuItem(
+                title: "Clean Copy",
+                action: #selector(MainWindowController.cleanCopy(_:)),
+                symbolName: "sparkles.rectangle.stack",
+                fallbackSymbolName: "doc.on.doc"
+            ))
+        }
         customMenu.addItem(makeContextMenuItem(
             title: "Paste",
             action: #selector(NSText.paste(_:)),
