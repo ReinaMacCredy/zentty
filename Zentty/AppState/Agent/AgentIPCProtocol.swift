@@ -3,6 +3,14 @@ import Foundation
 enum AgentIPCProtocol {
     static let version = 1
     static let selfPIDPlaceholder = "__ZENTTY_SELF_PID__"
+    /// Read timeout (seconds) the wrapper uses while blocked on the phase-2
+    /// `awaitConsent` response. The app must resolve the consent panel and write
+    /// its reply strictly before this elapses; the app-side wait stays below it
+    /// by `consentPanelTimeoutMargin`. Shared so the two values can't drift into
+    /// an inverted ordering across the app/CLI targets.
+    static let awaitConsentTimeoutSeconds = 300
+    /// Seconds the app-side consent wait stays below the wrapper timeout.
+    static let consentPanelTimeoutMargin = 30
 }
 
 enum AgentIPCRequestKind: String, Codable, Equatable {
@@ -12,9 +20,15 @@ enum AgentIPCRequestKind: String, Codable, Equatable {
     case discover
     case server
     case tmuxCompat = "tmux_compat"
+    /// Second phase of the integration-consent handshake. After a `bootstrap`
+    /// response carries `consentRequired`, the wrapper re-issues an
+    /// `awaitConsent` request (with a long read timeout) that the app holds
+    /// open while the consent panel is shown, then answers with the resolved
+    /// launch plan. See AgentIntegrationConsent + the IPC handler.
+    case awaitConsent = "await_consent"
 }
 
-enum AgentBootstrapTool: String, Codable, Equatable {
+enum AgentBootstrapTool: String, Codable, Equatable, CaseIterable {
     case amp
     case claude
     case codex
@@ -41,6 +55,114 @@ enum AgentBootstrapTool: String, Codable, Equatable {
         case .kimi:
             return [rawValue, "kimi-cli"]
         }
+    }
+
+    /// The wrapped agent whose real binary matches the leading token of a shell
+    /// command, or `nil` if the command isn't one of our agent CLIs. Mirrors how
+    /// the PATH wrapper itself decides a command is an agent (binary-name match),
+    /// so a restored pane is treated as an "agent pane" iff its command would
+    /// actually trip the wrapper.
+    static func wrappedAgent(forCommand command: String) -> AgentBootstrapTool? {
+        guard let binaryName = wrappedAgentBinaryName(forCommand: command) else { return nil }
+        return allCases.first { $0.realBinaryNames.contains(binaryName) }
+    }
+
+    private static func wrappedAgentBinaryName(forCommand command: String) -> String? {
+        let words = shellWords(from: command)
+        guard var executable = words.first else { return nil }
+
+        if (executable as NSString).lastPathComponent == "env" {
+            guard let envExecutable = words.dropFirst().first(where: { !isEnvironmentAssignment($0) }) else {
+                return nil
+            }
+            executable = envExecutable
+        }
+
+        return (executable as NSString).lastPathComponent
+    }
+
+    private static func isEnvironmentAssignment(_ word: String) -> Bool {
+        guard let equalsIndex = word.firstIndex(of: "="),
+              equalsIndex > word.startIndex
+        else { return false }
+
+        let name = word[..<equalsIndex]
+        guard let first = name.first,
+              first == "_" || first.isLetter
+        else { return false }
+
+        return name.allSatisfy { $0 == "_" || $0.isLetter || $0.isNumber }
+    }
+
+    /// Minimal shell-word splitting for restored launch commands. It is not a full
+    /// shell parser; it only preserves quoted whitespace well enough to skip
+    /// `env NAME=value` prefixes and inspect the real executable token.
+    private static func shellWords(from command: String) -> [String] {
+        enum Quote {
+            case none
+            case single
+            case double
+        }
+
+        var words: [String] = []
+        var current = ""
+        var hasCurrentWord = false
+        var quote: Quote = .none
+        var isEscaped = false
+
+        for character in command {
+            if isEscaped {
+                current.append(character)
+                hasCurrentWord = true
+                isEscaped = false
+                continue
+            }
+
+            switch quote {
+            case .none:
+                if character == "\\" {
+                    isEscaped = true
+                    hasCurrentWord = true
+                } else if character == "'" {
+                    quote = .single
+                    hasCurrentWord = true
+                } else if character == "\"" {
+                    quote = .double
+                    hasCurrentWord = true
+                } else if character.isWhitespace {
+                    if hasCurrentWord {
+                        words.append(current)
+                        current = ""
+                        hasCurrentWord = false
+                    }
+                } else {
+                    current.append(character)
+                    hasCurrentWord = true
+                }
+            case .single:
+                if character == "'" {
+                    quote = .none
+                } else {
+                    current.append(character)
+                }
+            case .double:
+                if character == "\"" {
+                    quote = .none
+                } else if character == "\\" {
+                    isEscaped = true
+                } else {
+                    current.append(character)
+                }
+            }
+        }
+
+        if isEscaped {
+            current.append("\\")
+        }
+        if hasCurrentWord {
+            words.append(current)
+        }
+        return words
     }
 }
 
@@ -172,6 +294,12 @@ struct AgentIPCResponseResult: Codable, Equatable {
     /// `capture-pane`, `list-panes`, `display-message`. The CLI writes this
     /// directly to stdout.
     let stdout: String?
+    /// Set on a `bootstrap` response when the agent's integration needs
+    /// first-run consent before its hooks may be written to the user's config.
+    /// The wrapper, on seeing this, re-issues an `awaitConsent` request that
+    /// blocks (long timeout) until the user answers the consent panel. Optional
+    /// for decode tolerance across version-skewed app/CLI pairs.
+    let consentRequired: Bool?
 
     init(
         launchPlan: AgentLaunchPlan? = nil,
@@ -180,7 +308,8 @@ struct AgentIPCResponseResult: Codable, Equatable {
         discoveredWorklanes: [DiscoveredWorklane]? = nil,
         discoveredPanes: [DiscoveredPane]? = nil,
         serverState: ServerListResult? = nil,
-        stdout: String? = nil
+        stdout: String? = nil,
+        consentRequired: Bool? = nil
     ) {
         self.launchPlan = launchPlan
         self.paneList = paneList
@@ -189,6 +318,7 @@ struct AgentIPCResponseResult: Codable, Equatable {
         self.discoveredPanes = discoveredPanes
         self.serverState = serverState
         self.stdout = stdout
+        self.consentRequired = consentRequired
     }
 }
 

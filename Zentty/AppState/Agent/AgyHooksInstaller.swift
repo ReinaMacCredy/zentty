@@ -247,6 +247,24 @@ enum AgyHooksInstaller {
         try newData.write(to: resolvedURL, options: .atomic)
     }
 
+    /// True when `hooks.json` currently carries a Zentty-owned `zentty` group.
+    /// Mirrors the recognition guard `uninstall` uses, so the grandfather
+    /// migration only marks agents whose hooks we would actually remove.
+    static func isInstalled(
+        hooksFileURL: URL = defaultUserHooksFileURL(),
+        fileManager: FileManager = .default
+    ) -> Bool {
+        let resolvedURL = resolvedHooksFileURL(hooksFileURL, fileManager: fileManager)
+        guard
+            let data = try? Data(contentsOf: resolvedURL), !data.isEmpty,
+            let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let group = parsed[groupKey]
+        else {
+            return false
+        }
+        return groupLooksOwnedByZentty(group)
+    }
+
     /// Ensures Zentty's Antigravity status hooks exist for the current user,
     /// installing them on first launch and keeping them current thereafter.
     /// Called from `AgentLaunchBootstrap.agyPlan` on every agy launch, so it

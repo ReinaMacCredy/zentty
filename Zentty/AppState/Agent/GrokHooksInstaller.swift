@@ -77,6 +77,31 @@ enum GrokHooksInstaller {
             .appendingPathComponent("hooks", isDirectory: true)
     }
 
+    /// True when the Zentty forwarder script is present and carries our marker
+    /// — the ownership signal `uninstall` keys off for the current layout. Used
+    /// by the grandfather migration to recognize pre-existing installs.
+    ///
+    /// Note: this detects only the current `zentty-status/01-zentty-status.sh`
+    /// layout. `uninstall` additionally cleans up legacy artifacts (per-event
+    /// scripts, `user-settings.json` entries, plugin manifests); a user who has
+    /// ONLY a legacy install and never re-ran grok since the layout change is
+    /// not detected here and is re-prompted once on next launch (self-healing).
+    static func isInstalled(
+        hooksRoot: URL = defaultUserHooksURL(),
+        fileManager: FileManager = .default
+    ) -> Bool {
+        let forwarderURL = hooksRoot
+            .appendingPathComponent(forwarderSubdirName, isDirectory: true)
+            .appendingPathComponent(forwarderScriptName, isDirectory: false)
+        guard
+            fileManager.isReadableFile(atPath: forwarderURL.path),
+            let script = try? String(contentsOf: forwarderURL, encoding: .utf8)
+        else {
+            return false
+        }
+        return script.contains(hookMarker)
+    }
+
     /// Ensures Zentty-managed Grok status hooks exist for the current user.
     /// Idempotent and cheap — only writes if our content has drifted.
     /// Returns true if this was the first install we noticed.

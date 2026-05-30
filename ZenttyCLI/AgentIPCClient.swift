@@ -12,14 +12,18 @@ enum AgentIPCClient {
     private static let maxResponseBytes = 256 * 1024
     private static let timeoutSeconds: Int = 2
 
-    static func send(request: AgentIPCRequest, socketPath: String) throws -> AgentIPCResponse? {
+    static func send(
+        request: AgentIPCRequest,
+        socketPath: String,
+        timeoutSeconds: Int = timeoutSeconds
+    ) throws -> AgentIPCResponse? {
         let fileDescriptor = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fileDescriptor >= 0 else {
             throw POSIXError(.init(rawValue: errno) ?? .EIO)
         }
         defer { close(fileDescriptor) }
 
-        configure(fileDescriptor)
+        configure(fileDescriptor, timeoutSeconds: timeoutSeconds)
         try connect(fileDescriptor, socketPath: socketPath)
         try write(request: request, to: fileDescriptor)
 
@@ -34,7 +38,7 @@ enum AgentIPCClient {
         return response
     }
 
-    private static func configure(_ fileDescriptor: Int32) {
+    private static func configure(_ fileDescriptor: Int32, timeoutSeconds: Int = timeoutSeconds) {
         let descriptorFlags = fcntl(fileDescriptor, F_GETFD)
         _ = fcntl(fileDescriptor, F_SETFD, descriptorFlags | FD_CLOEXEC)
 

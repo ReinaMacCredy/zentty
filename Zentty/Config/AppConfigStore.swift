@@ -74,6 +74,12 @@ final class AppConfigStore: @unchecked Sendable {
     let fileURL: URL
 
     private(set) var current: AppConfig
+    /// `false` only when an on-disk config file existed but could not be parsed
+    /// (the `.invalid` case): `current` then falls back to defaults but the file
+    /// is deliberately left untouched. Startup migrations that would persist
+    /// (e.g. `AgentIntegrationGrandfather`) should skip in that state so they
+    /// don't overwrite a config we couldn't read (e.g. a forward-version file).
+    let didLoadFromValidFile: Bool
     private let fileWatcher = FileWatcher()
     private var changeHandlers: [UUID: ChangeHandler] = [:]
 
@@ -96,11 +102,14 @@ final class AppConfigStore: @unchecked Sendable {
         switch Self.load(fileURL: resolvedFileURL) {
         case .loaded(let persisted):
             current = persisted.normalized()
+            didLoadFromValidFile = true
         case .missing:
             current = migrated.normalized()
             try? Self.persist(config: current, to: resolvedFileURL, fileManager: fileManager)
+            didLoadFromValidFile = true
         case .invalid:
             current = AppConfig.default.normalized()
+            didLoadFromValidFile = false
             appConfigLogger.error("Ignoring invalid config file at \(resolvedFileURL.path, privacy: .public)")
         }
 

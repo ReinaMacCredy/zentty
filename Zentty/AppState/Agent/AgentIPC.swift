@@ -199,6 +199,12 @@ enum AgentIPCBridge {
             throw AgentIPCError.unsupportedSubcommand("server (must be handled by server)")
         case .tmuxCompat:
             throw AgentIPCError.unsupportedSubcommand("tmux_compat (must be handled by server)")
+        case .awaitConsent:
+            // The integration-consent handshake is resolved by the IPC server's
+            // per-connection handler, which shows the consent panel and answers
+            // with the resolved plan. It never falls through to this generic
+            // dispatch (same contract as discover/pane/server).
+            throw AgentIPCError.unsupportedSubcommand("await_consent (must be handled by server)")
         }
     }
 
@@ -406,6 +412,15 @@ final class AgentIPCServer: @unchecked Sendable {
     private var socketPath: String?
     private var runtimeDirectoryURL: URL?
     private var readSource: DispatchSourceRead?
+    /// Pane IDs whose first agent bootstrap should skip the integration-consent
+    /// prompt because the pane was spawned by a workspace restore/import (the
+    /// user did not actively launch it). Populated on the main actor during
+    /// restore and consumed exactly once per pane by the bootstrap gate, so a
+    /// *later* manual launch in the same pane prompts as usual. Replaces the old
+    /// `ZENTTY_RESTORE_LAUNCH` env var, which leaked into the pane's persistent
+    /// shell environment and suppressed every subsequent launch. Confined to
+    /// `queue`, like the socket/runtime-dir state above.
+    private var restorePendingPaneIDs: Set<String> = []
 
     init(
         fileManager: FileManager = .default,
@@ -417,6 +432,23 @@ final class AgentIPCServer: @unchecked Sendable {
         self.authentication = authentication
         self.instanceID = instanceID
         self.diagnosticsEnabled = diagnosticsEnabled
+    }
+
+    /// Mark a pane so its first agent bootstrap skips the consent prompt (see
+    /// `restorePendingPaneIDs`). Called from the restore path on the main actor.
+    func registerRestorePendingPane(_ paneID: String) {
+        queue.sync { restorePendingPaneIDs.insert(paneID) }
+    }
+
+    /// Returns `true` once if the pane was registered as restore-pending,
+    /// removing it so only the first bootstrap is suppressed. Called by the
+    /// bootstrap gate on a connection-handler thread.
+    func consumeRestorePendingPane(_ paneID: String) -> Bool {
+        queue.sync {
+            guard restorePendingPaneIDs.contains(paneID) else { return false }
+            restorePendingPaneIDs.remove(paneID)
+            return true
+        }
     }
 
     deinit {
@@ -646,7 +678,11 @@ final class AgentIPCServer: @unchecked Sendable {
         post: @escaping (AgentStatusPayload) -> Void,
         writeError: @escaping (String) -> Void
     ) {
-        defer { close(fileDescriptor) }
+        // The consent (`awaitConsent`) path hands this descriptor off to a
+        // dedicated thread that closes it once the panel resolves, so it must
+        // not be closed here when ownership has been transferred.
+        var fileDescriptorOwnedByHandler = true
+        defer { if fileDescriptorOwnedByHandler { close(fileDescriptor) } }
         var requestForErrorResponse: AgentIPCRequest?
 
         do {
@@ -719,26 +755,75 @@ final class AgentIPCServer: @unchecked Sendable {
                 return
             }
 
+            if canonicalRequest.kind == .bootstrap {
+                guard let runtimeDirectoryURL else {
+                    throw AgentIPCError.invalidMessage
+                }
+                let response = try resolveConsentedBootstrap(
+                    request: canonicalRequest,
+                    target: target,
+                    runtimeDirectoryURL: runtimeDirectoryURL,
+                    bundle: bundle
+                )
+                if let response {
+                    try writeResponse(response, to: fileDescriptor)
+                }
+                return
+            }
+
+            if canonicalRequest.kind == .awaitConsent {
+                guard let runtimeDirectoryURL else {
+                    throw AgentIPCError.invalidMessage
+                }
+                // Hand the descriptor to a dedicated thread for the (up to ~270s)
+                // consent wait, so it never parks a shared GCD pool thread and
+                // starves unrelated IPC (hooks, pane, discovery). The thread owns
+                // and closes the descriptor once the panel resolves.
+                fileDescriptorOwnedByHandler = false
+                let descriptor = fileDescriptor
+                let request = canonicalRequest
+                Thread.detachNewThread {
+                    defer { close(descriptor) }
+                    do {
+                        let plan = try awaitConsentPlan(
+                            request: request,
+                            target: target,
+                            runtimeDirectoryURL: runtimeDirectoryURL,
+                            bundle: bundle
+                        )
+                        if request.expectsResponse {
+                            try writeResponse(
+                                AgentIPCResponse(
+                                    id: request.id,
+                                    ok: true,
+                                    result: AgentIPCResponseResult(launchPlan: plan)
+                                ),
+                                to: descriptor
+                            )
+                        }
+                    } catch {
+                        if request.expectsResponse {
+                            try? writeResponse(errorResponse(for: request, error: error), to: descriptor)
+                        }
+                    }
+                }
+                return
+            }
+
+            // Only `.ipc` requests reach here: discover/pane/server/tmuxCompat,
+            // `.bootstrap`, and `.awaitConsent` are all handled and returned
+            // above. So no `bootstrap:` closure is needed — the default (which
+            // throws `unsupportedSubcommand`) documents that there is a single
+            // bootstrap path, in `resolveConsentedBootstrap`.
             let response = try AgentIPCBridge.handle(
                 request: canonicalRequest,
                 post: post,
-                bootstrap: { request in
-                    guard let runtimeDirectoryURL else {
-                        throw AgentIPCError.invalidMessage
+                writeError: { error in
+                    if diagnosticsEnabled {
+                        writeError("IPC bridge error: \(error.localizedDescription)")
                     }
-                    return try AgentLaunchBootstrap.makePlan(
-                        request: request,
-                        target: target,
-                        runtimeDirectoryURL: runtimeDirectoryURL,
-                        bundle: bundle,
-                        fileManager: .default
-                    )
                 }
-            ) { error in
-                if diagnosticsEnabled {
-                    writeError("IPC bridge error: \(error.localizedDescription)")
-                }
-            }
+            )
             if let response {
                 try writeResponse(response, to: fileDescriptor)
             }
@@ -750,6 +835,102 @@ final class AgentIPCServer: @unchecked Sendable {
             if diagnosticsEnabled {
                 writeError("Malformed IPC request: \(error.localizedDescription)")
             }
+        }
+    }
+
+    /// Phase 1 of the consent handshake (`bootstrap`): a decided agent — or one
+    /// suppressed during restore — gets its plan immediately (≤2s, the wrapper's
+    /// timeout); an undecided persistent agent gets a `consentRequired` response
+    /// so the wrapper re-issues an `awaitConsent` request (phase 2).
+    private static func resolveConsentedBootstrap(
+        request: AgentIPCRequest,
+        target: AgentIPCTarget,
+        runtimeDirectoryURL: URL,
+        bundle: Bundle
+    ) throws -> AgentIPCResponse? {
+        func planResponse(decision: AgentIntegrationDecision) throws -> AgentIPCResponse? {
+            let plan = try AgentLaunchBootstrap.makePlan(
+                request: request,
+                target: target,
+                runtimeDirectoryURL: runtimeDirectoryURL,
+                bundle: bundle,
+                fileManager: .default,
+                integrationDecision: decision
+            )
+            notifyHooksDidChangeIfPersistent(decision: decision, tool: request.tool)
+            guard request.expectsResponse else { return nil }
+            return AgentIPCResponse(
+                id: request.id,
+                ok: true,
+                result: AgentIPCResponseResult(launchPlan: plan)
+            )
+        }
+
+        // No tool (or no gate): behave exactly as before — a normal plan.
+        guard let gate = AgentLaunchBootstrap.integrationGate(for: request) else {
+            return try planResponse(decision: .proceed)
+        }
+
+        if let immediate = gate.immediateDecision {
+            return try planResponse(decision: immediate)
+        }
+        guard request.expectsResponse else { return nil }
+        return AgentIPCResponse(
+            id: request.id,
+            ok: true,
+            result: AgentIPCResponseResult(consentRequired: true)
+        )
+    }
+
+    /// Phase 2 of the consent handshake (`awaitConsent`): block on the consent
+    /// panel (re-checking in case the state was decided via Settings between the
+    /// phases), persist the answer, and build the resolved launch plan. Runs on
+    /// a dedicated thread (see the handoff in `handleConnection`), never a shared
+    /// GCD pool thread.
+    private static func awaitConsentPlan(
+        request: AgentIPCRequest,
+        target: AgentIPCTarget,
+        runtimeDirectoryURL: URL,
+        bundle: Bundle
+    ) throws -> AgentLaunchPlan {
+        let decision: AgentIntegrationDecision
+        if let tool = request.tool, let gate = AgentLaunchBootstrap.integrationGate(for: request) {
+            if let immediate = gate.immediateDecision {
+                decision = immediate
+            } else {
+                let state = AgentConsentCoordinator.awaitDecisionBlocking(tool: tool)
+                decision = AgentIntegrationConsent.decision(forConsentAnswer: state)
+            }
+        } else {
+            decision = .proceed
+        }
+        let plan = try AgentLaunchBootstrap.makePlan(
+            request: request,
+            target: target,
+            runtimeDirectoryURL: runtimeDirectoryURL,
+            bundle: bundle,
+            fileManager: .default,
+            integrationDecision: decision
+        )
+        notifyHooksDidChangeIfPersistent(decision: decision, tool: request.tool)
+        return plan
+    }
+
+    /// Signal the Agents settings panel to re-check on-disk hook status after a
+    /// launch may have (re)installed hooks. Only `.proceed` reaches the per-tool
+    /// installer switch in `makePlan`, and only persistent tools write disk hooks,
+    /// so we gate on both — ephemeral and disabled/suppressed launches never post.
+    /// The disk write inside `makePlan` is synchronous and already done by the time
+    /// we post. We hop to the main thread because the observer (a `@MainActor`
+    /// settings panel) is selector-based and runs on the posting thread, and this
+    /// runs on a background IPC connection / consent thread.
+    private static func notifyHooksDidChangeIfPersistent(
+        decision: AgentIntegrationDecision,
+        tool: AgentBootstrapTool?
+    ) {
+        guard decision == .proceed, tool?.integrationClass == .persistent else { return }
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(name: .agentIntegrationHooksDidChange, object: nil)
         }
     }
 

@@ -28,6 +28,8 @@ enum AppConfigTOML {
         case agentTeams
         case agentCaffeination
         case menuBar
+        case agentIntegrations
+        case agentIntegrationStates
     }
 
     static func encode(_ config: AppConfig) -> String {
@@ -172,6 +174,19 @@ enum AppConfigTOML {
         lines.append("[menu_bar]")
         lines.append("show_status_item = \(config.menuBar.showStatusItem)")
 
+        lines.append("")
+        lines.append("[agent_integrations]")
+        lines.append("grandfathered_v1 = \(config.agentIntegrations.grandfatheredV1)")
+
+        let sortedAgentStates = config.agentIntegrations.states.sorted { $0.key < $1.key }
+        if !sortedAgentStates.isEmpty {
+            lines.append("")
+            lines.append("[agent_integrations.states]")
+            for (agentID, state) in sortedAgentStates {
+                lines.append("\(agentID) = \(encode(string: state.rawValue))")
+            }
+        }
+
         return lines.joined(separator: "\n") + "\n"
     }
 
@@ -269,6 +284,14 @@ enum AppConfigTOML {
                 section = .menuBar
                 continue
             }
+            if line == "[agent_integrations]" {
+                section = .agentIntegrations
+                continue
+            }
+            if line == "[agent_integrations.states]" {
+                section = .agentIntegrationStates
+                continue
+            }
             guard let assignment = parseAssignment(line) else {
                 return nil
             }
@@ -355,6 +378,14 @@ enum AppConfigTOML {
                 }
             case .menuBar:
                 guard decodeMenuBarAssignment(assignment, into: &config) else {
+                    return nil
+                }
+            case .agentIntegrations:
+                guard decodeAgentIntegrationsAssignment(assignment, into: &config) else {
+                    return nil
+                }
+            case .agentIntegrationStates:
+                guard decodeAgentIntegrationStatesAssignment(assignment, into: &config) else {
                     return nil
                 }
             case .root:
@@ -803,6 +834,35 @@ enum AppConfigTOML {
         default:
             return true
         }
+        return true
+    }
+
+    private static func decodeAgentIntegrationsAssignment(
+        _ assignment: (key: String, value: String),
+        into config: inout AppConfig
+    ) -> Bool {
+        switch assignment.key {
+        case "grandfathered_v1":
+            guard let value = decodeBool(assignment.value) else { return false }
+            config.agentIntegrations.grandfatheredV1 = value
+        default:
+            return true
+        }
+        return true
+    }
+
+    private static func decodeAgentIntegrationStatesAssignment(
+        _ assignment: (key: String, value: String),
+        into config: inout AppConfig
+    ) -> Bool {
+        // key = agent id (`AgentBootstrapTool.rawValue`); value = quoted state.
+        guard let raw = decodeString(assignment.value) else { return false }
+        // Unknown/future state values are skipped (not stored) so an older app
+        // reading a newer config never discards the whole file; recognized
+        // values are stored under the raw agent key, which keeps the section
+        // forward-compatible with agents this build doesn't know yet.
+        guard let state = AgentIntegrationState(rawValue: raw) else { return true }
+        config.agentIntegrations.states[assignment.key] = state
         return true
     }
 

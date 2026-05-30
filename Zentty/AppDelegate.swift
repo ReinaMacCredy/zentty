@@ -115,6 +115,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         UNUserNotificationCenter.current().delegate = self
         applyMenuBarStatusConfig(configStore.current)
 
+        // Grandfather existing on-disk hook installs into the consent model
+        // before any restore spawns agents, so upgrading users are not prompted
+        // for hooks they already have. Skip when the config file couldn't be
+        // parsed: the migration persists, and we must not overwrite a config we
+        // couldn't read (it self-heals once the file is valid again).
+        if configStore.didLoadFromValidFile {
+            AgentIntegrationGrandfather.migrateIfNeeded(configStore: configStore)
+        }
+
+        // Wire the consent coordinator so the IPC handshake can prompt before a
+        // persistent agent's hooks are written to the user's config.
+        AgentConsentCoordinator.shared.configure(configStore: configStore) { tool, completion in
+            AgentIntegrationConsentPanel.present(tool: tool, completion: completion)
+        }
+
         guard shouldOpenMainWindow else { return }
 
         if isSessionRestoreEnabled {

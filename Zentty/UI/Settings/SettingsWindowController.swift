@@ -191,6 +191,44 @@ enum AgentTeamsEnableWarning {
 }
 
 @MainActor
+enum AgentIntegrationUninstallFailureAlert {
+    /// Warn that Zentty recorded the integration as off but couldn't remove its
+    /// on-disk hooks, and offer to reveal the config so the user can finish the
+    /// job manually. No-ops without a host window (e.g. headless tests); the
+    /// failure has already been logged by the caller.
+    static func present(window: NSWindow?, tool: AgentBootstrapTool, error: Error) {
+        guard let window else { return }
+        let name = tool.integrationDisplayName
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Couldn't fully disable \(name)"
+        if let path = tool.integrationConfigPathDisplay {
+            alert.informativeText = """
+            \(name) is now off in Zentty, but its status hooks couldn't be removed from \
+            \(path). Remove them there — or run `zentty uninstall` — if \(name) keeps \
+            reporting status.
+            """
+        } else {
+            alert.informativeText = """
+            \(name) is now off in Zentty, but its status hooks couldn't be removed. Run \
+            `zentty uninstall` if \(name) keeps reporting status.
+            """
+        }
+
+        let canReveal = tool.integrationConfigURL != nil
+        if canReveal {
+            alert.addButton(withTitle: "Reveal in Finder")
+        }
+        alert.addButton(withTitle: "OK")
+        alert.beginSheetModal(for: window) { response in
+            if canReveal, response == .alertFirstButtonReturn, let url = tool.integrationConfigURL {
+                NSWorkspace.shared.activateFileViewerSelecting([url])
+            }
+        }
+    }
+}
+
+@MainActor
 protocol SettingsPaneMeasuring: AnyObject {
     func preferredViewportHeight(for width: CGFloat) -> CGFloat
 }

@@ -174,6 +174,33 @@ final class AppConfigStoreTests: XCTestCase {
 
         XCTAssertEqual(store.current, AppConfig.default.normalized())
         XCTAssertEqual(try String(contentsOf: fileURL), invalidSource)
+        XCTAssertFalse(
+            store.didLoadFromValidFile,
+            "an unparseable config must report didLoadFromValidFile == false so startup migrations skip and don't overwrite it"
+        )
+    }
+
+    func test_store_reports_valid_load_for_parseable_and_missing_files() throws {
+        // Missing file: store writes a fresh default — counts as valid.
+        let missingURL = temporaryDirectoryURL.appendingPathComponent("missing.toml")
+        let missingStore = AppConfigStore(
+            fileURL: missingURL,
+            sidebarWidthDefaults: sidebarWidthDefaults,
+            sidebarVisibilityDefaults: sidebarVisibilityDefaults,
+            paneLayoutDefaults: paneLayoutDefaults
+        )
+        XCTAssertTrue(missingStore.didLoadFromValidFile)
+
+        // Parseable file: round-trips a valid default — counts as valid.
+        let validURL = temporaryDirectoryURL.appendingPathComponent("valid.toml")
+        try AppConfigTOML.encode(.default).write(to: validURL, atomically: true, encoding: .utf8)
+        let validStore = AppConfigStore(
+            fileURL: validURL,
+            sidebarWidthDefaults: sidebarWidthDefaults,
+            sidebarVisibilityDefaults: sidebarVisibilityDefaults,
+            paneLayoutDefaults: paneLayoutDefaults
+        )
+        XCTAssertTrue(validStore.didLoadFromValidFile)
     }
 
     func test_store_writes_updates_atomically_as_toml() throws {

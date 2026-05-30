@@ -81,6 +81,23 @@ enum AmpPluginInstaller {
         try fileManager.removeItem(at: destinationURL)
     }
 
+    /// True when the bundled Zentty plugin is present and carries our ownership
+    /// marker — the same guard `uninstall` requires before removing it. Used by
+    /// the grandfather migration to recognize pre-existing installs.
+    static func isInstalled(
+        destinationConfigHomeURL: URL = defaultUserConfigHomeURL(environment: ProcessInfo.processInfo.environment),
+        fileManager: FileManager = .default
+    ) -> Bool {
+        let destinationURL = bundledPluginDestinationURL(destinationConfigHomeURL: destinationConfigHomeURL)
+        guard
+            fileManager.fileExists(atPath: destinationURL.path),
+            let existing = try? String(contentsOf: destinationURL, encoding: .utf8)
+        else {
+            return false
+        }
+        return existing.contains(ownershipMarker)
+    }
+
     static func defaultUserConfigHomeURL(environment: [String: String]) -> URL {
         if let configRoot = nonBlank(environment["XDG_CONFIG_HOME"]) {
             return URL(fileURLWithPath: configRoot, isDirectory: true)
