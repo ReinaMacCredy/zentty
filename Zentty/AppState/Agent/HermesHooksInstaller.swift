@@ -133,6 +133,33 @@ enum HermesHooksInstaller {
         }
     }
 
+    /// True when the Hermes config currently contains a well-formed Zentty
+    /// managed block. Mirrors `removeManagedBlock` exactly — a standalone
+    /// (trimmed) begin-marker line followed by a matching end-marker line — so a
+    /// corrupted or commented-out marker isn't mistaken for a live install (a
+    /// false positive would wrongly grandfather the agent `on`). Used by the
+    /// grandfather migration to recognize pre-existing installs.
+    static func isInstalled(
+        configURL: URL = defaultConfigURL(),
+        fileManager: FileManager = .default
+    ) -> Bool {
+        guard
+            fileManager.isReadableFile(atPath: configURL.path),
+            let config = try? String(contentsOf: configURL, encoding: .utf8)
+        else {
+            return false
+        }
+        let lines = config.components(separatedBy: "\n")
+        guard let start = lines.firstIndex(where: {
+            $0.trimmingCharacters(in: .whitespacesAndNewlines) == hookMarker
+        }) else {
+            return false
+        }
+        return lines[start...].contains {
+            $0.trimmingCharacters(in: .whitespacesAndNewlines) == hookEndMarker
+        }
+    }
+
     @discardableResult
     static func ensureInstalledForCurrentUser(
         cliPath: String,

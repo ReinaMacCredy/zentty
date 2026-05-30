@@ -26,7 +26,8 @@ enum PaneRestorationBuilder {
         _ inputs: PaneInputs,
         windowID: WindowID,
         worklaneID: WorklaneID,
-        processEnvironment: [String: String]
+        processEnvironment: [String: String],
+        registerRestorePending: (PaneID) -> Void = { AgentIPCServer.shared.registerRestorePendingPane($0.rawValue) }
     ) -> Result {
         let homeDirectory = defaultWorkingDirectory(processEnvironment: processEnvironment)
         let requestedDirectory = trimmed(inputs.requestedWorkingDirectory)
@@ -68,6 +69,21 @@ enum PaneRestorationBuilder {
         )
         for (key, value) in WorklaneSessionEnvironment.templateSafeOverrides(from: inputs.environmentOverrides) {
             environment[key] = value
+        }
+        // Mark restore/import-spawned panes that actually auto-launch an agent CLI
+        // so the integration-consent gate launches an unconsented persistent agent
+        // degraded instead of halting the restore with a prompt. The mark is a
+        // one-shot, per-pane token (not a persistent env var), so the next manual
+        // launch in this pane prompts as usual.
+        //
+        // Only a pane whose restored `command` is an agent gets the token: a plain
+        // shell pane must NOT pre-consume it, or the user's first *manual* agent
+        // launch in that restored pane would be silently suppressed instead of
+        // prompting. `prefillText` is ignored on purpose — it is prefilled, not
+        // auto-run, so executing it later is a genuine manual launch.
+        if let command = trimmed(inputs.command),
+           AgentBootstrapTool.wrappedAgent(forCommand: command) != nil {
+            registerRestorePending(inputs.id)
         }
 
         let pane = PaneState(

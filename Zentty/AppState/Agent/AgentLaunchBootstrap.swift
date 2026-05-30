@@ -16,7 +16,8 @@ enum AgentLaunchBootstrap {
         runtimeDirectoryURL: URL,
         bundle: Bundle = .main,
         fileManager: FileManager = .default,
-        appConfigProvider: () -> AppConfig = loadAppConfig
+        appConfigProvider: () -> AppConfig = loadAppConfig,
+        integrationDecision: AgentIntegrationDecision = .proceed
     ) throws -> AgentLaunchPlan {
         guard request.version == AgentIPCProtocol.version else {
             throw AgentIPCError.invalidMessage
@@ -28,6 +29,24 @@ enum AgentLaunchBootstrap {
         let environment = request.environment
         guard let executablePath = environment["ZENTTY_REAL_BINARY"]?.nilIfBlank else {
             throw AgentIPCError.invalidMessage
+        }
+
+        // Integration-consent gate (resolved by the IPC handler before this
+        // call). A disabled agent — or an unconsented persistent agent spawned
+        // during a workspace restore — launches the real binary with no Zentty
+        // hooks at all. This is the single uniform off-switch for every agent;
+        // the per-tool `ZENTTY_*_HOOKS_DISABLED` checks below remain for the
+        // legacy env-var path and passthrough subcommands. Only Claude needs
+        // CLAUDECODE cleared so a nested launch still behaves.
+        switch integrationDecision {
+        case .proceed:
+            break
+        case .off, .suppressedByRestore:
+            return directPlan(
+                executablePath: executablePath,
+                arguments: request.arguments,
+                unsetEnvironment: tool == .claude ? ["CLAUDECODE"] : []
+            )
         }
 
         switch tool {
@@ -142,6 +161,28 @@ enum AgentLaunchBootstrap {
                 fileManager: fileManager
             )
         }
+    }
+
+    /// Resolve the integration gate for a bootstrap-style request: reads the
+    /// stored per-agent consent state from disk and the restore signal for this
+    /// pane. Returns `nil` when the request carries no tool. Used by the IPC
+    /// handler to decide between proceeding, passthrough, and prompting for
+    /// consent before calling `makePlan`.
+    ///
+    /// The restore signal is a one-shot, per-pane token consumed from the IPC
+    /// server (`consumeRestorePending`, injectable for tests). Consuming it here
+    /// means a restore-spawned launch is suppressed but the *next* launch in the
+    /// same pane prompts. The gate is resolved once per bootstrap connection, so
+    /// the single consume is safe: a suppressed (restore) launch never reaches
+    /// the phase-2 `awaitConsent` re-resolution.
+    static func integrationGate(
+        for request: AgentIPCRequest,
+        consumeRestorePending: (String) -> Bool = { AgentIPCServer.shared.consumeRestorePendingPane($0) }
+    ) -> AgentIntegrationGate? {
+        guard let tool = request.tool else { return nil }
+        let storedState = loadAppConfig().agentIntegrations.states[tool.rawValue]
+        let isRestore = request.environment["ZENTTY_PANE_ID"].map(consumeRestorePending) ?? false
+        return AgentIntegrationConsent.gate(for: tool, storedState: storedState, isRestore: isRestore)
     }
 
     private static func ampPlan(

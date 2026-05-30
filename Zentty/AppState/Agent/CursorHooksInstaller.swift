@@ -163,6 +163,30 @@ enum CursorHooksInstaller {
         try newData.write(to: hooksURL, options: .atomic)
     }
 
+    /// True when the user's hooks file currently carries a Zentty-managed
+    /// entry — the same predicate `uninstall` uses to find our entries. Used by
+    /// the grandfather migration to recognize pre-existing installs.
+    static func isInstalled(
+        at hooksURL: URL = defaultUserHooksURL(),
+        fileManager: FileManager = .default
+    ) -> Bool {
+        guard
+            fileManager.isReadableFile(atPath: hooksURL.path),
+            let data = try? Data(contentsOf: hooksURL), !data.isEmpty,
+            let jsonObject = parsePermissive(data),
+            let hooks = jsonObject["hooks"] as? [String: Any]
+        else {
+            return false
+        }
+        for event in managedEvents {
+            guard let entries = hooks[event] as? [[String: Any]] else { continue }
+            if entries.contains(where: { ($0["command"] as? String)?.contains(hookMarker) == true }) {
+                return true
+            }
+        }
+        return false
+    }
+
     /// Run `install` with environment-derived paths, logging the outcome.
     /// Used by the auto-install path during `zentty launch cursor`.
     static func installIfPossible(

@@ -173,6 +173,32 @@ enum DroidHooksInstaller {
         try newData.write(to: settingsURL, options: .atomic)
     }
 
+    /// True when the user's settings file currently carries a Zentty-managed
+    /// hook entry — mirrors the nested predicate `uninstall` uses. Used by the
+    /// grandfather migration to recognize pre-existing installs.
+    static func isInstalled(
+        at settingsURL: URL = defaultUserSettingsURL(),
+        fileManager: FileManager = .default
+    ) -> Bool {
+        guard
+            fileManager.isReadableFile(atPath: settingsURL.path),
+            let data = try? Data(contentsOf: settingsURL), !data.isEmpty,
+            let jsonObject = parsePermissive(data),
+            let hooks = jsonObject["hooks"] as? [String: Any]
+        else {
+            return false
+        }
+        for event in managedEvents {
+            guard let entries = hooks[event] as? [[String: Any]] else { continue }
+            let owned = entries.contains { entry in
+                guard let nestedHooks = entry["hooks"] as? [[String: Any]] else { return false }
+                return nestedHooks.contains { ($0["command"] as? String)?.contains(hookMarker) == true }
+            }
+            if owned { return true }
+        }
+        return false
+    }
+
     /// URL for `~/.factory/hooks/hooks.json` where Droid persists hook-level
     /// settings like `showHookOutput`.
     static func defaultHooksConfigURL(

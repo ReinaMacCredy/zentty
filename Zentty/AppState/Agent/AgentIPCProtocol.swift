@@ -3,6 +3,14 @@ import Foundation
 enum AgentIPCProtocol {
     static let version = 1
     static let selfPIDPlaceholder = "__ZENTTY_SELF_PID__"
+    /// Read timeout (seconds) the wrapper uses while blocked on the phase-2
+    /// `awaitConsent` response. The app must resolve the consent panel and write
+    /// its reply strictly before this elapses; the app-side wait stays below it
+    /// by `consentPanelTimeoutMargin`. Shared so the two values can't drift into
+    /// an inverted ordering across the app/CLI targets.
+    static let awaitConsentTimeoutSeconds = 300
+    /// Seconds the app-side consent wait stays below the wrapper timeout.
+    static let consentPanelTimeoutMargin = 30
 }
 
 enum AgentIPCRequestKind: String, Codable, Equatable {
@@ -12,9 +20,15 @@ enum AgentIPCRequestKind: String, Codable, Equatable {
     case discover
     case server
     case tmuxCompat = "tmux_compat"
+    /// Second phase of the integration-consent handshake. After a `bootstrap`
+    /// response carries `consentRequired`, the wrapper re-issues an
+    /// `awaitConsent` request (with a long read timeout) that the app holds
+    /// open while the consent panel is shown, then answers with the resolved
+    /// launch plan. See AgentIntegrationConsent + the IPC handler.
+    case awaitConsent = "await_consent"
 }
 
-enum AgentBootstrapTool: String, Codable, Equatable {
+enum AgentBootstrapTool: String, Codable, Equatable, CaseIterable {
     case amp
     case claude
     case codex
@@ -41,6 +55,17 @@ enum AgentBootstrapTool: String, Codable, Equatable {
         case .kimi:
             return [rawValue, "kimi-cli"]
         }
+    }
+
+    /// The wrapped agent whose real binary matches the leading token of a shell
+    /// command, or `nil` if the command isn't one of our agent CLIs. Mirrors how
+    /// the PATH wrapper itself decides a command is an agent (binary-name match),
+    /// so a restored pane is treated as an "agent pane" iff its command would
+    /// actually trip the wrapper.
+    static func wrappedAgent(forCommand command: String) -> AgentBootstrapTool? {
+        guard let firstToken = command.split(separator: " ").first else { return nil }
+        let binaryName = (String(firstToken) as NSString).lastPathComponent
+        return allCases.first { $0.realBinaryNames.contains(binaryName) }
     }
 }
 
@@ -172,6 +197,12 @@ struct AgentIPCResponseResult: Codable, Equatable {
     /// `capture-pane`, `list-panes`, `display-message`. The CLI writes this
     /// directly to stdout.
     let stdout: String?
+    /// Set on a `bootstrap` response when the agent's integration needs
+    /// first-run consent before its hooks may be written to the user's config.
+    /// The wrapper, on seeing this, re-issues an `awaitConsent` request that
+    /// blocks (long timeout) until the user answers the consent panel. Optional
+    /// for decode tolerance across version-skewed app/CLI pairs.
+    let consentRequired: Bool?
 
     init(
         launchPlan: AgentLaunchPlan? = nil,
@@ -180,7 +211,8 @@ struct AgentIPCResponseResult: Codable, Equatable {
         discoveredWorklanes: [DiscoveredWorklane]? = nil,
         discoveredPanes: [DiscoveredPane]? = nil,
         serverState: ServerListResult? = nil,
-        stdout: String? = nil
+        stdout: String? = nil,
+        consentRequired: Bool? = nil
     ) {
         self.launchPlan = launchPlan
         self.paneList = paneList
@@ -189,6 +221,7 @@ struct AgentIPCResponseResult: Codable, Equatable {
         self.discoveredPanes = discoveredPanes
         self.serverState = serverState
         self.stdout = stdout
+        self.consentRequired = consentRequired
     }
 }
 

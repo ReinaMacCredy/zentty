@@ -47,8 +47,39 @@ struct AgentToolLauncher {
                 trace("bootstrap IPC returned nil response; exec real binary directly (NO STATUS EMITTED)")
                 try exec(executablePath: executablePath, arguments: arguments, environmentPatch: directEnvironment)
             }
-            guard let launchPlan = response.result?.launchPlan else {
-                trace("bootstrap response ok=\(response.ok) error=\(String(describing: response.error)) has no launchPlan; exec real binary directly (NO STATUS EMITTED)")
+
+            // Phase 2 of the consent handshake: the app asked for first-run
+            // consent before writing hooks. Tell the user, then block on a
+            // second request with a long timeout while they answer the dialog.
+            let resolved: AgentIPCResponse
+            if response.result?.consentRequired == true {
+                FileHandle.standardError.write(Data(
+                    "[Zentty] Waiting for permission to enable \(tool.rawValue) status — respond in the dialog in Zentty…\n".utf8
+                ))
+                trace("consent required; re-issuing awaitConsent with long timeout")
+                let consentRequest = AgentIPCRequest(
+                    kind: .awaitConsent,
+                    arguments: arguments,
+                    standardInput: nil,
+                    environment: bootstrapEnvironment(realBinaryPath: executablePath),
+                    expectsResponse: true,
+                    tool: tool
+                )
+                guard let consentResponse = try AgentIPCClient.send(
+                    request: consentRequest,
+                    socketPath: socketPath,
+                    timeoutSeconds: AgentIPCProtocol.awaitConsentTimeoutSeconds
+                ) else {
+                    trace("awaitConsent returned nil; exec real binary directly (NO STATUS EMITTED)")
+                    try exec(executablePath: executablePath, arguments: arguments, environmentPatch: directEnvironment)
+                }
+                resolved = consentResponse
+            } else {
+                resolved = response
+            }
+
+            guard let launchPlan = resolved.result?.launchPlan else {
+                trace("bootstrap response ok=\(resolved.ok) error=\(String(describing: resolved.error)) has no launchPlan; exec real binary directly (NO STATUS EMITTED)")
                 try exec(executablePath: executablePath, arguments: arguments, environmentPatch: directEnvironment)
             }
             trace("bootstrap launchPlan received executable=\(launchPlan.executablePath) preLaunchActions=\(launchPlan.preLaunchActions.count)")

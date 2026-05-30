@@ -27,8 +27,9 @@ final class AgentsSettingsSectionViewControllerTests: AppKitTestCase {
     /// Regression: the Agents section once activated a separator's width
     /// constraint *before* the separator was added to its stack, throwing a
     /// "no common ancestor" exception that aborted `assembleContent` and left the
-    /// whole pane blank. Loading the view must assemble all three switch rows
-    /// (menu bar status, agent teams, prevent sleep) with a non-zero height.
+    /// whole pane blank. Loading the view must assemble the three global switch
+    /// rows (menu bar status, agent teams, prevent sleep) plus one switch per
+    /// agent in the integrations card, with a non-zero height.
     func test_agents_section_assembles_all_switch_rows() {
         let controller = AgentsSettingsSectionViewController(
             configStore: makeConfigStore(),
@@ -39,7 +40,8 @@ final class AgentsSettingsSectionViewControllerTests: AppKitTestCase {
         controller.view.frame = NSRect(x: 0, y: 0, width: 520, height: 600)
         controller.view.layoutSubtreeIfNeeded()
 
-        XCTAssertEqual(switches(in: controller.view).count, 3)
+        // 3 global toggles + one integration toggle per known agent.
+        XCTAssertEqual(switches(in: controller.view).count, 3 + AgentIntegrationConsent.allTools.count)
         XCTAssertGreaterThan(controller.measuredContentHeight(), 0)
     }
 
@@ -57,6 +59,50 @@ final class AgentsSettingsSectionViewControllerTests: AppKitTestCase {
 
         XCTAssertFalse(store.current.menuBar.showStatusItem)
         XCTAssertFalse(controller.isMenuBarStatusSwitchOn)
+    }
+
+    func test_integration_disable_uninstallFailure_keepsOff_andSurfacesFailure() {
+        struct UninstallError: Error {}
+        let store = makeConfigStore()
+        var failureTool: AgentBootstrapTool?
+        let controller = AgentsSettingsSectionViewController(
+            configStore: store,
+            agentTeamsEnableWarningPresenter: { _, completion in completion(.cancel) },
+            consentPresenter: { _, completion in completion(.on) },
+            performUninstall: { _ in throw UninstallError() },
+            uninstallFailurePresenter: { _, tool, _ in failureTool = tool }
+        )
+        controller.loadViewIfNeeded()
+
+        controller.simulateIntegrationToggleForTesting(.cursor, on: true)
+        XCTAssertEqual(store.current.agentIntegrations.state(for: .cursor), .on)
+
+        controller.simulateIntegrationToggleForTesting(.cursor, on: false)
+
+        XCTAssertEqual(failureTool, .cursor, "an uninstall failure must be surfaced to the user")
+        XCTAssertEqual(
+            store.current.agentIntegrations.state(for: .cursor), .off,
+            "the user's off choice is recorded even when hook removal fails"
+        )
+    }
+
+    func test_integration_disable_uninstallSuccess_doesNotSurfaceFailure() {
+        let store = makeConfigStore()
+        var didPresentFailure = false
+        let controller = AgentsSettingsSectionViewController(
+            configStore: store,
+            agentTeamsEnableWarningPresenter: { _, completion in completion(.cancel) },
+            consentPresenter: { _, completion in completion(.on) },
+            performUninstall: { _ in },
+            uninstallFailurePresenter: { _, _, _ in didPresentFailure = true }
+        )
+        controller.loadViewIfNeeded()
+
+        controller.simulateIntegrationToggleForTesting(.cursor, on: true)
+        controller.simulateIntegrationToggleForTesting(.cursor, on: false)
+
+        XCTAssertFalse(didPresentFailure, "a successful uninstall must not surface a failure")
+        XCTAssertEqual(store.current.agentIntegrations.state(for: .cursor), .off)
     }
 
     // MARK: - Helpers

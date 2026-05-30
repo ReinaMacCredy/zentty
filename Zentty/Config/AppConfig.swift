@@ -174,6 +174,26 @@ struct AppConfig: Equatable, Sendable {
         )
     }
 
+    /// Per-agent enable/disable state for Zentty's CLI integrations. Persistent
+    /// (config-modifying) agents are tri-state and consent-gated; ephemeral
+    /// agents are on by default. See `AgentIntegrationConsent`.
+    struct AgentIntegrations: Equatable, Sendable {
+        /// State keyed by `AgentBootstrapTool.rawValue`. Absent keys fall back to
+        /// the tool's class default (`AgentBootstrapTool.defaultIntegrationState`).
+        var states: [String: AgentIntegrationState]
+        /// True once the one-time grandfather migration has run, marking
+        /// already-installed persistent agents `on` so upgrading users are not
+        /// re-prompted for consent.
+        var grandfatheredV1: Bool
+
+        static let `default` = AgentIntegrations(states: [:], grandfatheredV1: false)
+
+        /// Effective state for a tool, applying the class default when unset.
+        func state(for tool: AgentBootstrapTool) -> AgentIntegrationState {
+            AgentIntegrationConsent.effectiveState(for: tool, storedState: states[tool.rawValue])
+        }
+    }
+
     var sidebar: Sidebar
     var paneLayout: PaneLayoutPreferences
     var panes: Panes
@@ -190,6 +210,7 @@ struct AppConfig: Equatable, Sendable {
     var agentTeams: AgentTeams
     var agentCaffeination: AgentCaffeination
     var menuBar: MenuBar
+    var agentIntegrations: AgentIntegrations
 
     static let `default` = AppConfig(
         sidebar: Sidebar(
@@ -210,7 +231,8 @@ struct AppConfig: Equatable, Sendable {
         restore: .default,
         agentTeams: .default,
         agentCaffeination: .default,
-        menuBar: .default
+        menuBar: .default,
+        agentIntegrations: .default
     )
 
     static func migrated(
@@ -237,7 +259,8 @@ struct AppConfig: Equatable, Sendable {
             restore: .default,
             agentTeams: .default,
             agentCaffeination: .default,
-            menuBar: .default
+            menuBar: .default,
+            agentIntegrations: .default
         )
     }
 
