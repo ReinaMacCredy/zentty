@@ -1147,6 +1147,133 @@ final class SettingsWindowControllerTests: XCTestCase {
         XCTAssertTrue(shortcutsController.previewHighlightedModifierKeyCodesForTesting.isEmpty)
     }
 
+    func test_shortcuts_preview_clicks_can_record_shortcut() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
+        )
+        let controller = SettingsWindowController(
+            configStore: store,
+            initialSection: .shortcuts
+        )
+        addTeardownBlock { controller.window?.close() }
+
+        controller.show(section: .shortcuts, sender: nil)
+        waitForLayout()
+
+        let contentController = try XCTUnwrap(
+            controller.window?.contentViewController as? SettingsViewController
+        )
+        let shortcutsController = try XCTUnwrap(
+            contentController.currentSectionViewController as? ShortcutsSettingsSectionViewController
+        )
+
+        shortcutsController.selectCommandForTesting(.copyRaw)
+        shortcutsController.beginRecordingSelectedCommandForTesting()
+        shortcutsController.clickPreviewKeyForTesting(UInt16(kVK_Command))
+
+        XCTAssertEqual(
+            shortcutsController.previewHighlightedModifierKeyCodesForTesting,
+            [UInt16(kVK_Command), UInt16(kVK_RightCommand)]
+        )
+
+        shortcutsController.clickPreviewKeyForTesting(UInt16(kVK_ANSI_C))
+
+        XCTAssertEqual(shortcutsController.displayString(for: .copyRaw), "⌘C")
+        XCTAssertEqual(shortcutsController.previewPrimaryHighlightedKeyCodeForTesting, UInt16(kVK_ANSI_C))
+    }
+
+    func test_shortcuts_preview_clicks_can_record_arrow_and_special_keys() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
+        )
+        let controller = SettingsWindowController(
+            configStore: store,
+            initialSection: .shortcuts
+        )
+        addTeardownBlock { controller.window?.close() }
+
+        controller.show(section: .shortcuts, sender: nil)
+        waitForLayout()
+
+        let contentController = try XCTUnwrap(
+            controller.window?.contentViewController as? SettingsViewController
+        )
+        let shortcutsController = try XCTUnwrap(
+            contentController.currentSectionViewController as? ShortcutsSettingsSectionViewController
+        )
+
+        shortcutsController.selectCommandForTesting(.closeWindow)
+        shortcutsController.beginRecordingSelectedCommandForTesting()
+        shortcutsController.clickPreviewKeyForTesting(UInt16(kVK_Control))
+        shortcutsController.clickPreviewKeyForTesting(UInt16(kVK_Option))
+        shortcutsController.clickPreviewKeyForTesting(UInt16(kVK_Command))
+        shortcutsController.clickPreviewKeyForTesting(UInt16(kVK_UpArrow))
+
+        XCTAssertEqual(shortcutsController.displayString(for: .closeWindow), "⌃⌥⌘↑")
+        XCTAssertEqual(shortcutsController.previewPrimaryHighlightedKeyCodeForTesting, UInt16(kVK_UpArrow))
+
+        shortcutsController.selectCommandForTesting(.reloadConfig)
+        shortcutsController.beginRecordingSelectedCommandForTesting()
+        shortcutsController.clickPreviewKeyForTesting(UInt16(kVK_Command))
+        shortcutsController.clickPreviewKeyForTesting(UInt16(kVK_Space))
+
+        XCTAssertEqual(shortcutsController.displayString(for: .reloadConfig), "⌘Space")
+        XCTAssertEqual(shortcutsController.previewPrimaryHighlightedKeyCodeForTesting, UInt16(kVK_Space))
+
+        shortcutsController.selectCommandForTesting(.openBranchOnRemote)
+        shortcutsController.beginRecordingSelectedCommandForTesting()
+        shortcutsController.clickPreviewKeyForTesting(UInt16(kVK_Command))
+        shortcutsController.clickPreviewKeyForTesting(UInt16(kVK_Delete))
+
+        XCTAssertEqual(shortcutsController.displayString(for: .openBranchOnRemote), "⌘Delete")
+        XCTAssertEqual(shortcutsController.previewPrimaryHighlightedKeyCodeForTesting, UInt16(kVK_Delete))
+
+        shortcutsController.selectCommandForTesting(.openWithSelectedApp)
+        shortcutsController.beginRecordingSelectedCommandForTesting()
+        shortcutsController.clickPreviewKeyForTesting(UInt16(kVK_Shift))
+        shortcutsController.clickPreviewKeyForTesting(UInt16(kVK_Command))
+        shortcutsController.clickPreviewKeyForTesting(UInt16(kVK_Return))
+
+        XCTAssertEqual(shortcutsController.displayString(for: .openWithSelectedApp), "⇧⌘Return")
+        XCTAssertEqual(shortcutsController.previewPrimaryHighlightedKeyCodeForTesting, UInt16(kVK_Return))
+    }
+
+    func test_shortcuts_preview_updates_while_physical_modifiers_are_held() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
+        )
+        let controller = SettingsWindowController(
+            configStore: store,
+            initialSection: .shortcuts
+        )
+        addTeardownBlock { controller.window?.close() }
+
+        controller.show(section: .shortcuts, sender: nil)
+        waitForLayout()
+
+        let contentController = try XCTUnwrap(
+            controller.window?.contentViewController as? SettingsViewController
+        )
+        let shortcutsController = try XCTUnwrap(
+            contentController.currentSectionViewController as? ShortcutsSettingsSectionViewController
+        )
+
+        shortcutsController.selectCommandForTesting(.copyRaw)
+        shortcutsController.beginRecordingSelectedCommandForTesting()
+        shortcutsController.updateRecordingPreviewModifiersForTesting([.command, .option, .control])
+
+        XCTAssertEqual(
+            shortcutsController.previewHighlightedModifierKeyCodesForTesting,
+            [
+                UInt16(kVK_Command),
+                UInt16(kVK_RightCommand),
+                UInt16(kVK_Option),
+                UInt16(kVK_RightOption),
+                UInt16(kVK_Control),
+            ]
+        )
+    }
+
     func test_switching_back_to_shortcuts_preserves_selected_command() throws {
         let store = AppConfigStore(
             fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")

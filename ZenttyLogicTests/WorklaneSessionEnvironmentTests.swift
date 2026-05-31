@@ -130,6 +130,33 @@ final class WorklaneSessionEnvironmentTests: XCTestCase {
         XCTAssertEqual(env["ZENTTY_ORIGINAL_XDG_DATA_DIRS"], "/custom/xdg:/usr/local/share:/usr/share")
     }
 
+    func test_make_advertises_truecolor_when_colorterm_is_not_present() {
+        let env = WorklaneSessionEnvironment.make(
+            windowID: windowID,
+            worklaneID: worklaneID,
+            paneID: paneID,
+            processEnvironment: ["PATH": "/usr/bin:/bin"],
+            agentTeamsEnabled: false
+        )
+
+        XCTAssertEqual(env["COLORTERM"], "truecolor")
+    }
+
+    func test_make_preserves_existing_colorterm() {
+        let env = WorklaneSessionEnvironment.make(
+            windowID: windowID,
+            worklaneID: worklaneID,
+            paneID: paneID,
+            processEnvironment: [
+                "PATH": "/usr/bin:/bin",
+                "COLORTERM": "24bit",
+            ],
+            agentTeamsEnabled: false
+        )
+
+        XCTAssertEqual(env["COLORTERM"], "24bit")
+    }
+
     func test_make_injects_xdg_even_when_no_prior_xdg_data_dirs() throws {
         let env = WorklaneSessionEnvironment.make(
             windowID: windowID,

@@ -55,6 +55,26 @@ final class LibghosttySurfaceKeyEventTests: XCTestCase {
         XCTAssertEqual(translated.keyCode, UInt16(kVK_Command))
     }
 
+    // MARK: - normalizedSurfaceEnvironment
+
+    func test_normalizedSurfaceEnvironment_adds_truecolor_when_missing() {
+        let environment = LibghosttySurface.normalizedSurfaceEnvironment(
+            ["ZENTTY_PANE_ID": "pane"],
+            processEnvironment: [:]
+        )
+
+        XCTAssertEqual(environment["COLORTERM"], "truecolor")
+    }
+
+    func test_normalizedSurfaceEnvironment_preserves_existing_colorterm() {
+        let environment = LibghosttySurface.normalizedSurfaceEnvironment(
+            ["COLORTERM": "24bit"],
+            processEnvironment: ["COLORTERM": "truecolor"]
+        )
+
+        XCTAssertEqual(environment["COLORTERM"], "24bit")
+    }
+
     // MARK: - Helpers
 
     private static func makeFlagsChangedEvent(

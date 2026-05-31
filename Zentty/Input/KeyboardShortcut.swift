@@ -1,7 +1,11 @@
 import AppKit
+import Carbon.HIToolbox
 
 enum KeyboardShortcutKey: Hashable, Sendable {
     case character(String)
+    case space
+    case delete
+    case `return`
     case tab
     case leftArrow
     case rightArrow
@@ -12,6 +16,12 @@ enum KeyboardShortcutKey: Hashable, Sendable {
         switch self {
         case .character(let value):
             value.lowercased()
+        case .space:
+            "space"
+        case .delete:
+            "delete"
+        case .return:
+            "return"
         case .tab:
             "tab"
         case .leftArrow:
@@ -27,6 +37,12 @@ enum KeyboardShortcutKey: Hashable, Sendable {
 
     fileprivate static func from(storageToken: String) -> KeyboardShortcutKey? {
         switch storageToken {
+        case "space":
+            return .space
+        case "delete":
+            return .delete
+        case "return", "enter":
+            return .return
         case "tab":
             return .tab
         case "left":
@@ -38,11 +54,42 @@ enum KeyboardShortcutKey: Hashable, Sendable {
         case "down":
             return .downArrow
         default:
-            guard storageToken.count == 1 else {
+            guard storageToken.count == 1,
+                  let scalar = storageToken.unicodeScalars.first else {
                 return nil
             }
 
-            return .character(storageToken.lowercased())
+            switch scalar {
+            case "\u{0003}": // legacy keypad Enter stored via charactersIgnoringModifiers
+                return .return
+            case "\u{007F}": // legacy Delete stored via charactersIgnoringModifiers
+                return .delete
+            default:
+                return .character(storageToken.lowercased())
+            }
+        }
+    }
+
+    static func from(keyCode: UInt16) -> KeyboardShortcutKey? {
+        switch keyCode {
+        case UInt16(kVK_Space):
+            return .space
+        case UInt16(kVK_Delete), UInt16(kVK_ForwardDelete):
+            return .delete
+        case UInt16(kVK_Return), UInt16(kVK_ANSI_KeypadEnter):
+            return .return
+        case UInt16(kVK_Tab):
+            return .tab
+        case UInt16(kVK_LeftArrow):
+            return .leftArrow
+        case UInt16(kVK_RightArrow):
+            return .rightArrow
+        case UInt16(kVK_UpArrow):
+            return .upArrow
+        case UInt16(kVK_DownArrow):
+            return .downArrow
+        default:
+            return nil
         }
     }
 
@@ -50,6 +97,12 @@ enum KeyboardShortcutKey: Hashable, Sendable {
         switch self {
         case .character(let value):
             value.lowercased()
+        case .space:
+            " "
+        case .delete:
+            String(UnicodeScalar(NSDeleteCharacter)!)
+        case .return:
+            "\r"
         case .tab:
             "\t"
         case .leftArrow:
@@ -67,6 +120,12 @@ enum KeyboardShortcutKey: Hashable, Sendable {
         switch self {
         case .character(let value):
             value.uppercased()
+        case .space:
+            "Space"
+        case .delete:
+            "Delete"
+        case .return:
+            "Return"
         case .tab:
             "Tab"
         case .leftArrow:
@@ -79,9 +138,32 @@ enum KeyboardShortcutKey: Hashable, Sendable {
             "Down"
         }
     }
+
+    var primaryKeyCode: UInt16? {
+        switch self {
+        case .space:
+            return UInt16(kVK_Space)
+        case .delete:
+            return UInt16(kVK_Delete)
+        case .return:
+            return UInt16(kVK_Return)
+        case .tab:
+            return UInt16(kVK_Tab)
+        case .leftArrow:
+            return UInt16(kVK_LeftArrow)
+        case .rightArrow:
+            return UInt16(kVK_RightArrow)
+        case .upArrow:
+            return UInt16(kVK_UpArrow)
+        case .downArrow:
+            return UInt16(kVK_DownArrow)
+        case .character:
+            return nil
+        }
+    }
 }
 
-enum KeyboardModifier: Hashable, Sendable {
+enum KeyboardModifier: Hashable, Sendable, CaseIterable {
     case command
     case control
     case option
@@ -120,6 +202,26 @@ enum KeyboardModifier: Hashable, Sendable {
         default:
             nil
         }
+    }
+
+    static func from(flags: NSEvent.ModifierFlags) -> Set<KeyboardModifier> {
+        let sanitizedFlags = flags.intersection(.deviceIndependentFlagsMask)
+        var modifiers = Set<KeyboardModifier>()
+
+        if sanitizedFlags.contains(.command) {
+            modifiers.insert(.command)
+        }
+        if sanitizedFlags.contains(.control) {
+            modifiers.insert(.control)
+        }
+        if sanitizedFlags.contains(.option) {
+            modifiers.insert(.option)
+        }
+        if sanitizedFlags.contains(.shift) {
+            modifiers.insert(.shift)
+        }
+
+        return modifiers
     }
 
     fileprivate var modifierFlag: NSEvent.ModifierFlags {
@@ -164,35 +266,11 @@ struct KeyboardShortcut: Hashable, Sendable {
             return nil
         }
 
-        var modifiers = Set<KeyboardModifier>()
-
-        if sanitizedFlags.contains(.command) {
-            modifiers.insert(.command)
-        }
-        if sanitizedFlags.contains(.control) {
-            modifiers.insert(.control)
-        }
-        if sanitizedFlags.contains(.option) {
-            modifiers.insert(.option)
-        }
-        if sanitizedFlags.contains(.shift) {
-            modifiers.insert(.shift)
-        }
-
         let key: KeyboardShortcutKey
 
-        switch event.keyCode {
-        case 48:
-            key = .tab
-        case 123:
-            key = .leftArrow
-        case 124:
-            key = .rightArrow
-        case 125:
-            key = .downArrow
-        case 126:
-            key = .upArrow
-        default:
+        if let specialKey = KeyboardShortcutKey.from(keyCode: event.keyCode) {
+            key = specialKey
+        } else {
             guard let characters = event.charactersIgnoringModifiers?.lowercased(), characters.count == 1 else {
                 return nil
             }
@@ -200,7 +278,7 @@ struct KeyboardShortcut: Hashable, Sendable {
             key = .character(characters)
         }
 
-        self.init(key: key, modifiers: modifiers)
+        self.init(key: key, modifiers: KeyboardModifier.from(flags: sanitizedFlags))
     }
 
     init?(storageString: String) {

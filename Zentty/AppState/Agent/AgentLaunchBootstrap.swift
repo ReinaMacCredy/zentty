@@ -603,15 +603,31 @@ enum AgentLaunchBootstrap {
             plannedArguments.insert(contentsOf: ["--session-id", UUID().uuidString.lowercased(), "--settings", settingsJSON], at: 0)
         }
 
+        var setEnvironment = claudeColorEnvironment(from: environment)
+        setEnvironment["ZENTTY_AGENT_TOOL"] = "claude"
+
         return AgentLaunchPlan(
             executablePath: executablePath,
             arguments: plannedArguments,
-            setEnvironment: [
-                "ZENTTY_AGENT_TOOL": "claude",
-            ],
+            setEnvironment: setEnvironment,
             unsetEnvironment: ["CLAUDECODE"],
             preLaunchActions: []
         )
+    }
+
+    private static func claudeColorEnvironment(from environment: [String: String]) -> [String: String] {
+        guard environment["NO_COLOR"]?.nilIfBlank == nil else {
+            return [:]
+        }
+
+        var colorEnvironment: [String: String] = [:]
+        if environment["FORCE_COLOR"]?.nilIfBlank == nil {
+            colorEnvironment["FORCE_COLOR"] = "3"
+        }
+        if environment["COLORTERM"]?.nilIfBlank == nil {
+            colorEnvironment["COLORTERM"] = TerminalColorEnvironment.trueColor
+        }
+        return colorEnvironment
     }
 
     private static func codexPlan(
@@ -1643,7 +1659,7 @@ private enum KimiConfigSource {
     case inline(String)
 }
 
-private extension String {
+extension String {
     var nilIfBlank: String? {
         trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : self
     }

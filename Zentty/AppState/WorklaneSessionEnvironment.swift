@@ -3,12 +3,23 @@ import OSLog
 
 private let agentTeamsLogger = Logger(subsystem: "be.zenjoy.zentty", category: "agent-teams")
 
+enum TerminalColorEnvironment {
+    static let trueColor = "truecolor"
+
+    /// Resolves the COLORTERM value to inherit, falling back to `trueColor`
+    /// when the inherited value is missing or blank.
+    static func colorTerm(inheritedFrom environment: [String: String]) -> String {
+        environment["COLORTERM"]?.nilIfBlank ?? trueColor
+    }
+}
+
 enum WorklaneSessionEnvironment {
     private static let generatedTemplateEnvironmentKeys: Set<String> = [
         "PATH",
         "ZDOTDIR",
         "PROMPT_COMMAND",
         "GHOSTTY_LOG",
+        "COLORTERM",
         "XDG_DATA_DIRS",
     ]
 
@@ -52,6 +63,8 @@ enum WorklaneSessionEnvironment {
                 ? currentPath
                 : ([supportDirectory] + pathEntries).joined(separator: ":")
         }
+
+        environment["COLORTERM"] = TerminalColorEnvironment.colorTerm(inheritedFrom: processEnvironment)
 
         if agentTeamsEnabled {
             applyAgentTeamsInjection(

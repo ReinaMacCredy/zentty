@@ -736,7 +736,7 @@ final class LibghosttySurface: LibghosttySurfaceControlling, LibghosttySurfaceTe
         retainedPointers: [UnsafeMutablePointer<CChar>]
     ) {
         var retainedPointers: [UnsafeMutablePointer<CChar>] = []
-        let envVars = requestEnvironment
+        let envVars = Self.normalizedSurfaceEnvironment(requestEnvironment)
             .sorted(by: { $0.key < $1.key })
             .map { key, value in
                 let retainedKey = strdup(key)!
@@ -750,6 +750,19 @@ final class LibghosttySurface: LibghosttySurfaceControlling, LibghosttySurfaceTe
             }
 
         return (envVars, retainedPointers)
+    }
+
+    static func normalizedSurfaceEnvironment(
+        _ environment: [String: String],
+        processEnvironment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> [String: String] {
+        var normalized = environment
+        if normalized["COLORTERM"]?.nilIfBlank != nil {
+            return normalized
+        }
+
+        normalized["COLORTERM"] = TerminalColorEnvironment.colorTerm(inheritedFrom: processEnvironment)
+        return normalized
     }
 
     static func modsFromEvent(_ event: NSEvent) -> ghostty_input_mods_e {

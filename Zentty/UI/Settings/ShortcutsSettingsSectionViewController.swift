@@ -85,6 +85,12 @@ final class ShortcutsSettingsSectionViewController: SettingsScrollableSectionVie
     private var searchQuery = ""
     private var browserItems: [BrowserItem] = []
     private var selectedCommandID: AppCommandID?
+    private var recordingPreviewKey: KeyboardShortcutKey?
+    private var recordingClickedModifiers: Set<KeyboardModifier> = []
+    private var recordingHeldModifiers: Set<KeyboardModifier> = []
+    private var recordingPreviewModifiers: Set<KeyboardModifier> {
+        recordingClickedModifiers.union(recordingHeldModifiers)
+    }
 
     init(configStore: AppConfigStore) {
         self.configStore = configStore
@@ -312,6 +318,26 @@ final class ShortcutsSettingsSectionViewController: SettingsScrollableSectionVie
 
     var previewHighlightedModifierKeyCodesForTesting: Set<UInt16> {
         keyboardPreviewView.model.highlightedModifierKeyCodes
+    }
+
+    func beginRecordingSelectedCommandForTesting() {
+        beginRecordingSelectedCommand()
+    }
+
+    func clickPreviewKeyForTesting(_ keyCode: UInt16) {
+        handlePreviewKeyClicked(KeyboardPreviewKeySlot(
+            keyCode: keyCode,
+            widthUnits: 1,
+            label: "",
+            kind: .keycap
+        ))
+    }
+
+    func updateRecordingPreviewModifiersForTesting(_ modifiers: Set<KeyboardModifier>) {
+        guard let selectedCommandID else {
+            return
+        }
+        updateRecordingPreviewModifiers(modifiers, commandID: selectedCommandID)
     }
 
     func applySearchForTesting(_ query: String) {
@@ -598,6 +624,9 @@ final class ShortcutsSettingsSectionViewController: SettingsScrollableSectionVie
         keyboardPreviewContainerView.heightAnchor.constraint(equalToConstant: Layout.previewHeight).isActive = true
 
         keyboardPreviewView.translatesAutoresizingMaskIntoConstraints = false
+        keyboardPreviewView.keyClickHandler = { [weak self] key in
+            self?.handlePreviewKeyClicked(key)
+        }
         keyboardPreviewContainerView.addSubview(keyboardPreviewView)
 
         emptyStateLabel.font = .systemFont(ofSize: 12, weight: .regular)
@@ -733,7 +762,10 @@ final class ShortcutsSettingsSectionViewController: SettingsScrollableSectionVie
         shortcutFieldButton.isEnabled = true
         clearButton.isHidden = shortcutManager.isUnbound(selectedCommandID)
         clearButton.isEnabled = shortcutManager.isUnbound(selectedCommandID) == false
-        keyboardPreviewView.model = keyboardPreviewResolver.resolve(shortcut: effectiveShortcut)
+        keyboardPreviewView.model = previewModel(
+            effectiveShortcut: effectiveShortcut,
+            isRecording: isRecording
+        )
 
         switch issueByCommandID[selectedCommandID] {
         case let .message(message):
@@ -781,6 +813,24 @@ final class ShortcutsSettingsSectionViewController: SettingsScrollableSectionVie
         )
     }
 
+    private func previewModel(
+        effectiveShortcut: KeyboardShortcut?,
+        isRecording: Bool
+    ) -> KeyboardShortcutPreviewModel {
+        guard isRecording else {
+            return keyboardPreviewResolver.resolve(shortcut: effectiveShortcut)
+        }
+
+        if let recordingPreviewKey {
+            return keyboardPreviewResolver.resolve(shortcut: KeyboardShortcut(
+                key: recordingPreviewKey,
+                modifiers: recordingPreviewModifiers
+            ))
+        }
+
+        return keyboardPreviewResolver.resolve(modifiers: recordingPreviewModifiers)
+    }
+
     private var diaModifierOrder: [KeyboardModifier] {
         [.control, .option, .shift, .command]
     }
@@ -802,6 +852,12 @@ final class ShortcutsSettingsSectionViewController: SettingsScrollableSectionVie
         switch key {
         case .character(let value):
             return value.uppercased()
+        case .space:
+            return "Space"
+        case .delete:
+            return "Delete"
+        case .return:
+            return "Return"
         case .tab:
             return "⇥"
         case .leftArrow:
@@ -828,12 +884,99 @@ final class ShortcutsSettingsSectionViewController: SettingsScrollableSectionVie
             : NSColor.black.withAlphaComponent(0.08).cgColor
     }
 
+    private func handlePreviewKeyClicked(_ key: KeyboardPreviewKeySlot) {
+        if let modifier = keyboardPreviewResolver.modifier(forKeyCode: key.keyCode) {
+            guard let commandID = ensureRecordingSelectedCommand() else {
+                return
+            }
+            toggleRecordingPreviewModifier(modifier, commandID: commandID)
+            return
+        }
+
+        guard let shortcutKey = keyboardPreviewResolver.shortcutKey(for: key.keyCode) else {
+            return
+        }
+
+        guard let commandID = ensureRecordingSelectedCommand() else {
+            return
+        }
+        recordingPreviewKey = shortcutKey
+        commit(
+            shortcut: KeyboardShortcut(key: shortcutKey, modifiers: recordingPreviewModifiers),
+            for: commandID
+        )
+    }
+
+    private func ensureRecordingSelectedCommand() -> AppCommandID? {
+        guard let selectedCommandID else {
+            return nil
+        }
+
+        if recordingCommandID != selectedCommandID {
+            beginRecording(commandID: selectedCommandID)
+        }
+
+        return selectedCommandID
+    }
+
+    private func toggleRecordingPreviewModifier(
+        _ modifier: KeyboardModifier,
+        commandID: AppCommandID
+    ) {
+        let previousEffective = recordingPreviewModifiers
+        if recordingClickedModifiers.contains(modifier) {
+            recordingClickedModifiers.remove(modifier)
+        } else {
+            recordingClickedModifiers.insert(modifier)
+        }
+
+        applyRecordingModifierChange(previousEffective: previousEffective, commandID: commandID)
+    }
+
+    private func updateRecordingPreviewModifiers(
+        _ modifiers: Set<KeyboardModifier>,
+        commandID: AppCommandID
+    ) {
+        let previousEffective = recordingPreviewModifiers
+        recordingHeldModifiers = modifiers
+        applyRecordingModifierChange(previousEffective: previousEffective, commandID: commandID)
+    }
+
+    private func applyRecordingModifierChange(
+        previousEffective: Set<KeyboardModifier>,
+        commandID: AppCommandID
+    ) {
+        guard recordingPreviewModifiers != previousEffective else {
+            return
+        }
+
+        issueByCommandID[commandID] = nil
+
+        if let recordingPreviewKey {
+            commit(
+                shortcut: KeyboardShortcut(
+                    key: recordingPreviewKey,
+                    modifiers: recordingPreviewModifiers
+                ),
+                for: commandID
+            )
+        } else {
+            refreshDetailPane()
+        }
+    }
+
+    private func clearRecordingPreview() {
+        recordingPreviewKey = nil
+        recordingClickedModifiers.removeAll()
+        recordingHeldModifiers.removeAll()
+    }
+
     private func installKeyMonitorIfNeeded() {
         guard keyMonitor == nil else {
             return
         }
 
-        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .flagsChanged]) { [weak self] event in
             guard let self, let recordingCommandID else {
                 return event
             }
@@ -842,14 +985,36 @@ final class ShortcutsSettingsSectionViewController: SettingsScrollableSectionVie
                 return event
             }
 
+            if event.type == .flagsChanged {
+                self.updateRecordingPreviewModifiers(
+                    KeyboardModifier.from(flags: event.modifierFlags),
+                    commandID: recordingCommandID
+                )
+                return event
+            }
+
             switch event.keyCode {
             case 53:
                 self.issueByCommandID[recordingCommandID] = nil
                 self.recordingCommandID = nil
+                self.clearRecordingPreview()
                 self.refreshVisibleState()
                 return nil
             case 51, 117:
-                self.clearShortcut(for: recordingCommandID)
+                // Bare Delete/Forward-Delete clears the binding; with modifiers it records
+                // (e.g. ⌘Delete). Commit directly via the keyCode so Forward-Delete's
+                // `.function` flag does not get rejected by `KeyboardShortcut(event:)`.
+                let combinedModifiers = KeyboardModifier.from(flags: event.modifierFlags)
+                    .union(self.recordingClickedModifiers)
+                if combinedModifiers.isEmpty {
+                    self.clearShortcut(for: recordingCommandID)
+                } else if let key = KeyboardShortcutKey.from(keyCode: event.keyCode) {
+                    self.recordingPreviewKey = key
+                    self.commit(
+                        shortcut: KeyboardShortcut(key: key, modifiers: combinedModifiers),
+                        for: recordingCommandID
+                    )
+                }
                 return nil
             default:
                 break
@@ -859,7 +1024,12 @@ final class ShortcutsSettingsSectionViewController: SettingsScrollableSectionVie
                 return nil
             }
 
-            self.commit(shortcut: shortcut, for: recordingCommandID)
+            let combinedShortcut = KeyboardShortcut(
+                key: shortcut.key,
+                modifiers: shortcut.modifiers.union(self.recordingPreviewModifiers)
+            )
+            self.recordingPreviewKey = combinedShortcut.key
+            self.commit(shortcut: combinedShortcut, for: recordingCommandID)
             return nil
         }
     }
@@ -911,9 +1081,19 @@ final class ShortcutsSettingsSectionViewController: SettingsScrollableSectionVie
     private func beginRecording(commandID: AppCommandID) {
         selectedCommandID = commandID
         recordingCommandID = commandID
+        clearRecordingPreview()
         issueByCommandID[commandID] = nil
         syncSelectionToTableView()
         refreshVisibleState()
+    }
+
+    private func cancelRecording() {
+        guard let recordingCommandID else {
+            return
+        }
+        issueByCommandID[recordingCommandID] = nil
+        self.recordingCommandID = nil
+        clearRecordingPreview()
     }
 
     private func commit(shortcut: KeyboardShortcut, for commandID: AppCommandID) {
@@ -926,17 +1106,20 @@ final class ShortcutsSettingsSectionViewController: SettingsScrollableSectionVie
         if let conflict = shortcutManager.conflict(for: shortcut, assigningTo: commandID) {
             issueByCommandID[commandID] = .conflict(conflict.commandID)
             recordingCommandID = nil
+            clearRecordingPreview()
             refreshVisibleState()
             return
         }
 
         issueByCommandID[commandID] = nil
         recordingCommandID = nil
+        clearRecordingPreview()
         persistShortcut(shortcut, for: commandID)
     }
 
     private func clearShortcut(for commandID: AppCommandID) {
         recordingCommandID = nil
+        clearRecordingPreview()
         issueByCommandID[commandID] = nil
         persistShortcut(nil, for: commandID)
     }
@@ -950,6 +1133,7 @@ final class ShortcutsSettingsSectionViewController: SettingsScrollableSectionVie
 
     private func resetAllShortcuts() {
         recordingCommandID = nil
+        clearRecordingPreview()
         issueByCommandID.removeAll()
         try? configStore.update { config in
             config.shortcuts = .default
@@ -960,6 +1144,7 @@ final class ShortcutsSettingsSectionViewController: SettingsScrollableSectionVie
     }
 
     private func jumpToCommand(_ commandID: AppCommandID) {
+        cancelRecording()
         if browserItems.contains(where: { $0.commandID == commandID }) == false {
             searchField.stringValue = ""
             searchQuery = ""
@@ -1106,6 +1291,7 @@ final class ShortcutsSettingsSectionViewController: SettingsScrollableSectionVie
 
     private func applyPreset(_ preset: ShortcutPreset) {
         recordingCommandID = nil
+        clearRecordingPreview()
         issueByCommandID.removeAll()
         let resolver = ShortcutPresetResolver()
         let bindings = resolver.resolve(preset)
@@ -1189,6 +1375,7 @@ final class ShortcutsSettingsSectionViewController: SettingsScrollableSectionVie
 
     private func applyImportedBindings(_ bindings: [ShortcutBindingOverride]) {
         recordingCommandID = nil
+        clearRecordingPreview()
         issueByCommandID.removeAll()
         try? configStore.update { config in
             config.shortcuts = AppConfig.Shortcuts(bindings: bindings)
@@ -1238,6 +1425,9 @@ extension ShortcutsSettingsSectionViewController: NSTableViewDataSource, NSTable
         let row = browserTableView.selectedRow
         guard row >= 0, row < browserItems.count, let commandID = browserItems[row].commandID else {
             return
+        }
+        if commandID != recordingCommandID {
+            cancelRecording()
         }
         selectedCommandID = commandID
         refreshDetailPane()

@@ -24,6 +24,25 @@ final class KeyboardShortcutResolverTests: XCTestCase {
         XCTAssertNil(KeyboardShortcut(event: event))
     }
 
+    func test_keyboard_shortcut_named_special_keys_round_trip_and_display() {
+        let shortcuts: [(KeyboardShortcut, String, String)] = [
+            (.init(key: .space, modifiers: [.command]), "command+space", "⌘Space"),
+            (.init(key: .delete, modifiers: [.command]), "command+delete", "⌘Delete"),
+            (.init(key: .return, modifiers: [.command]), "command+return", "⌘Return"),
+        ]
+
+        for (shortcut, storageString, displayString) in shortcuts {
+            XCTAssertEqual(shortcut.storageString, storageString)
+            XCTAssertEqual(KeyboardShortcut(storageString: storageString), shortcut)
+            XCTAssertEqual(shortcut.displayString, displayString)
+        }
+
+        XCTAssertEqual(
+            KeyboardShortcut(storageString: "command+enter"),
+            .init(key: .return, modifiers: [.command])
+        )
+    }
+
     func test_registry_includes_toggle_sidebar_command_with_general_category_and_command_s_default() {
         let definition = AppCommandRegistry.definition(for: .toggleSidebar)
 
@@ -700,6 +719,89 @@ final class KeyboardShortcutResolverTests: XCTestCase {
         XCTAssertEqual(model.highlightStyle(for: UInt16(kVK_Control)), .primary)
         XCTAssertEqual(model.highlightStyle(for: UInt16(kVK_RightControl)), .none)
         XCTAssertEqual(model.highlightedModifierKeyCodes, [UInt16(kVK_Control)])
+    }
+
+    func test_preview_resolver_resolves_modifier_only_preview() {
+        let resolver = KeyboardLayoutPreviewResolver(
+            sourceProvider: StubKeyboardPreviewSourceProvider(geometry: .ansi, outputs: [])
+        )
+
+        let model = resolver.resolve(modifiers: [.command, .option])
+
+        XCTAssertNil(model.primaryHighlightedKeyCode)
+        XCTAssertEqual(
+            model.highlightedModifierKeyCodes,
+            [UInt16(kVK_Command), UInt16(kVK_RightCommand), UInt16(kVK_Option), UInt16(kVK_RightOption)]
+        )
+        XCTAssertEqual(model.highlightStyle(for: UInt16(kVK_Command)), .primary)
+        XCTAssertEqual(model.highlightStyle(for: UInt16(kVK_RightCommand)), .primary)
+    }
+
+    func test_preview_resolver_maps_clickable_key_codes_to_shortcut_keys() {
+        let resolver = KeyboardLayoutPreviewResolver(
+            sourceProvider: StubKeyboardPreviewSourceProvider(
+                geometry: .ansi,
+                outputs: [
+                    .init(keyCode: UInt16(kVK_ANSI_C), modifiers: [], value: "c")
+                ]
+            )
+        )
+
+        XCTAssertEqual(resolver.shortcutKey(for: UInt16(kVK_ANSI_C)), .character("c"))
+        XCTAssertEqual(resolver.shortcutKey(for: UInt16(kVK_Space)), .space)
+        XCTAssertEqual(resolver.shortcutKey(for: UInt16(kVK_Delete)), .delete)
+        XCTAssertEqual(resolver.shortcutKey(for: UInt16(kVK_Return)), .return)
+        XCTAssertEqual(resolver.shortcutKey(for: UInt16(kVK_Tab)), .tab)
+        XCTAssertEqual(resolver.shortcutKey(for: UInt16(kVK_LeftArrow)), .leftArrow)
+        XCTAssertEqual(resolver.shortcutKey(for: UInt16(kVK_RightArrow)), .rightArrow)
+        XCTAssertEqual(resolver.shortcutKey(for: UInt16(kVK_UpArrow)), .upArrow)
+        XCTAssertEqual(resolver.shortcutKey(for: UInt16(kVK_DownArrow)), .downArrow)
+        XCTAssertNil(resolver.shortcutKey(for: UInt16(kVK_CapsLock)))
+    }
+
+    @MainActor
+    func test_keyboard_preview_view_reports_clicked_key_code() throws {
+        let resolver = KeyboardLayoutPreviewResolver(
+            sourceProvider: StubKeyboardPreviewSourceProvider(
+                geometry: .ansi,
+                outputs: [
+                    .init(keyCode: UInt16(kVK_ANSI_W), modifiers: [], value: "w")
+                ]
+            )
+        )
+        let view = KeyboardShortcutPreviewView(frame: NSRect(x: 0, y: 0, width: 600, height: 182))
+        view.model = resolver.resolve(shortcut: nil)
+
+        let keyBounds = try XCTUnwrap(view.keyBoundsForTesting(keyCode: UInt16(kVK_ANSI_W)))
+
+        XCTAssertEqual(
+            view.keyCodeForTesting(at: CGPoint(x: keyBounds.midX, y: keyBounds.midY)),
+            UInt16(kVK_ANSI_W)
+        )
+        XCTAssertNil(view.keyCodeForTesting(at: CGPoint(x: -1, y: -1)))
+    }
+
+    @MainActor
+    func test_keyboard_preview_view_expands_arrow_key_hit_targets() throws {
+        let resolver = KeyboardLayoutPreviewResolver(
+            sourceProvider: StubKeyboardPreviewSourceProvider(geometry: .ansi, outputs: [])
+        )
+        let view = KeyboardShortcutPreviewView(frame: NSRect(x: 0, y: 0, width: 600, height: 182))
+        view.model = resolver.resolve(shortcut: nil)
+
+        for keyCode in [UInt16(kVK_LeftArrow), UInt16(kVK_RightArrow), UInt16(kVK_UpArrow), UInt16(kVK_DownArrow)] {
+            let keyBounds = try XCTUnwrap(view.keyBoundsForTesting(keyCode: keyCode))
+            XCTAssertEqual(
+                view.keyCodeForTesting(at: CGPoint(x: keyBounds.midX, y: keyBounds.midY)),
+                keyCode
+            )
+        }
+
+        let leftArrowBounds = try XCTUnwrap(view.keyBoundsForTesting(keyCode: UInt16(kVK_LeftArrow)))
+        XCTAssertEqual(
+            view.keyCodeForTesting(at: CGPoint(x: leftArrowBounds.minX - 4, y: leftArrowBounds.midY)),
+            UInt16(kVK_LeftArrow)
+        )
     }
 
     func test_preview_resolver_places_up_arrow_above_bottom_arrow_cluster() throws {

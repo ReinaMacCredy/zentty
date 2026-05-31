@@ -2120,6 +2120,8 @@ final class AgentStatusSupportTests: XCTestCase {
 
         XCTAssertEqual(plan.executablePath, "/usr/local/bin/claude")
         XCTAssertEqual(plan.setEnvironment["ZENTTY_AGENT_TOOL"], "claude")
+        XCTAssertEqual(plan.setEnvironment["FORCE_COLOR"], "3")
+        XCTAssertEqual(plan.setEnvironment["COLORTERM"], "truecolor")
         XCTAssertEqual(plan.unsetEnvironment, ["CLAUDECODE"])
         XCTAssertTrue(plan.arguments.contains("--settings"))
         XCTAssertTrue(plan.arguments.contains("--session-id"))
@@ -2145,6 +2147,67 @@ final class AgentStatusSupportTests: XCTestCase {
         XCTAssertNotNil(hooks["PreCompact"])
         XCTAssertNotNil(hooks["PostCompact"])
         XCTAssertNotNil(hooks["TaskCompleted"])
+    }
+
+    func test_agent_launch_bootstrap_preserves_explicit_claude_color_environment() throws {
+        let runtimeDirectory = try makeTemporaryDirectory(named: "agent-launch-claude-color-runtime")
+        let request = AgentIPCRequest(
+            kind: .bootstrap,
+            arguments: ["hello"],
+            standardInput: nil,
+            environment: [
+                "ZENTTY_REAL_BINARY": "/usr/local/bin/claude",
+                "ZENTTY_CLI_BIN": "/tmp/zentty",
+                "FORCE_COLOR": "1",
+                "COLORTERM": "24bit",
+            ],
+            expectsResponse: true,
+            tool: .claude
+        )
+
+        let plan = try AgentLaunchBootstrap.makePlan(
+            request: request,
+            target: AgentIPCTarget(
+                windowID: WindowID("window-main"),
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-main")
+            ),
+            runtimeDirectoryURL: runtimeDirectory
+        )
+
+        XCTAssertNil(plan.setEnvironment["FORCE_COLOR"])
+        XCTAssertNil(plan.setEnvironment["COLORTERM"])
+        XCTAssertEqual(plan.setEnvironment["ZENTTY_AGENT_TOOL"], "claude")
+    }
+
+    func test_agent_launch_bootstrap_respects_no_color_for_claude() throws {
+        let runtimeDirectory = try makeTemporaryDirectory(named: "agent-launch-claude-no-color-runtime")
+        let request = AgentIPCRequest(
+            kind: .bootstrap,
+            arguments: ["hello"],
+            standardInput: nil,
+            environment: [
+                "ZENTTY_REAL_BINARY": "/usr/local/bin/claude",
+                "ZENTTY_CLI_BIN": "/tmp/zentty",
+                "NO_COLOR": "1",
+            ],
+            expectsResponse: true,
+            tool: .claude
+        )
+
+        let plan = try AgentLaunchBootstrap.makePlan(
+            request: request,
+            target: AgentIPCTarget(
+                windowID: WindowID("window-main"),
+                worklaneID: WorklaneID("worklane-main"),
+                paneID: PaneID("pane-main")
+            ),
+            runtimeDirectoryURL: runtimeDirectory
+        )
+
+        XCTAssertNil(plan.setEnvironment["FORCE_COLOR"])
+        XCTAssertNil(plan.setEnvironment["COLORTERM"])
+        XCTAssertEqual(plan.setEnvironment["ZENTTY_AGENT_TOOL"], "claude")
     }
 
     func test_agent_launch_bootstrap_builds_codex_hook_flags_and_notify_override() throws {
