@@ -1736,6 +1736,121 @@ final class PaneStripViewTests: AppKitTestCase {
     }
 
     @MainActor
+    func test_animated_width_resize_prepares_terminal_to_cover_target_width_before_suspension() throws {
+        let adapterFactory = TerminalAdapterFactorySpy()
+        let runtimeRegistry = PaneRuntimeRegistry(adapterFactory: adapterFactory.makeAdapter(for:))
+        let paneStripView = PaneStripView(
+            frame: NSRect(x: 0, y: 0, width: 1200, height: 680),
+            runtimeRegistry: runtimeRegistry
+        )
+        hostInVisibleWindow(paneStripView)
+        let initialState = PaneStripState(
+            columns: [
+                PaneColumnState(
+                    id: PaneColumnID("left"),
+                    panes: [PaneState(id: PaneID("shell"), title: "shell")],
+                    width: 520,
+                    focusedPaneID: PaneID("shell"),
+                    lastFocusedPaneID: PaneID("shell")
+                ),
+                PaneColumnState(
+                    id: PaneColumnID("right"),
+                    panes: [PaneState(id: PaneID("editor"), title: "editor")],
+                    width: 660,
+                    focusedPaneID: PaneID("editor"),
+                    lastFocusedPaneID: PaneID("editor")
+                )
+            ],
+            focusedColumnID: PaneColumnID("left")
+        )
+        let resizedState = PaneStripState(
+            columns: [
+                PaneColumnState(
+                    id: PaneColumnID("left"),
+                    panes: [PaneState(id: PaneID("shell"), title: "shell")],
+                    width: 760,
+                    focusedPaneID: PaneID("shell"),
+                    lastFocusedPaneID: PaneID("shell")
+                ),
+                PaneColumnState(
+                    id: PaneColumnID("right"),
+                    panes: [PaneState(id: PaneID("editor"), title: "editor")],
+                    width: 420,
+                    focusedPaneID: PaneID("editor"),
+                    lastFocusedPaneID: PaneID("editor")
+                )
+            ],
+            focusedColumnID: PaneColumnID("left")
+        )
+
+        paneStripView.render(initialState)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        paneStripView.render(resizedState)
+
+        let shellAdapter = try XCTUnwrap(adapterFactory.adapter(for: PaneID("shell")))
+        XCTAssertEqual(shellAdapter.terminalView.viewportSyncSuspensionUpdates.last, true)
+        let suspendedSize = try XCTUnwrap(shellAdapter.terminalView.viewportSyncSuspensionBounds.last)
+        XCTAssertEqual(suspendedSize.width, 760, accuracy: 0.5)
+    }
+
+    @MainActor
+    func test_animated_height_resize_prepares_terminal_to_cover_target_height_before_suspension() throws {
+        let adapterFactory = TerminalAdapterFactorySpy()
+        let runtimeRegistry = PaneRuntimeRegistry(adapterFactory: adapterFactory.makeAdapter(for:))
+        let paneStripView = PaneStripView(
+            frame: NSRect(x: 0, y: 0, width: 1200, height: 680),
+            runtimeRegistry: runtimeRegistry
+        )
+        hostInVisibleWindow(paneStripView)
+        let initialState = PaneStripState(
+            columns: [
+                PaneColumnState(
+                    id: PaneColumnID("stack"),
+                    panes: [
+                        PaneState(id: PaneID("top"), title: "top"),
+                        PaneState(id: PaneID("bottom"), title: "bottom"),
+                    ],
+                    width: 760,
+                    paneHeights: [240, 400],
+                    focusedPaneID: PaneID("top"),
+                    lastFocusedPaneID: PaneID("top")
+                )
+            ],
+            focusedColumnID: PaneColumnID("stack")
+        )
+        let resizedState = PaneStripState(
+            columns: [
+                PaneColumnState(
+                    id: PaneColumnID("stack"),
+                    panes: [
+                        PaneState(id: PaneID("top"), title: "top"),
+                        PaneState(id: PaneID("bottom"), title: "bottom"),
+                    ],
+                    width: 760,
+                    paneHeights: [420, 220],
+                    focusedPaneID: PaneID("top"),
+                    lastFocusedPaneID: PaneID("top")
+                )
+            ],
+            focusedColumnID: PaneColumnID("stack")
+        )
+
+        paneStripView.render(initialState)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        paneStripView.render(resizedState)
+
+        let topAdapter = try XCTUnwrap(adapterFactory.adapter(for: PaneID("top")))
+        XCTAssertEqual(topAdapter.terminalView.viewportSyncSuspensionUpdates.last, true)
+        let suspendedSize = try XCTUnwrap(topAdapter.terminalView.viewportSyncSuspensionBounds.last)
+        let topPane = try XCTUnwrap(
+            paneStripView.descendantPaneViews().first(where: { $0.paneID == PaneID("top") })
+        )
+        XCTAssertEqual(suspendedSize.height, topPane.frame.height, accuracy: 0.5)
+    }
+
+    @MainActor
     func test_single_pane_keeps_width_when_split_adds_new_column() throws {
         let paneStripView = makePaneStripView()
         paneStripView.leadingVisibleInset = sidebarInset

@@ -335,6 +335,7 @@ final class PaneContainerView: NSView {
     private var isZoomedOutBackdropVisible = false
     private var currentWorklaneColor: WorklaneColor?
     private var lastRenderedSearchState = PaneSearchState()
+    private var terminalResizePreview: TerminalResizePreview?
     var rightPaneCommandPresentationProvider: (() -> PaneRightCommandPresentation)?
     var moveToWorklaneCatalogProvider: ((PaneID) -> WorklaneDestinationCatalog?)?
     var restoredRerunnableCommandProvider: ((PaneID) -> String?)?
@@ -366,6 +367,17 @@ final class PaneContainerView: NSView {
     }
     var onMetadataDidChange: ((TerminalMetadata) -> Void)? {
         didSet {}
+    }
+
+    private struct TerminalResizePreview {
+        enum HorizontalAnchor {
+            case leading
+            case trailing
+        }
+
+        let size: CGSize
+        let horizontalAnchor: HorizontalAnchor
+        let verticalGravity: TerminalAnchorView.Gravity
     }
 
     init(
@@ -783,6 +795,36 @@ final class PaneContainerView: NSView {
         syncFramesForCurrentBounds()
         guard ownsTerminalHostView else { return }
         terminalHostView.forceViewportSync()
+    }
+
+    func beginTerminalResizePreview(from previousFrame: CGRect, to targetFrame: CGRect) {
+        guard ownsTerminalHostView else { return }
+        let previewSize = CGSize(
+            width: max(previousFrame.width, targetFrame.width, bounds.width),
+            height: max(previousFrame.height, targetFrame.height, bounds.height)
+        )
+        guard previewSize.width > 0, previewSize.height > 0 else { return }
+
+        terminalResizePreview = TerminalResizePreview(
+            size: previewSize,
+            horizontalAnchor: Self.horizontalAnchor(from: previousFrame, to: targetFrame),
+            verticalGravity: Self.verticalGravity(from: previousFrame, to: targetFrame)
+        )
+        terminalAnchorView.autoresizingMask = []
+        terminalAnchorView.gravity = terminalResizePreview?.verticalGravity ?? .top
+        syncFramesForCurrentBounds()
+        terminalHostView.forceViewportSync()
+    }
+
+    func endTerminalResizePreview() {
+        guard terminalResizePreview != nil else {
+            return
+        }
+
+        terminalResizePreview = nil
+        terminalAnchorView.autoresizingMask = [.width, .height]
+        terminalAnchorView.gravity = .top
+        syncFramesForCurrentBounds()
     }
 
     func setZoomedOutBackdropVisible(
@@ -1441,13 +1483,52 @@ final class PaneContainerView: NSView {
 
     private func syncFramesForCurrentBounds() {
         contentClipView.frame = bounds
-        terminalAnchorView.frame = contentClipView.bounds
+        terminalAnchorView.frame = terminalResizePreviewFrame(in: contentClipView.bounds)
         guard ownsTerminalHostView else { return }
         if !isTerminalAnimationFrozen {
             terminalHostView.frame = terminalAnchorView.bounds
         }
         updateTerminalViewportDiagnosticsContext()
         TerminalViewportDiagnostics.shared.record(.paneContainerFrameSync, context: viewportDiagnosticsContext())
+    }
+
+    private func terminalResizePreviewFrame(in clippingBounds: CGRect) -> CGRect {
+        guard let terminalResizePreview else {
+            return clippingBounds
+        }
+
+        let originX: CGFloat = switch terminalResizePreview.horizontalAnchor {
+        case .leading:
+            clippingBounds.minX
+        case .trailing:
+            clippingBounds.maxX - terminalResizePreview.size.width
+        }
+        let originY: CGFloat = switch terminalResizePreview.verticalGravity {
+        case .top:
+            clippingBounds.maxY - terminalResizePreview.size.height
+        case .bottom:
+            clippingBounds.minY
+        }
+
+        return CGRect(origin: CGPoint(x: originX, y: originY), size: terminalResizePreview.size)
+    }
+
+    private static func horizontalAnchor(
+        from previousFrame: CGRect,
+        to targetFrame: CGRect
+    ) -> TerminalResizePreview.HorizontalAnchor {
+        let leadingDelta = abs(previousFrame.minX - targetFrame.minX)
+        let trailingDelta = abs(previousFrame.maxX - targetFrame.maxX)
+        return trailingDelta < leadingDelta ? .trailing : .leading
+    }
+
+    private static func verticalGravity(
+        from previousFrame: CGRect,
+        to targetFrame: CGRect
+    ) -> TerminalAnchorView.Gravity {
+        let bottomDelta = abs(previousFrame.minY - targetFrame.minY)
+        let topDelta = abs(previousFrame.maxY - targetFrame.maxY)
+        return topDelta <= bottomDelta ? .top : .bottom
     }
 
     private func updateTerminalViewportDiagnosticsContext(isViewportSyncSuspended: Bool? = nil) {

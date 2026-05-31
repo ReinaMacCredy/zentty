@@ -603,6 +603,10 @@ final class PaneStripView: NSView {
         if shouldAnimate, needsTerminalRedrawAfterRender {
             suspendedPaneIDs.formUnion(presentation.panes.map(\.paneID))
         }
+        let shouldUseTerminalResizePreview = shouldAnimate
+            && needsTerminalRedrawAfterRender
+            && insertionTransition == nil
+            && removalTransition == nil
         reconcilePaneViews(
             with: state,
             presentation: presentation,
@@ -612,6 +616,16 @@ final class PaneStripView: NSView {
         )
         if !isZoomedOut {
             applyTerminalAnimationFreeze(to: frozenPaneIDs, insertionTransition: insertionTransition)
+            if shouldUseTerminalResizePreview {
+                beginTerminalResizePreviews(
+                    from: previousPresentation,
+                    previousOffset: previousOffset,
+                    to: presentation,
+                    targetOffset: targetOffset
+                )
+            } else {
+                clearTerminalResizePreviews()
+            }
             applyViewportSyncSuspension(to: suspendedPaneIDs)
         }
 
@@ -668,6 +682,7 @@ final class PaneStripView: NSView {
             updates()
             if !isZoomedOut {
                 applyTerminalAnimationFreeze(to: [])
+                clearTerminalResizePreviews()
             }
             flushViewportLayoutIfNeeded()
             if forceViewportLayoutBeforeViewportSync || !newlyAttachedPaneIDs.isEmpty {
@@ -834,10 +849,12 @@ final class PaneStripView: NSView {
             )
             reconcileDividerViews(with: presentation, offset: targetOffset)
             paneViews.values.forEach { $0.syncInsetBorderNow() }
+            clearTerminalResizePreviews()
         }
 
         if !isZoomedOut {
             applyTerminalAnimationFreeze(to: [])
+            clearTerminalResizePreviews()
         }
         flushViewportLayoutIfNeeded()
         viewportView.layoutSubtreeIfNeeded()
@@ -1122,6 +1139,47 @@ final class PaneStripView: NSView {
                 paneView.endVerticalFreeze()
             }
         }
+    }
+
+    private func beginTerminalResizePreviews(
+        from previousPresentation: StripPresentation?,
+        previousOffset: CGFloat,
+        to presentation: StripPresentation,
+        targetOffset: CGFloat
+    ) {
+        guard let previousPresentation else {
+            return
+        }
+
+        let previousFramesByPaneID = Dictionary(
+            uniqueKeysWithValues: previousPresentation.panes.map { panePresentation in
+                (
+                    panePresentation.paneID,
+                    panePresentation.frame.offsetBy(dx: -resolvedOffset(previousOffset), dy: 0)
+                )
+            }
+        )
+
+        for panePresentation in presentation.panes {
+            guard
+                let previousFrame = previousFramesByPaneID[panePresentation.paneID],
+                let paneView = paneViews[panePresentation.paneID],
+                abs(previousFrame.width - panePresentation.frame.width) > 0.5
+                    || abs(previousFrame.height - panePresentation.frame.height) > 0.5
+            else {
+                continue
+            }
+
+            let targetFrame = panePresentation.frame.offsetBy(
+                dx: -resolvedOffset(targetOffset),
+                dy: 0
+            )
+            paneView.beginTerminalResizePreview(from: previousFrame, to: targetFrame)
+        }
+    }
+
+    private func clearTerminalResizePreviews() {
+        paneViews.values.forEach { $0.endTerminalResizePreview() }
     }
 
     private func applyViewportSyncSuspension(to suspendedPaneIDs: Set<PaneID>) {
