@@ -191,7 +191,62 @@ struct KeyboardLayoutPreviewResolver {
     func resolve(shortcut: KeyboardShortcut?) -> KeyboardShortcutPreviewModel {
         let geometry = sourceProvider.currentGeometry()
         let templateRows = KeyboardPreviewTemplate.rows(for: geometry)
-        let rows = templateRows.map { row in
+        let primaryHighlightedKeyCode = shortcut.flatMap { primaryKeyCode(for: $0, templateRows: templateRows) }
+        let modifierHighlightStylesByKeyCode = shortcut.map {
+            modifierHighlightStyles(
+                for: $0.modifiers,
+                primaryHighlightedKeyCode: primaryHighlightedKeyCode,
+                templateRows: templateRows
+            )
+        } ?? [:]
+
+        return KeyboardShortcutPreviewModel(
+            geometry: geometry,
+            rows: rows(from: templateRows),
+            primaryHighlightedKeyCode: primaryHighlightedKeyCode,
+            modifierHighlightStylesByKeyCode: modifierHighlightStylesByKeyCode
+        )
+    }
+
+    func resolve(modifiers: Set<KeyboardModifier>) -> KeyboardShortcutPreviewModel {
+        let geometry = sourceProvider.currentGeometry()
+        let templateRows = KeyboardPreviewTemplate.rows(for: geometry)
+        return KeyboardShortcutPreviewModel(
+            geometry: geometry,
+            rows: rows(from: templateRows),
+            primaryHighlightedKeyCode: nil,
+            modifierHighlightStylesByKeyCode: modifierHighlightStyles(
+                for: modifiers,
+                primaryHighlightedKeyCode: nil,
+                templateRows: templateRows
+            )
+        )
+    }
+
+    func shortcutKey(for keyCode: UInt16) -> KeyboardShortcutKey? {
+        if let specialKey = KeyboardShortcutKey.from(keyCode: keyCode) {
+            return specialKey
+        }
+
+        guard let output = sourceProvider.output(for: keyCode, modifiers: []),
+              output.count == 1 else {
+            return nil
+        }
+        return .character(output.lowercased())
+    }
+
+    func modifier(forKeyCode keyCode: UInt16) -> KeyboardModifier? {
+        if let pair = duplicatedModifierPairs.first(where: {
+            $0.leftKeyCode == keyCode || $0.rightKeyCode == keyCode
+        }) {
+            return pair.modifier
+        }
+
+        return KeyboardModifier.allCases.first { singleSidedModifierKeyCode(for: $0) == keyCode }
+    }
+
+    private func rows(from templateRows: [KeyboardPreviewTemplateRow]) -> [KeyboardPreviewRow] {
+        templateRows.map { row in
             KeyboardPreviewRow(
                 alignment: row.alignment,
                 slots: row.slots.map { templateKey in
@@ -204,22 +259,6 @@ struct KeyboardLayoutPreviewResolver {
                 }
             )
         }
-
-        let primaryHighlightedKeyCode = shortcut.flatMap { primaryKeyCode(for: $0, templateRows: templateRows) }
-        let modifierHighlightStylesByKeyCode = shortcut.map {
-            modifierHighlightStyles(
-                for: $0,
-                primaryHighlightedKeyCode: primaryHighlightedKeyCode,
-                templateRows: templateRows
-            )
-        } ?? [:]
-
-        return KeyboardShortcutPreviewModel(
-            geometry: geometry,
-            rows: rows,
-            primaryHighlightedKeyCode: primaryHighlightedKeyCode,
-            modifierHighlightStylesByKeyCode: modifierHighlightStylesByKeyCode
-        )
     }
 
     private func label(for templateKey: KeyboardPreviewTemplateKey) -> String {
@@ -237,37 +276,32 @@ struct KeyboardLayoutPreviewResolver {
         for shortcut: KeyboardShortcut,
         templateRows: [KeyboardPreviewTemplateRow]
     ) -> UInt16? {
-        switch shortcut.key {
-        case .tab:
-            return UInt16(kVK_Tab)
-        case .leftArrow:
-            return UInt16(kVK_LeftArrow)
-        case .rightArrow:
-            return UInt16(kVK_RightArrow)
-        case .upArrow:
-            return UInt16(kVK_UpArrow)
-        case .downArrow:
-            return UInt16(kVK_DownArrow)
-        case .character(let value):
-            let translatedKeys = templateRows
-                .flatMap(\.slots)
-                .filter { $0.label.isTranslated }
-            let characterGeneratingModifiers = shortcut.modifiers.intersection([.shift, .option])
+        if let primaryKeyCode = shortcut.key.primaryKeyCode {
+            return primaryKeyCode
+        }
 
-            if let keyCode = matchingKeyCode(
-                for: value,
-                modifiers: characterGeneratingModifiers,
-                templateKeys: translatedKeys
-            ) {
-                return keyCode
-            }
-
-            if characterGeneratingModifiers.isEmpty == false {
-                return matchingKeyCode(for: value, modifiers: [], templateKeys: translatedKeys)
-            }
-
+        guard case .character(let value) = shortcut.key else {
             return nil
         }
+
+        let translatedKeys = templateRows
+            .flatMap(\.slots)
+            .filter { $0.label.isTranslated }
+        let characterGeneratingModifiers = shortcut.modifiers.intersection([.shift, .option])
+
+        if let keyCode = matchingKeyCode(
+            for: value,
+            modifiers: characterGeneratingModifiers,
+            templateKeys: translatedKeys
+        ) {
+            return keyCode
+        }
+
+        if characterGeneratingModifiers.isEmpty == false {
+            return matchingKeyCode(for: value, modifiers: [], templateKeys: translatedKeys)
+        }
+
+        return nil
     }
 
     private func matchingKeyCode(
@@ -283,14 +317,14 @@ struct KeyboardLayoutPreviewResolver {
     }
 
     private func modifierHighlightStyles(
-        for shortcut: KeyboardShortcut,
+        for modifiers: Set<KeyboardModifier>,
         primaryHighlightedKeyCode: UInt16?,
         templateRows: [KeyboardPreviewTemplateRow]
     ) -> [UInt16: KeyboardPreviewHighlightStyle] {
         var styles: [UInt16: KeyboardPreviewHighlightStyle] = [:]
         let duplicatedModifiers = Set(duplicatedModifierPairs.map(\.modifier))
 
-        for pair in duplicatedModifierPairs where shortcut.modifiers.contains(pair.modifier) {
+        for pair in duplicatedModifierPairs where modifiers.contains(pair.modifier) {
             let pairStyles = modifierPairHighlightStyles(
                 for: pair,
                 primaryHighlightedKeyCode: primaryHighlightedKeyCode,
@@ -300,7 +334,7 @@ struct KeyboardLayoutPreviewResolver {
             styles[pair.rightKeyCode] = pairStyles.right
         }
 
-        for modifier in shortcut.modifiers.subtracting(duplicatedModifiers) {
+        for modifier in modifiers.subtracting(duplicatedModifiers) {
             if let keyCode = singleSidedModifierKeyCode(for: modifier) {
                 styles[keyCode] = .primary
             }
@@ -330,8 +364,8 @@ struct KeyboardLayoutPreviewResolver {
             return (.primary, .primary)
         }
 
-        let leftDistance = squaredDistance(from: leftCenter, to: primaryCenter)
-        let rightDistance = squaredDistance(from: rightCenter, to: primaryCenter)
+        let leftDistance = leftCenter.squaredDistance(to: primaryCenter)
+        let rightDistance = rightCenter.squaredDistance(to: primaryCenter)
 
         if abs(leftDistance - rightDistance) <= 0.001 {
             return (.primary, .secondary)
@@ -387,17 +421,19 @@ struct KeyboardLayoutPreviewResolver {
         return widths + (CGFloat(adjacencyCount) * KeyboardPreviewLayoutMetrics.interKeySpacingUnits)
     }
 
-    private func squaredDistance(from first: CGPoint, to second: CGPoint) -> CGFloat {
-        let deltaX = first.x - second.x
-        let deltaY = first.y - second.y
-        return (deltaX * deltaX) + (deltaY * deltaY)
-    }
-
     private let duplicatedModifierPairs: [DuplicatedModifierPair] = [
         .init(modifier: .command, leftKeyCode: UInt16(kVK_Command), rightKeyCode: UInt16(kVK_RightCommand)),
         .init(modifier: .option, leftKeyCode: UInt16(kVK_Option), rightKeyCode: UInt16(kVK_RightOption)),
         .init(modifier: .shift, leftKeyCode: UInt16(kVK_Shift), rightKeyCode: UInt16(kVK_RightShift)),
     ]
+}
+
+extension CGPoint {
+    func squaredDistance(to other: CGPoint) -> CGFloat {
+        let deltaX = x - other.x
+        let deltaY = y - other.y
+        return (deltaX * deltaX) + (deltaY * deltaY)
+    }
 }
 
 private struct DuplicatedModifierPair {

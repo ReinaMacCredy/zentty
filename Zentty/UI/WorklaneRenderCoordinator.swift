@@ -163,10 +163,6 @@ final class WorklaneRenderCoordinator {
         environment?.renderTheme ?? ZenttyTheme.fallback(for: nil)
     }
 
-    private var currentPaneSettings: AppConfig.Panes {
-        configStore?.current.panes ?? .default
-    }
-
     private var activePaneID: PaneID? {
         worklaneStore.activeWorklane?.paneStripState.focusedPaneID
     }
@@ -316,7 +312,11 @@ final class WorklaneRenderCoordinator {
             let effectiveInset = leadingVisibleInsetOverride
                 ?? environment?.renderLeadingInset(sidebarWidth: sidebarWidth)
                 ?? 0
-            let paneSettings = currentPaneSettings
+            let config = configStore?.current ?? .default
+            let paneSettings = config.panes
+            let paneLayout = config.paneLayout
+            let focusFollowsMouseEnabled = paneSettings.focusFollowsMouse
+                && paneLayout.allowsFocusFollowsMouse
 
             terminalDiagnostics.recordRender(.canvas, activePaneID: worklane.paneStripState.focusedPaneID)
             let teamAnchor = worklaneStore.teamAnchorByWorklaneID[worklane.id]
@@ -334,6 +334,8 @@ final class WorklaneRenderCoordinator {
                 showsPaneLabels: paneSettings.showLabels,
                 inactivePaneOpacity: paneSettings.inactiveOpacity,
                 smoothScrollingEnabled: paneSettings.smoothScrollingEnabled,
+                focusFollowsMouseEnabled: focusFollowsMouseEnabled,
+                focusFollowsMouseDelay: paneSettings.focusFollowsMouseDelay,
                 worklaneColor: worklane.color,
                 theme: currentTheme,
                 leadingVisibleInset: effectiveInset,

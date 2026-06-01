@@ -39,8 +39,9 @@ final class ScrollSwitchGestureHandler {
     // MARK: - Public API
 
     /// Processes a scroll event and returns whether a pane switch should occur.
-    /// Returns `.none` if the event is not a horizontal pane-switch gesture.
-    /// When `.none` is returned, the caller should forward the event to `super`.
+    /// Returns `.consumed` for owned horizontal gesture events that have not yet
+    /// crossed the switch threshold. Returns `.none` only when the event is not
+    /// a pane-switch gesture, letting the caller forward it to `super`.
     func handle(scrollEvent event: NSEvent) -> SwitchResult {
         if event.hasPreciseScrollingDeltas {
             return handlePreciseScroll(event)
@@ -82,6 +83,7 @@ final class ScrollSwitchGestureHandler {
                     || hasTriggeredScrollSwitchInGesture
                     || requiresFreshPreciseGestureStart
                 resetState(requiresFreshPreciseGestureStart: hadActiveGesture)
+                return hadActiveGesture ? .consumed : .none
             }
             return activeScrollSwitchAxis == nil ? .none : .consumed
         }
@@ -91,7 +93,7 @@ final class ScrollSwitchGestureHandler {
                 if shouldEndGesture {
                     resetState(requiresFreshPreciseGestureStart: true)
                 }
-                return .none
+                return .consumed
             }
 
             activeScrollSwitchAxis = axis
@@ -135,7 +137,7 @@ final class ScrollSwitchGestureHandler {
             )
         }
 
-        return result
+        return result == .none ? .consumed : result
     }
 
     private func handleWheelScroll(_ event: NSEvent) -> SwitchResult {

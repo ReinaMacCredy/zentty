@@ -12,7 +12,7 @@ final class ScrollSwitchGestureHandlerTests: XCTestCase {
 
     // MARK: - Basic threshold tests
 
-    func test_small_horizontal_scroll_returns_none() {
+    func test_small_horizontal_scroll_is_consumed() {
         // With precise scrolling, threshold is 40. A delta of 5 should not trigger.
         let event = MockScrollEvent(
             scrollingDeltaX: 5,
@@ -26,7 +26,7 @@ final class ScrollSwitchGestureHandlerTests: XCTestCase {
 
         let result = handler.handle(scrollEvent: event.asNSEvent)
 
-        XCTAssertEqual(result, .none)
+        XCTAssertEqual(result, .consumed)
     }
 
     func test_large_horizontal_scroll_right_returns_switchRight() {
@@ -192,7 +192,7 @@ final class ScrollSwitchGestureHandlerTests: XCTestCase {
 
         // Another partial should not reach threshold since state was reset
         let result = handler.handle(scrollEvent: partial.asNSEvent)
-        XCTAssertEqual(result, .none)
+        XCTAssertEqual(result, .consumed)
     }
 
     func test_vertical_scroll_without_shift_returns_none() {
@@ -253,8 +253,8 @@ final class ScrollSwitchGestureHandlerTests: XCTestCase {
         )
         let result = handler.handle(scrollEvent: began.asNSEvent)
 
-        // 15 alone is below 40 threshold
-        XCTAssertEqual(result, .none)
+        // 15 alone is below 40 threshold, but is still owned by pane switching.
+        XCTAssertEqual(result, .consumed)
         let finishingChange = MockScrollEvent(
             scrollingDeltaX: 50,
             scrollingDeltaY: 0,
@@ -275,7 +275,7 @@ final class ScrollSwitchGestureHandlerTests: XCTestCase {
             isDirectionInvertedFromDevice: false,
             modifierFlags: []
         )
-        XCTAssertEqual(handler.handle(scrollEvent: ended.asNSEvent), .none)
+        XCTAssertEqual(handler.handle(scrollEvent: ended.asNSEvent), .consumed)
 
         let changedWithoutBegan = MockScrollEvent(
             scrollingDeltaX: 50,
@@ -287,7 +287,7 @@ final class ScrollSwitchGestureHandlerTests: XCTestCase {
             modifierFlags: []
         )
 
-        XCTAssertEqual(handler.handle(scrollEvent: changedWithoutBegan.asNSEvent), .none)
+        XCTAssertEqual(handler.handle(scrollEvent: changedWithoutBegan.asNSEvent), .consumed)
     }
 }
 

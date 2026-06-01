@@ -114,6 +114,8 @@ final class SettingsWindowControllerTests: XCTestCase {
             config.panes.showLabels = false
             config.panes.showProjectIcons = false
             config.panes.inactiveOpacity = 0.85
+            config.panes.focusFollowsMouse = true
+            config.panes.focusFollowsMouseDelay = .immediate
             config.paneLayout.rightSplitBehaviorMode = .alwaysSplit
             config.paneLayout.visibleSplitWindowWidth = .px1920
         }
@@ -138,8 +140,80 @@ final class SettingsWindowControllerTests: XCTestCase {
         XCTAssertFalse(panesController.showsPaneLabelsForTesting)
         XCTAssertFalse(panesController.showsProjectIconsForTesting)
         XCTAssertEqual(panesController.inactivePaneOpacityPercentageForTesting, 85)
+        XCTAssertTrue(panesController.focusFollowsMouseForTesting)
+        XCTAssertEqual(panesController.focusFollowsMouseDelayForTesting, .immediate)
+        XCTAssertTrue(panesController.focusFollowsMouseSwitchForTesting.isEnabled)
+        XCTAssertTrue(panesController.focusFollowsMouseDelayControlForTesting.isEnabled)
         XCTAssertEqual(panesController.selectedRightSplitBehaviorModeForTesting, .alwaysSplit)
         XCTAssertEqual(panesController.visibleSplitWindowWidthForTesting, .px1920)
+    }
+
+    func test_panes_section_keeps_focus_follows_mouse_visible_but_disabled_for_always_add() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
+        )
+        try store.update { config in
+            config.panes.focusFollowsMouse = true
+            config.panes.focusFollowsMouseDelay = .short
+            config.paneLayout.rightSplitBehaviorMode = .alwaysAdd
+        }
+        let controller = SettingsWindowController(
+            configStore: store,
+            initialSection: .paneLayout
+        )
+        addTeardownBlock { controller.window?.close() }
+
+        controller.show(section: .paneLayout, sender: nil)
+        waitForLayout()
+
+        let contentController = try XCTUnwrap(
+            controller.window?.contentViewController as? SettingsViewController
+        )
+        let panesController = try XCTUnwrap(
+            contentController.currentSectionViewController as? PaneLayoutSettingsSectionViewController
+        )
+
+        XCTAssertNotNil(panesController.view.firstDescendantLabel(stringValue: "Focus follows mouse"))
+        XCTAssertTrue(panesController.focusFollowsMouseForTesting)
+        XCTAssertFalse(panesController.focusFollowsMouseSwitchForTesting.isEnabled)
+        XCTAssertFalse(panesController.focusFollowsMouseDelayControlForTesting.isEnabled)
+    }
+
+    func test_panes_section_focus_follows_mouse_controls_update_config() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
+        )
+        let controller = SettingsWindowController(
+            configStore: store,
+            initialSection: .paneLayout
+        )
+        addTeardownBlock { controller.window?.close() }
+
+        controller.show(section: .paneLayout, sender: nil)
+        waitForLayout()
+
+        let contentController = try XCTUnwrap(
+            controller.window?.contentViewController as? SettingsViewController
+        )
+        let panesController = try XCTUnwrap(
+            contentController.currentSectionViewController as? PaneLayoutSettingsSectionViewController
+        )
+        let focusSwitch = panesController.focusFollowsMouseSwitchForTesting
+        let delayControl = panesController.focusFollowsMouseDelayControlForTesting
+
+        focusSwitch.state = .on
+        XCTAssertTrue(
+            NSApp.sendAction(try XCTUnwrap(focusSwitch.action), to: focusSwitch.target, from: focusSwitch)
+        )
+        delayControl.selectedSegment = try XCTUnwrap(
+            AppConfig.Panes.FocusFollowsMouseDelay.allCases.firstIndex(of: .immediate)
+        )
+        XCTAssertTrue(
+            NSApp.sendAction(try XCTUnwrap(delayControl.action), to: delayControl.target, from: delayControl)
+        )
+
+        XCTAssertTrue(store.current.panes.focusFollowsMouse)
+        XCTAssertEqual(store.current.panes.focusFollowsMouseDelay, .immediate)
     }
 
     func test_panes_section_describes_adaptive_split_threshold_slider_in_points() throws {
@@ -1145,6 +1219,133 @@ final class SettingsWindowControllerTests: XCTestCase {
 
         XCTAssertNil(shortcutsController.previewPrimaryHighlightedKeyCodeForTesting)
         XCTAssertTrue(shortcutsController.previewHighlightedModifierKeyCodesForTesting.isEmpty)
+    }
+
+    func test_shortcuts_preview_clicks_can_record_shortcut() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
+        )
+        let controller = SettingsWindowController(
+            configStore: store,
+            initialSection: .shortcuts
+        )
+        addTeardownBlock { controller.window?.close() }
+
+        controller.show(section: .shortcuts, sender: nil)
+        waitForLayout()
+
+        let contentController = try XCTUnwrap(
+            controller.window?.contentViewController as? SettingsViewController
+        )
+        let shortcutsController = try XCTUnwrap(
+            contentController.currentSectionViewController as? ShortcutsSettingsSectionViewController
+        )
+
+        shortcutsController.selectCommandForTesting(.copyRaw)
+        shortcutsController.beginRecordingSelectedCommandForTesting()
+        shortcutsController.clickPreviewKeyForTesting(UInt16(kVK_Command))
+
+        XCTAssertEqual(
+            shortcutsController.previewHighlightedModifierKeyCodesForTesting,
+            [UInt16(kVK_Command), UInt16(kVK_RightCommand)]
+        )
+
+        shortcutsController.clickPreviewKeyForTesting(UInt16(kVK_ANSI_C))
+
+        XCTAssertEqual(shortcutsController.displayString(for: .copyRaw), "⌘C")
+        XCTAssertEqual(shortcutsController.previewPrimaryHighlightedKeyCodeForTesting, UInt16(kVK_ANSI_C))
+    }
+
+    func test_shortcuts_preview_clicks_can_record_arrow_and_special_keys() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
+        )
+        let controller = SettingsWindowController(
+            configStore: store,
+            initialSection: .shortcuts
+        )
+        addTeardownBlock { controller.window?.close() }
+
+        controller.show(section: .shortcuts, sender: nil)
+        waitForLayout()
+
+        let contentController = try XCTUnwrap(
+            controller.window?.contentViewController as? SettingsViewController
+        )
+        let shortcutsController = try XCTUnwrap(
+            contentController.currentSectionViewController as? ShortcutsSettingsSectionViewController
+        )
+
+        shortcutsController.selectCommandForTesting(.closeWindow)
+        shortcutsController.beginRecordingSelectedCommandForTesting()
+        shortcutsController.clickPreviewKeyForTesting(UInt16(kVK_Control))
+        shortcutsController.clickPreviewKeyForTesting(UInt16(kVK_Option))
+        shortcutsController.clickPreviewKeyForTesting(UInt16(kVK_Command))
+        shortcutsController.clickPreviewKeyForTesting(UInt16(kVK_UpArrow))
+
+        XCTAssertEqual(shortcutsController.displayString(for: .closeWindow), "⌃⌥⌘↑")
+        XCTAssertEqual(shortcutsController.previewPrimaryHighlightedKeyCodeForTesting, UInt16(kVK_UpArrow))
+
+        shortcutsController.selectCommandForTesting(.reloadConfig)
+        shortcutsController.beginRecordingSelectedCommandForTesting()
+        shortcutsController.clickPreviewKeyForTesting(UInt16(kVK_Command))
+        shortcutsController.clickPreviewKeyForTesting(UInt16(kVK_Space))
+
+        XCTAssertEqual(shortcutsController.displayString(for: .reloadConfig), "⌘Space")
+        XCTAssertEqual(shortcutsController.previewPrimaryHighlightedKeyCodeForTesting, UInt16(kVK_Space))
+
+        shortcutsController.selectCommandForTesting(.openBranchOnRemote)
+        shortcutsController.beginRecordingSelectedCommandForTesting()
+        shortcutsController.clickPreviewKeyForTesting(UInt16(kVK_Command))
+        shortcutsController.clickPreviewKeyForTesting(UInt16(kVK_Delete))
+
+        XCTAssertEqual(shortcutsController.displayString(for: .openBranchOnRemote), "⌘Delete")
+        XCTAssertEqual(shortcutsController.previewPrimaryHighlightedKeyCodeForTesting, UInt16(kVK_Delete))
+
+        shortcutsController.selectCommandForTesting(.openWithSelectedApp)
+        shortcutsController.beginRecordingSelectedCommandForTesting()
+        shortcutsController.clickPreviewKeyForTesting(UInt16(kVK_Shift))
+        shortcutsController.clickPreviewKeyForTesting(UInt16(kVK_Command))
+        shortcutsController.clickPreviewKeyForTesting(UInt16(kVK_Return))
+
+        XCTAssertEqual(shortcutsController.displayString(for: .openWithSelectedApp), "⇧⌘Return")
+        XCTAssertEqual(shortcutsController.previewPrimaryHighlightedKeyCodeForTesting, UInt16(kVK_Return))
+    }
+
+    func test_shortcuts_preview_updates_while_physical_modifiers_are_held() throws {
+        let store = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.SettingsWindow")
+        )
+        let controller = SettingsWindowController(
+            configStore: store,
+            initialSection: .shortcuts
+        )
+        addTeardownBlock { controller.window?.close() }
+
+        controller.show(section: .shortcuts, sender: nil)
+        waitForLayout()
+
+        let contentController = try XCTUnwrap(
+            controller.window?.contentViewController as? SettingsViewController
+        )
+        let shortcutsController = try XCTUnwrap(
+            contentController.currentSectionViewController as? ShortcutsSettingsSectionViewController
+        )
+
+        shortcutsController.selectCommandForTesting(.copyRaw)
+        shortcutsController.beginRecordingSelectedCommandForTesting()
+        shortcutsController.updateRecordingPreviewModifiersForTesting([.command, .option, .control])
+
+        XCTAssertEqual(
+            shortcutsController.previewHighlightedModifierKeyCodesForTesting,
+            [
+                UInt16(kVK_Command),
+                UInt16(kVK_RightCommand),
+                UInt16(kVK_Option),
+                UInt16(kVK_RightOption),
+                UInt16(kVK_Control),
+            ]
+        )
     }
 
     func test_switching_back_to_shortcuts_preserves_selected_command() throws {

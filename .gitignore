@@ -5,6 +5,7 @@ docs/superpowers/
 *.profraw
 *.xcuserstate
 xcuserdata/
+Zentty.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
 FrameworksLocal
 tmp/
 .claude

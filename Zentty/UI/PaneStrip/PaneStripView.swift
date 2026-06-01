@@ -80,6 +80,64 @@ final class PaneStripView: NSView {
     static let zoomScale: CGFloat = 0.4
     var dragZoomScale: CGFloat { Self.zoomScale }
 
+    private enum PaneFocusSource {
+        case hover
+        case pointerClick
+        case scrollSwitch
+        case external
+    }
+
+    private struct PaneFocusArbitrator {
+        private var isHoverSuppressed = false
+        private var suppressionMouseLocation: NSPoint?
+
+        var canAcceptHoverFocus: Bool {
+            !isHoverSuppressed
+        }
+
+        mutating func recordFocus(from source: PaneFocusSource, mouseLocation: NSPoint?) {
+            switch source {
+            case .hover:
+                break
+            case .pointerClick:
+                clearHoverSuppression()
+            case .scrollSwitch, .external:
+                isHoverSuppressed = true
+                suppressionMouseLocation = mouseLocation
+            }
+        }
+
+        mutating func clearHoverSuppressionIfPointerLocationChanged(to mouseLocation: NSPoint?) -> Bool {
+            guard isHoverSuppressed, let mouseLocation else {
+                return false
+            }
+
+            guard let suppressionMouseLocation else {
+                clearHoverSuppression()
+                return true
+            }
+
+            guard hypot(
+                mouseLocation.x - suppressionMouseLocation.x,
+                mouseLocation.y - suppressionMouseLocation.y
+            ) > 0.5 else {
+                return false
+            }
+
+            clearHoverSuppression()
+            return true
+        }
+
+        mutating func reset() {
+            clearHoverSuppression()
+        }
+
+        private mutating func clearHoverSuppression() {
+            isHoverSuppressed = false
+            suppressionMouseLocation = nil
+        }
+    }
+
     private let motionController = PaneStripMotionController()
     private let scrollSwitchHandler = ScrollSwitchGestureHandler()
     private let viewportView = NSView()
@@ -91,6 +149,17 @@ final class PaneStripView: NSView {
     private var currentShowsPaneLabels = AppConfig.Panes.default.showLabels
     private var currentInactivePaneOpacity = AppConfig.Panes.default.inactiveOpacity
     private var currentSmoothScrollingEnabled = AppConfig.Panes.default.smoothScrollingEnabled
+    private var currentFocusFollowsMouseEnabled = AppConfig.Panes.default.focusFollowsMouse
+    private var currentFocusFollowsMouseDelay = AppConfig.Panes.default.focusFollowsMouseDelay
+    private var pendingHoverFocusWorkItem: DispatchWorkItem?
+    private var pendingHoverFocusPaneID: PaneID?
+    private var focusArbitrator = PaneFocusArbitrator()
+    private var pendingFocusRequestPaneID: PaneID?
+    #if DEBUG
+        private var hoverFocusWindowIsKeyOverrideForTesting: Bool?
+        private var hoverFocusPressedMouseButtonsOverrideForTesting: Int?
+        private var hoverFocusMouseLocationOverrideForTesting: NSPoint?
+    #endif
     private var currentWorklaneColor: WorklaneColor?
     private var currentPresentation: StripPresentation?
     private var shortcutManager = ShortcutManager(shortcuts: .default)
@@ -245,6 +314,9 @@ final class PaneStripView: NSView {
         dragCoordinator.onDragActiveChanged = { [weak self] active in
             guard let self else { return }
             self.isDragActive = active
+            if active {
+                self.cancelPendingHoverFocus()
+            }
             if !active, !self.isDetachingFromWindow {
                 if let state = self.currentState {
                     self.renderCurrentState(state, animated: false)
@@ -341,6 +413,8 @@ final class PaneStripView: NSView {
         showsPaneLabels: Bool = AppConfig.Panes.default.showLabels,
         inactivePaneOpacity: CGFloat = AppConfig.Panes.default.inactiveOpacity,
         smoothScrollingEnabled: Bool = AppConfig.Panes.default.smoothScrollingEnabled,
+        focusFollowsMouseEnabled: Bool = AppConfig.Panes.default.focusFollowsMouse,
+        focusFollowsMouseDelay: AppConfig.Panes.FocusFollowsMouseDelay = AppConfig.Panes.default.focusFollowsMouseDelay,
         worklaneColor: WorklaneColor? = nil,
         leadingVisibleInset: CGFloat? = nil,
         animated: Bool = true,
@@ -355,9 +429,19 @@ final class PaneStripView: NSView {
             min(inactivePaneOpacity, AppConfig.Panes.maximumInactiveOpacity)
         )
         currentSmoothScrollingEnabled = smoothScrollingEnabled
+        currentFocusFollowsMouseEnabled = focusFollowsMouseEnabled
+        currentFocusFollowsMouseDelay = focusFollowsMouseDelay
+        if !focusFollowsMouseEnabled {
+            cancelPendingHoverFocus()
+            focusArbitrator.reset()
+            pendingFocusRequestPaneID = nil
+        }
         currentWorklaneColor = worklaneColor
         let previousFocusedPaneID = currentState?.focusedPaneID
         currentState = state
+        if focusFollowsMouseEnabled {
+            recordRenderedFocusTransition(from: previousFocusedPaneID, to: state.focusedPaneID)
+        }
         resetScrollSwitchGestureIfFocusChanged(from: previousFocusedPaneID, to: state.focusedPaneID)
 
         if let leadingVisibleInset {
@@ -388,6 +472,8 @@ final class PaneStripView: NSView {
         showsPaneLabels: Bool = AppConfig.Panes.default.showLabels,
         inactivePaneOpacity: CGFloat = AppConfig.Panes.default.inactiveOpacity,
         smoothScrollingEnabled: Bool = AppConfig.Panes.default.smoothScrollingEnabled,
+        focusFollowsMouseEnabled: Bool = AppConfig.Panes.default.focusFollowsMouse,
+        focusFollowsMouseDelay: AppConfig.Panes.FocusFollowsMouseDelay = AppConfig.Panes.default.focusFollowsMouseDelay,
         worklaneColor: WorklaneColor? = nil,
         leadingVisibleInset: CGFloat,
         animated: Bool,
@@ -402,9 +488,19 @@ final class PaneStripView: NSView {
             min(inactivePaneOpacity, AppConfig.Panes.maximumInactiveOpacity)
         )
         currentSmoothScrollingEnabled = smoothScrollingEnabled
+        currentFocusFollowsMouseEnabled = focusFollowsMouseEnabled
+        currentFocusFollowsMouseDelay = focusFollowsMouseDelay
+        if !focusFollowsMouseEnabled {
+            cancelPendingHoverFocus()
+            focusArbitrator.reset()
+            pendingFocusRequestPaneID = nil
+        }
         currentWorklaneColor = worklaneColor
         let previousFocusedPaneID = currentState?.focusedPaneID
         currentState = state
+        if focusFollowsMouseEnabled {
+            recordRenderedFocusTransition(from: previousFocusedPaneID, to: state.focusedPaneID)
+        }
         resetScrollSwitchGestureIfFocusChanged(from: previousFocusedPaneID, to: state.focusedPaneID)
         resolvedLeadingVisibleInset = leadingVisibleInset
         renderGuard.resetResizeSuppression()
@@ -497,6 +593,167 @@ final class PaneStripView: NSView {
         return super.hitTest(point)
     }
 
+    private func scheduleHoverFocus(for paneID: PaneID) {
+        cancelPendingHoverFocus()
+        guard shouldAllowHoverFocus(for: paneID) else {
+            return
+        }
+
+        pendingHoverFocusPaneID = paneID
+        let delay = currentFocusFollowsMouseDelay.interval
+        guard delay > 0 else {
+            performHoverFocusIfStillValid(for: paneID)
+            return
+        }
+
+        let workItem = DispatchWorkItem { [weak self] in
+            Task { @MainActor in
+                self?.performHoverFocusIfStillValid(for: paneID)
+            }
+        }
+        pendingHoverFocusWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
+    }
+
+    private func handleHoverEntered(over paneID: PaneID, mouseLocation: NSPoint?) {
+        _ = focusArbitrator.clearHoverSuppressionIfPointerLocationChanged(
+            to: mouseLocation
+        )
+        scheduleHoverFocus(for: paneID)
+    }
+
+    private func handleHoverMoved(over paneID: PaneID, mouseLocation: NSPoint?) {
+        guard focusArbitrator.clearHoverSuppressionIfPointerLocationChanged(to: mouseLocation) else {
+            return
+        }
+        scheduleHoverFocus(for: paneID)
+    }
+
+    private func handleHoverExited(from paneID: PaneID) {
+        cancelPendingHoverFocus(for: paneID)
+    }
+
+    private func cancelPendingHoverFocus(for paneID: PaneID? = nil) {
+        guard paneID == nil || pendingHoverFocusPaneID == paneID else {
+            return
+        }
+        pendingHoverFocusWorkItem?.cancel()
+        pendingHoverFocusWorkItem = nil
+        pendingHoverFocusPaneID = nil
+    }
+
+    private func performHoverFocusIfStillValid(for paneID: PaneID) {
+        guard pendingHoverFocusPaneID == paneID else {
+            return
+        }
+        cancelPendingHoverFocus(for: paneID)
+        guard shouldAllowHoverFocus(for: paneID),
+              currentState?.focusedPaneID != paneID,
+              let paneView = paneViews[paneID]
+        else {
+            return
+        }
+
+        requestFocus(for: paneID, source: .hover)
+        paneView.focusTerminal()
+    }
+
+    private func shouldAllowHoverFocus(for paneID: PaneID) -> Bool {
+        guard currentFocusFollowsMouseEnabled,
+              isWindowKeyForHoverFocus,
+              paneViews[paneID] != nil,
+              currentState?.focusedPaneID != paneID else {
+            return false
+        }
+
+        guard !isDragActive,
+              dividerDragSession == nil,
+              activeDivider == nil,
+              !paneViews.values.contains(where: \.isSearchHUDVisible),
+              pressedMouseButtonsForHoverFocus == 0 else {
+            return false
+        }
+
+        guard focusArbitrator.canAcceptHoverFocus else {
+            return false
+        }
+
+        return true
+    }
+
+    private func requestFocus(
+        for paneID: PaneID,
+        source: PaneFocusSource,
+        mouseLocation: NSPoint? = nil
+    ) {
+        pendingFocusRequestPaneID = paneID
+        let focusMouseLocation = mouseLocation ?? currentMouseLocationForHoverFocusArbitration
+        focusArbitrator.recordFocus(
+            from: source,
+            mouseLocation: focusMouseLocation
+        )
+
+        switch source {
+        case .hover, .pointerClick:
+            onPaneSelected?(paneID)
+        case .scrollSwitch:
+            onFocusSettled?(paneID)
+        case .external:
+            break
+        }
+    }
+
+    private func recordRenderedFocusTransition(from previousPaneID: PaneID?, to nextPaneID: PaneID?) {
+        guard let previousPaneID, previousPaneID != nextPaneID else {
+            return
+        }
+
+        if pendingFocusRequestPaneID == nextPaneID {
+            pendingFocusRequestPaneID = nil
+            return
+        }
+
+        pendingFocusRequestPaneID = nil
+        focusArbitrator.recordFocus(
+            from: .external,
+            mouseLocation: currentMouseLocationForHoverFocusArbitration
+        )
+    }
+
+    private var isWindowKeyForHoverFocus: Bool {
+        #if DEBUG
+            if let hoverFocusWindowIsKeyOverrideForTesting {
+                return hoverFocusWindowIsKeyOverrideForTesting
+            }
+        #endif
+        return window?.isKeyWindow == true
+    }
+
+    private var pressedMouseButtonsForHoverFocus: Int {
+        #if DEBUG
+            if let hoverFocusPressedMouseButtonsOverrideForTesting {
+                return hoverFocusPressedMouseButtonsOverrideForTesting
+            }
+        #endif
+        return NSEvent.pressedMouseButtons
+    }
+
+    private var currentMouseLocationForHoverFocusArbitration: NSPoint? {
+        #if DEBUG
+            if let hoverFocusMouseLocationOverrideForTesting {
+                return hoverFocusMouseLocationOverrideForTesting
+            }
+        #endif
+        return window?.mouseLocationOutsideOfEventStream
+    }
+
+    private func mouseLocationForFocusArbitration(from event: NSEvent) -> NSPoint? {
+        guard event.window != nil else {
+            return currentMouseLocationForHoverFocusArbitration
+        }
+        return event.locationInWindow
+    }
+
     override func resetCursorRects() {
         super.resetCursorRects()
 
@@ -517,6 +774,39 @@ final class PaneStripView: NSView {
     var renderInvocationCount: Int {
         renderGuard.renderCount
     }
+
+    #if DEBUG
+        var hoverFocusWindowIsKeyForTesting: Bool? {
+            get { hoverFocusWindowIsKeyOverrideForTesting }
+            set { hoverFocusWindowIsKeyOverrideForTesting = newValue }
+        }
+
+        var hoverFocusPressedMouseButtonsForTesting: Int? {
+            get { hoverFocusPressedMouseButtonsOverrideForTesting }
+            set { hoverFocusPressedMouseButtonsOverrideForTesting = newValue }
+        }
+
+        var hoverFocusMouseLocationForTesting: NSPoint? {
+            get { hoverFocusMouseLocationOverrideForTesting }
+            set { hoverFocusMouseLocationOverrideForTesting = newValue }
+        }
+
+        var pendingHoverFocusPaneIDForTesting: PaneID? {
+            pendingHoverFocusPaneID
+        }
+
+        func simulatePaneHoverEnteredForTesting(_ paneID: PaneID) {
+            handleHoverEntered(over: paneID, mouseLocation: currentMouseLocationForHoverFocusArbitration)
+        }
+
+        func simulatePaneHoverExitedForTesting(_ paneID: PaneID) {
+            handleHoverExited(from: paneID)
+        }
+
+        func simulatePaneHoverMovedForTesting(_ paneID: PaneID) {
+            handleHoverMoved(over: paneID, mouseLocation: currentMouseLocationForHoverFocusArbitration)
+        }
+    #endif
 
     func centerFocusedInteriorPaneOnNextRender() {
         pendingTargetOffsetOverride = .usePresentationTargetOffset
@@ -992,7 +1282,24 @@ final class PaneStripView: NSView {
                        pendingPaneID != pane.id {
                         return
                     }
-                    self?.onPaneSelected?(pane.id)
+                    self?.requestFocus(for: pane.id, source: .pointerClick)
+                }
+                paneView.onHoverEntered = { [weak self] event in
+                    guard let self else { return }
+                    handleHoverEntered(
+                        over: pane.id,
+                        mouseLocation: mouseLocationForFocusArbitration(from: event)
+                    )
+                }
+                paneView.onHoverMoved = { [weak self] event in
+                    guard let self else { return }
+                    handleHoverMoved(
+                        over: pane.id,
+                        mouseLocation: mouseLocationForFocusArbitration(from: event)
+                    )
+                }
+                paneView.onHoverExited = { [weak self] _ in
+                    self?.handleHoverExited(from: pane.id)
                 }
                 paneView.onCloseRequested = { [weak self] in
                     self?.onPaneCloseRequested?(pane.id)
@@ -1282,6 +1589,9 @@ final class PaneStripView: NSView {
     }
 
     private func cleanupTransientStateForWindowDetachment() {
+        cancelPendingHoverFocus()
+        focusArbitrator.reset()
+        pendingFocusRequestPaneID = nil
         focusGeneration &+= 1
         pendingProgrammaticFocusPaneID = nil
         lastFocusedPaneID = nil
@@ -2107,6 +2417,7 @@ final class PaneStripView: NSView {
     // MARK: - Divider Drag
 
     private func beginDividerDrag() {
+        cancelPendingHoverFocus()
         dividerDragSuspendedPaneIDs = Set(currentState?.panes.map(\.id) ?? [])
         applyViewportSyncSuspension(to: [])
         installDividerDragEscapeMonitorIfNeeded()
@@ -2469,7 +2780,10 @@ final class PaneStripView: NSView {
         let result = scrollSwitchHandler.handle(scrollEvent: event)
         switch result {
         case .switchLeft, .switchRight:
-            settleAdjacentPane(switchRight: result == .switchRight)
+            settleAdjacentPane(
+                switchRight: result == .switchRight,
+                mouseLocation: mouseLocationForFocusArbitration(from: event)
+            )
             return true
         case .consumed:
             return true
@@ -2478,7 +2792,7 @@ final class PaneStripView: NSView {
         }
     }
 
-    private func settleAdjacentPane(switchRight: Bool) {
+    private func settleAdjacentPane(switchRight: Bool, mouseLocation: NSPoint?) {
         guard
             let currentState,
             let focusedPaneID = currentState.focusedPaneID,
@@ -2496,7 +2810,11 @@ final class PaneStripView: NSView {
         }
 
         let targetColumn = currentState.columns[targetIndex]
-        onFocusSettled?(targetColumn.focusedPaneID ?? targetColumn.panes.first?.id ?? focusedPaneID)
+        requestFocus(
+            for: targetColumn.focusedPaneID ?? targetColumn.panes.first?.id ?? focusedPaneID,
+            source: .scrollSwitch,
+            mouseLocation: mouseLocation
+        )
     }
 
     private func resetScrollSwitchGestureIfFocusChanged(from previousPaneID: PaneID?, to nextPaneID: PaneID?) {

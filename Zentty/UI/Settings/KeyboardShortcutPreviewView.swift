@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 
 @MainActor
 final class KeyboardShortcutPreviewView: NSView {
@@ -16,6 +17,8 @@ final class KeyboardShortcutPreviewView: NSView {
         let rect: CGRect
     }
 
+    var keyClickHandler: ((KeyboardPreviewKeySlot) -> Void)?
+
     var model = KeyboardShortcutPreviewModel(
         geometry: .ansi,
         rows: [],
@@ -24,6 +27,7 @@ final class KeyboardShortcutPreviewView: NSView {
     ) {
         didSet {
             needsDisplay = true
+            window?.invalidateCursorRects(for: self)
         }
     }
 
@@ -39,12 +43,49 @@ final class KeyboardShortcutPreviewView: NSView {
         keyBounds(forRowAt: 0, in: bounds)
     }
 
+    func keyBoundsForTesting(keyCode: UInt16) -> CGRect? {
+        keyLayoutItems(in: bounds)
+            .first { $0.key.keyCode == keyCode && $0.key.isSpacer == false }?
+            .rect
+    }
+
+    func keyCodeForTesting(at point: CGPoint) -> UInt16? {
+        keySlot(at: point)?.keyCode
+    }
+
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
 
         for item in keyLayoutItems(in: bounds) where item.key.isSpacer == false {
             drawKey(item.key, in: item.rect)
         }
+    }
+
+    override func resetCursorRects() {
+        super.resetCursorRects()
+
+        guard keyClickHandler != nil else {
+            return
+        }
+
+        for item in keyLayoutItems(in: bounds) where item.key.isSpacer == false {
+            addCursorRect(hitRect(for: item), cursor: .pointingHand)
+        }
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        window?.invalidateCursorRects(for: self)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        guard let key = keySlot(at: point) else {
+            super.mouseDown(with: event)
+            return
+        }
+
+        keyClickHandler?(key)
     }
 
     private func keyBounds(forRowAt rowIndex: Int, in sourceBounds: CGRect) -> CGRect? {
@@ -96,6 +137,39 @@ final class KeyboardShortcutPreviewView: NSView {
                 }
                 return KeyLayoutItem(key: key, rowIndex: rowIndex, rect: keyRect)
             }
+        }
+    }
+
+    private func keySlot(at point: CGPoint) -> KeyboardPreviewKeySlot? {
+        let items = keyLayoutItems(in: bounds)
+            .filter { $0.key.isSpacer == false }
+
+        if let exactHit = items.first(where: { $0.rect.contains(point) }) {
+            return exactHit.key
+        }
+
+        return items
+            .filter { isArrowKeyCode($0.key.keyCode) && hitRect(for: $0).contains(point) }
+            .min { lhs, rhs in
+                point.squaredDistance(to: lhs.rect.center) < point.squaredDistance(to: rhs.rect.center)
+            }?
+            .key
+    }
+
+    private func hitRect(for item: KeyLayoutItem) -> CGRect {
+        guard isArrowKeyCode(item.key.keyCode) else {
+            return item.rect
+        }
+
+        return item.rect.insetBy(dx: -6, dy: -6)
+    }
+
+    private func isArrowKeyCode(_ keyCode: UInt16) -> Bool {
+        switch keyCode {
+        case UInt16(kVK_LeftArrow), UInt16(kVK_RightArrow), UInt16(kVK_UpArrow), UInt16(kVK_DownArrow):
+            return true
+        default:
+            return false
         }
     }
 
@@ -222,5 +296,11 @@ final class KeyboardShortcutPreviewView: NSView {
             return max(9, keyHeight * 0.32)
         }
         return max(10, keyHeight * 0.38)
+    }
+}
+
+private extension CGRect {
+    var center: CGPoint {
+        CGPoint(x: midX, y: midY)
     }
 }
