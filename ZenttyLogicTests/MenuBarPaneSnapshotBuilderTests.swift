@@ -199,16 +199,95 @@ final class MenuBarPaneSnapshotBuilderTests: XCTestCase {
         XCTAssertEqual(snapshots.first?.contextText, "Sources · main")
     }
 
+    func test_snapshots_drop_completed_task_progress_like_sidebar() throws {
+        let paneID = PaneID("pn-agent-completed-progress")
+        let worklane = WorklaneState(
+            id: WorklaneID("wl-main"),
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [PaneState(id: paneID, title: "agent")],
+                focusedPaneID: paneID
+            ),
+            auxiliaryStateByPaneID: [
+                paneID: PaneAuxiliaryState(
+                    metadata: TerminalMetadata(
+                        title: "Implement task progress",
+                        currentWorkingDirectory: "/Users/peter/Development/Personal/zentty",
+                        processName: "claude",
+                        gitBranch: "main"
+                    ),
+                    agentStatus: agentStatus(
+                        state: .idle,
+                        updatedAt: Date(timeIntervalSince1970: 42),
+                        taskProgress: try XCTUnwrap(PaneAgentTaskProgress(doneCount: 3, totalCount: 3))
+                    )
+                )
+            ]
+        )
+        let store = WorklaneStore(windowID: windowID, worklanes: [worklane])
+        let source = MenuBarWorklaneSource(
+            windowID: windowID,
+            windowTitle: "Zentty",
+            worklaneStore: store
+        )
+
+        let snapshots = MenuBarPaneSnapshotBuilder.snapshots(from: [source])
+
+        XCTAssertEqual(snapshots.count, 1)
+        XCTAssertNil(snapshots[0].taskProgress)
+    }
+
+    func test_snapshots_keep_incomplete_task_progress_like_sidebar() throws {
+        let paneID = PaneID("pn-agent-incomplete-progress")
+        let progress = try XCTUnwrap(PaneAgentTaskProgress(doneCount: 2, totalCount: 5))
+        let worklane = WorklaneState(
+            id: WorklaneID("wl-main"),
+            title: "MAIN",
+            paneStripState: PaneStripState(
+                panes: [PaneState(id: paneID, title: "agent")],
+                focusedPaneID: paneID
+            ),
+            auxiliaryStateByPaneID: [
+                paneID: PaneAuxiliaryState(
+                    metadata: TerminalMetadata(
+                        title: "Implement task progress",
+                        currentWorkingDirectory: "/Users/peter/Development/Personal/zentty",
+                        processName: "claude",
+                        gitBranch: "main"
+                    ),
+                    agentStatus: agentStatus(
+                        state: .idle,
+                        updatedAt: Date(timeIntervalSince1970: 42),
+                        taskProgress: progress
+                    )
+                )
+            ]
+        )
+        let store = WorklaneStore(windowID: windowID, worklanes: [worklane])
+        let source = MenuBarWorklaneSource(
+            windowID: windowID,
+            windowTitle: "Zentty",
+            worklaneStore: store
+        )
+
+        let snapshots = MenuBarPaneSnapshotBuilder.snapshots(from: [source])
+
+        XCTAssertEqual(snapshots.count, 1)
+        XCTAssertEqual(snapshots[0].taskProgress, progress)
+    }
+
     private func agentStatus(
         state: PaneAgentState,
-        updatedAt: Date = Date(timeIntervalSince1970: 0)
+        updatedAt: Date = Date(timeIntervalSince1970: 0),
+        taskProgress: PaneAgentTaskProgress? = nil
     ) -> PaneAgentStatus {
         PaneAgentStatus(
             tool: .claudeCode,
             state: state,
             text: nil,
             artifactLink: nil,
-            updatedAt: updatedAt
+            updatedAt: updatedAt,
+            taskProgress: taskProgress
         )
     }
 }

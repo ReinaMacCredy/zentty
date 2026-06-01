@@ -97,9 +97,33 @@ enum MenuBarPaneSnapshotBuilder {
             attentionState: paneRow?.attentionState ?? fleetState.menuAttentionState,
             fleetState: fleetState,
             updatedAt: agentStatus.updatedAt,
-            taskProgress: paneRow?.taskProgress ?? agentStatus.taskProgress ?? auxiliary.presentation.taskProgress,
+            taskProgress: taskProgress(
+                paneRow: paneRow,
+                agentStatus: agentStatus,
+                presentation: auxiliary.presentation
+            ),
             sortPriority: fleetState.priority
         )
+    }
+
+    private static func taskProgress(
+        paneRow: WorklaneSidebarPaneRow?,
+        agentStatus: PaneAgentStatus,
+        presentation: PanePresentationState
+    ) -> PaneAgentTaskProgress? {
+        visibleTaskProgress(paneRow?.taskProgress)
+            ?? visibleTaskProgress(agentStatus.taskProgress)
+            ?? visibleTaskProgress(presentation.taskProgress)
+    }
+
+    private static func visibleTaskProgress(
+        _ taskProgress: PaneAgentTaskProgress?
+    ) -> PaneAgentTaskProgress? {
+        guard let taskProgress,
+              taskProgress.doneCount < taskProgress.totalCount else {
+            return nil
+        }
+        return taskProgress
     }
 
     private static func displayTitle(for worklane: WorklaneState, displayOrder: Int) -> String {
