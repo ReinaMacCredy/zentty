@@ -4,6 +4,29 @@ import XCTest
 @testable import Zentty
 
 final class KeyboardShortcutResolverTests: XCTestCase {
+    func test_modified_forward_delete_event_parses_as_delete_shortcut() throws {
+        let forwardDelete = String(UnicodeScalar(NSDeleteFunctionKey)!)
+        let event = try XCTUnwrap(
+            NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: [.command, .function],
+                timestamp: 0,
+                windowNumber: 0,
+                context: nil,
+                characters: forwardDelete,
+                charactersIgnoringModifiers: forwardDelete,
+                isARepeat: false,
+                keyCode: UInt16(kVK_ForwardDelete)
+            )
+        )
+
+        XCTAssertEqual(
+            KeyboardShortcut(event: event),
+            KeyboardShortcut(key: .delete, modifiers: [.command])
+        )
+    }
+
     func test_event_shortcuts_with_function_modifier_are_not_bindable() throws {
         let leftArrow = String(UnicodeScalar(NSLeftArrowFunctionKey)!)
         let event = try XCTUnwrap(

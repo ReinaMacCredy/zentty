@@ -119,6 +119,7 @@ final class PaneStripViewTests: AppKitTestCase {
         let paneStripView = makePaneStripView()
         hostInVisibleWindow(paneStripView)
         paneStripView.hoverFocusWindowIsKeyForTesting = true
+        paneStripView.hoverFocusPressedMouseButtonsForTesting = 0
         let state = PaneStripState(
             panes: [
                 makePane("shell"),
@@ -145,6 +146,7 @@ final class PaneStripViewTests: AppKitTestCase {
         let paneStripView = makePaneStripView()
         hostInVisibleWindow(paneStripView)
         paneStripView.hoverFocusWindowIsKeyForTesting = false
+        paneStripView.hoverFocusPressedMouseButtonsForTesting = 0
         let state = PaneStripState(
             panes: [
                 makePane("shell"),
@@ -171,6 +173,7 @@ final class PaneStripViewTests: AppKitTestCase {
         let paneStripView = makePaneStripView()
         hostInVisibleWindow(paneStripView)
         paneStripView.hoverFocusWindowIsKeyForTesting = true
+        paneStripView.hoverFocusPressedMouseButtonsForTesting = 0
         let state = PaneStripState(
             panes: [
                 makePane("shell"),
@@ -213,6 +216,7 @@ final class PaneStripViewTests: AppKitTestCase {
         let paneStripView = makePaneStripView()
         hostInVisibleWindow(paneStripView)
         paneStripView.hoverFocusWindowIsKeyForTesting = true
+        paneStripView.hoverFocusPressedMouseButtonsForTesting = 0
         paneStripView.dragOverlayView = paneStripView
         let state = PaneStripState(
             panes: [
@@ -2833,6 +2837,132 @@ final class PaneStripViewTests: AppKitTestCase {
     }
 
     @MainActor
+    func test_horizontal_scroll_focus_is_not_immediately_reclaimed_by_hover_focus() throws {
+        let paneStripView = makePaneStripView(width: 980)
+        hostInVisibleWindow(paneStripView)
+        paneStripView.hoverFocusWindowIsKeyForTesting = true
+        paneStripView.hoverFocusPressedMouseButtonsForTesting = 0
+        paneStripView.hoverFocusMouseLocationForTesting = .zero
+        paneStripView.render(
+            makeScrollTestState(focusedPaneID: PaneID("editor")),
+            focusFollowsMouseEnabled: true,
+            focusFollowsMouseDelay: .immediate
+        )
+        paneStripView.layoutSubtreeIfNeeded()
+
+        var settledPaneIDs: [PaneID] = []
+        var selectedPaneIDs: [PaneID] = []
+        paneStripView.onFocusSettled = { settledPaneIDs.append($0) }
+        paneStripView.onPaneSelected = { selectedPaneIDs.append($0) }
+
+        paneStripView.scrollWheel(with: try makeScrollEvent(deltaX: 60, location: .zero, precise: true))
+        paneStripView.render(
+            makeScrollTestState(focusedPaneID: PaneID("tests")),
+            focusFollowsMouseEnabled: true,
+            focusFollowsMouseDelay: .immediate
+        )
+        paneStripView.layoutSubtreeIfNeeded()
+        paneStripView.simulatePaneHoverEnteredForTesting(PaneID("editor"))
+
+        XCTAssertEqual(settledPaneIDs, [PaneID("tests")])
+        XCTAssertTrue(selectedPaneIDs.isEmpty)
+    }
+
+    @MainActor
+    func test_same_location_pointer_movement_does_not_reclaim_focus_after_horizontal_scroll_focus() throws {
+        let paneStripView = makePaneStripView(width: 980)
+        hostInVisibleWindow(paneStripView)
+        paneStripView.hoverFocusWindowIsKeyForTesting = true
+        paneStripView.hoverFocusPressedMouseButtonsForTesting = 0
+        paneStripView.hoverFocusMouseLocationForTesting = .zero
+        paneStripView.render(
+            makeScrollTestState(focusedPaneID: PaneID("editor")),
+            focusFollowsMouseEnabled: true,
+            focusFollowsMouseDelay: .immediate
+        )
+        paneStripView.layoutSubtreeIfNeeded()
+
+        var selectedPaneIDs: [PaneID] = []
+        paneStripView.onPaneSelected = { selectedPaneIDs.append($0) }
+
+        paneStripView.scrollWheel(with: try makeScrollEvent(deltaX: 60, location: .zero, precise: true))
+        paneStripView.render(
+            makeScrollTestState(focusedPaneID: PaneID("tests")),
+            focusFollowsMouseEnabled: true,
+            focusFollowsMouseDelay: .immediate
+        )
+        paneStripView.layoutSubtreeIfNeeded()
+        paneStripView.simulatePaneHoverEnteredForTesting(PaneID("editor"))
+        paneStripView.simulatePaneHoverMovedForTesting(PaneID("editor"))
+
+        XCTAssertTrue(selectedPaneIDs.isEmpty)
+    }
+
+    @MainActor
+    func test_pointer_movement_with_new_location_reenables_hover_focus_after_horizontal_scroll_focus() throws {
+        let paneStripView = makePaneStripView(width: 980)
+        hostInVisibleWindow(paneStripView)
+        paneStripView.hoverFocusWindowIsKeyForTesting = true
+        paneStripView.hoverFocusPressedMouseButtonsForTesting = 0
+        paneStripView.hoverFocusMouseLocationForTesting = .zero
+        paneStripView.render(
+            makeScrollTestState(focusedPaneID: PaneID("editor")),
+            focusFollowsMouseEnabled: true,
+            focusFollowsMouseDelay: .immediate
+        )
+        paneStripView.layoutSubtreeIfNeeded()
+
+        var selectedPaneIDs: [PaneID] = []
+        paneStripView.onPaneSelected = { selectedPaneIDs.append($0) }
+
+        paneStripView.scrollWheel(with: try makeScrollEvent(deltaX: 60, location: .zero, precise: true))
+        paneStripView.render(
+            makeScrollTestState(focusedPaneID: PaneID("tests")),
+            focusFollowsMouseEnabled: true,
+            focusFollowsMouseDelay: .immediate
+        )
+        paneStripView.layoutSubtreeIfNeeded()
+        paneStripView.simulatePaneHoverEnteredForTesting(PaneID("editor"))
+
+        paneStripView.hoverFocusMouseLocationForTesting = NSPoint(x: 12, y: 0)
+        paneStripView.simulatePaneHoverMovedForTesting(PaneID("editor"))
+
+        XCTAssertEqual(selectedPaneIDs, [PaneID("editor")])
+    }
+
+    @MainActor
+    func test_pointer_entry_with_new_location_reenables_hover_focus_after_horizontal_scroll_focus() throws {
+        let paneStripView = makePaneStripView(width: 980)
+        hostInVisibleWindow(paneStripView)
+        paneStripView.hoverFocusWindowIsKeyForTesting = true
+        paneStripView.hoverFocusPressedMouseButtonsForTesting = 0
+        paneStripView.hoverFocusMouseLocationForTesting = .zero
+        paneStripView.render(
+            makeScrollTestState(focusedPaneID: PaneID("editor")),
+            focusFollowsMouseEnabled: true,
+            focusFollowsMouseDelay: .immediate
+        )
+        paneStripView.layoutSubtreeIfNeeded()
+
+        var selectedPaneIDs: [PaneID] = []
+        paneStripView.onPaneSelected = { selectedPaneIDs.append($0) }
+
+        paneStripView.scrollWheel(with: try makeScrollEvent(deltaX: 60, location: .zero, precise: true))
+        paneStripView.render(
+            makeScrollTestState(focusedPaneID: PaneID("tests")),
+            focusFollowsMouseEnabled: true,
+            focusFollowsMouseDelay: .immediate
+        )
+        paneStripView.layoutSubtreeIfNeeded()
+        paneStripView.simulatePaneHoverEnteredForTesting(PaneID("editor"))
+
+        paneStripView.hoverFocusMouseLocationForTesting = NSPoint(x: 12, y: 0)
+        paneStripView.simulatePaneHoverEnteredForTesting(PaneID("editor"))
+
+        XCTAssertEqual(selectedPaneIDs, [PaneID("editor")])
+    }
+
+    @MainActor
     func test_subthreshold_horizontal_scroll_does_not_change_focus() throws {
         let paneStripView = makePaneStripView(width: 980)
         paneStripView.render(makeScrollTestState(focusedPaneID: PaneID("logs")))
@@ -4235,6 +4365,7 @@ private func makeScrollEvent(
     deltaX: Int32 = 0,
     deltaY: Int32 = 0,
     phase: NSEvent.Phase = [],
+    location: CGPoint? = nil,
     precise: Bool,
     modifierFlags: NSEvent.ModifierFlags = []
 ) throws -> NSEvent {
@@ -4253,6 +4384,9 @@ private func makeScrollEvent(
 
     cgEvent.flags = makeCGEventFlags(from: modifierFlags)
     cgEvent.setIntegerValueField(.scrollWheelEventScrollPhase, value: Int64(phase.rawValue))
+    if let location {
+        cgEvent.location = location
+    }
 
     return try XCTUnwrap(NSEvent(cgEvent: cgEvent))
 }

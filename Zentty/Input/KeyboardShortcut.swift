@@ -262,7 +262,8 @@ struct KeyboardShortcut: Hashable, Sendable {
 
     init?(event: NSEvent) {
         let sanitizedFlags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        guard sanitizedFlags.contains(.function) == false else {
+        let allowsFunctionModifier = event.keyCode == UInt16(kVK_ForwardDelete)
+        guard sanitizedFlags.contains(.function) == false || allowsFunctionModifier else {
             return nil
         }
 

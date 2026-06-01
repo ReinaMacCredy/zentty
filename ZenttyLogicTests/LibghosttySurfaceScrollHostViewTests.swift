@@ -417,6 +417,53 @@ final class LibghosttySurfaceScrollHostViewTests: AppKitTestCase {
         XCTAssertEqual(harness.surface.sentScrollEvents.count, 1)
     }
 
+    func test_handled_scroll_routing_does_not_focus_surface() throws {
+        let harness = makeScrollHostHarness(smoothScrollingEnabled: false)
+        let window = hostInVisibleWindow(harness.hostView)
+        addTeardownBlock {
+            window.orderOut(nil)
+            window.close()
+        }
+        let focusSink = FocusSinkView()
+        window.contentView?.addSubview(focusSink)
+        XCTAssertTrue(window.makeFirstResponder(focusSink))
+        let scrollView = try scrollView(from: harness.hostView)
+        var focusChanges: [Bool] = []
+        var routedEvents: [NSEvent] = []
+        harness.hostView.onFocusDidChange = { focusChanges.append($0) }
+        harness.hostView.onScrollWheel = { event in
+            routedEvents.append(event)
+            return true
+        }
+
+        scrollView.scrollWheel(with: try makeScrollEvent(deltaX: 8, precise: true))
+
+        XCTAssertEqual(routedEvents.count, 1)
+        XCTAssertTrue(focusChanges.isEmpty)
+        XCTAssertFalse(window.firstResponder === harness.surfaceView)
+    }
+
+    func test_unhandled_scroll_still_focuses_surface() throws {
+        let harness = makeScrollHostHarness(smoothScrollingEnabled: false)
+        let window = hostInVisibleWindow(harness.hostView)
+        addTeardownBlock {
+            window.orderOut(nil)
+            window.close()
+        }
+        let focusSink = FocusSinkView()
+        window.contentView?.addSubview(focusSink)
+        XCTAssertTrue(window.makeFirstResponder(focusSink))
+        let scrollView = try scrollView(from: harness.hostView)
+        var focusChanges: [Bool] = []
+        harness.hostView.onFocusDidChange = { focusChanges.append($0) }
+        harness.hostView.onScrollWheel = { _ in false }
+
+        scrollView.scrollWheel(with: try makeScrollEvent(deltaY: 8, precise: true))
+
+        XCTAssertEqual(focusChanges, [true])
+        XCTAssertTrue(window.firstResponder === harness.surfaceView)
+    }
+
     func test_scroll_is_sent_to_surface_when_smooth_scrolling_is_disabled() throws {
         let harness = makeScrollHostHarness(smoothScrollingEnabled: false)
         harness.hostView.applyScrollbarUpdate(.init(total: 200, offset: 0, len: 10))
@@ -1247,6 +1294,19 @@ private func makeScrollHostHarness(
     return (surfaceView, surface, hostView)
 }
 
+@MainActor
+private func hostInVisibleWindow(_ view: NSView) -> NSWindow {
+    let window = NSWindow(
+        contentRect: NSRect(x: 0, y: 0, width: 820, height: 200),
+        styleMask: [.titled, .closable, .resizable],
+        backing: .buffered,
+        defer: false
+    ).prepareForAppKitTesting()
+    window.contentView = view
+    window.makeKeyAndOrderFrontForAppKitTesting(nil)
+    return window
+}
+
 private final class ScrollHostSurfaceSpy: LibghosttySurfaceControlling {
     enum Event: Equatable {
         case setSmoothScrollingEnabled(Bool)
@@ -1309,6 +1369,12 @@ private final class ScrollHostSurfaceSpy: LibghosttySurfaceControlling {
     func hasSelection() -> Bool { false }
     func close() {}
     func inheritedConfig(for context: ghostty_surface_context_e) -> ghostty_surface_config_s? { nil }
+}
+
+private final class FocusSinkView: NSView {
+    override var acceptsFirstResponder: Bool {
+        true
+    }
 }
 
 private final class ScrollFrameSamplerSpy: TerminalScrollFrameSampling, @unchecked Sendable {

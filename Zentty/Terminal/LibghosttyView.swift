@@ -359,10 +359,13 @@ private final class LibghosttyScrollView: NSScrollView {
             return
         }
 
+        if surfaceView.consumeScrollWheelBeforeTerminalFocusIfNeeded(event) {
+            return
+        }
         if window?.firstResponder !== surfaceView {
             window?.makeFirstResponder(surfaceView)
         }
-        if surfaceView.consumeScrollWheelForTerminalInputIfNeeded(event) {
+        if surfaceView.consumeScrollWheelForTerminalInputIfNeeded(event, routeOutwardFirst: false) {
             return
         }
 
@@ -1861,11 +1864,22 @@ final class LibghosttyView: NSView, TerminalFocusReporting, TerminalViewportDiag
         }
     }
 
-    fileprivate func consumeScrollWheelForTerminalInputIfNeeded(_ event: NSEvent) -> Bool {
+    fileprivate func consumeScrollWheelBeforeTerminalFocusIfNeeded(_ event: NSEvent) -> Bool {
         guard !isPointInsideSuppressedMouseRegion(convert(event.locationInWindow, from: nil)) else {
             return true
         }
         if onScrollWheel?(event) == true {
+            return true
+        }
+
+        return false
+    }
+
+    fileprivate func consumeScrollWheelForTerminalInputIfNeeded(
+        _ event: NSEvent,
+        routeOutwardFirst: Bool = true
+    ) -> Bool {
+        if routeOutwardFirst, consumeScrollWheelBeforeTerminalFocusIfNeeded(event) {
             return true
         }
 

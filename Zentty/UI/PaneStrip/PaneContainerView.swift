@@ -342,8 +342,9 @@ final class PaneContainerView: NSView {
     var restoredRerunnableCommandProvider: ((PaneID) -> String?)?
     private var suppressSelectionOnNextProgrammaticFocus = false
     var onSelected: (() -> Void)?
-    var onHoverEntered: (() -> Void)?
-    var onHoverExited: (() -> Void)?
+    var onHoverEntered: ((NSEvent) -> Void)?
+    var onHoverMoved: ((NSEvent) -> Void)?
+    var onHoverExited: ((NSEvent) -> Void)?
     var onCloseRequested: (() -> Void)?
     var onBorderContextClicked: ((PaneID) -> Void)? {
         didSet {
@@ -701,7 +702,7 @@ final class PaneContainerView: NSView {
 
         let hoverTrackingArea = NSTrackingArea(
             rect: bounds,
-            options: [.activeInKeyWindow, .inVisibleRect, .mouseEnteredAndExited],
+            options: [.activeInKeyWindow, .inVisibleRect, .mouseEnteredAndExited, .mouseMoved],
             owner: self,
             userInfo: nil
         )
@@ -711,12 +712,17 @@ final class PaneContainerView: NSView {
 
     override func mouseEntered(with event: NSEvent) {
         super.mouseEntered(with: event)
-        onHoverEntered?()
+        onHoverEntered?(event)
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        super.mouseMoved(with: event)
+        onHoverMoved?(event)
     }
 
     override func mouseExited(with event: NSEvent) {
         super.mouseExited(with: event)
-        onHoverExited?()
+        onHoverExited?(event)
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {

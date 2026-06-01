@@ -1001,17 +1001,19 @@ final class ShortcutsSettingsSectionViewController: SettingsScrollableSectionVie
                 self.refreshVisibleState()
                 return nil
             case UInt16(kVK_Delete), UInt16(kVK_ForwardDelete):
-                // Bare Delete/Forward-Delete clears the binding; with modifiers it records
-                // (e.g. ⌘Delete). Commit directly via the keyCode so Forward-Delete's
-                // `.function` flag does not get rejected by `KeyboardShortcut(event:)`.
+                // Bare Delete/Forward-Delete clears the binding; with modifiers it records.
                 let combinedModifiers = KeyboardModifier.from(flags: event.modifierFlags)
                     .union(self.recordingClickedModifiers)
                 if combinedModifiers.isEmpty {
                     self.clearShortcut(for: recordingCommandID)
-                } else if let key = KeyboardShortcutKey.from(keyCode: event.keyCode) {
-                    self.recordingPreviewKey = key
+                } else if let shortcut = KeyboardShortcut(event: event) {
+                    let combinedShortcut = KeyboardShortcut(
+                        key: shortcut.key,
+                        modifiers: shortcut.modifiers.union(self.recordingClickedModifiers)
+                    )
+                    self.recordingPreviewKey = combinedShortcut.key
                     self.commit(
-                        shortcut: KeyboardShortcut(key: key, modifiers: combinedModifiers),
+                        shortcut: combinedShortcut,
                         for: recordingCommandID
                     )
                 }
